@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, HttpUrl, field_validator
@@ -11,17 +9,7 @@ import xhamster
 import xnxx
 import xvideos
 
-logger = logging.getLogger(__name__)
-
 app = FastAPI(title="Scraper API")
-
-
-@app.get("/")
-async def root() -> dict[str, object]:
-    return {
-        "status": "ok",
-        "endpoints": ["/health", "/list", "/scrape", "/crawl"],
-    }
 
 
 class ScrapeRequest(BaseModel):
@@ -134,18 +122,8 @@ async def scrape(url: str) -> ScrapeResponse:
         data = await _scrape_dispatch(str(req.url), req.url.host or "")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail="Upstream returned error") from e
-    except xhamster.XhamsterBlockedError as e:
-        logger.exception("/scrape blocked by xhamster for url=%s", url)
-        raise HTTPException(status_code=403, detail=str(e)) from e
-    except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadTimeout) as e:
-        logger.exception("/scrape network error for url=%s", url)
-        raise HTTPException(
-            status_code=504,
-            detail=f"Upstream connection timed out/failed: {type(e).__name__}: {e}",
-        ) from e
     except Exception as e:
-        logger.exception("/scrape failed for url=%s", url)
-        raise HTTPException(status_code=502, detail=f"Failed to fetch url: {type(e).__name__}: {e}") from e
+        raise HTTPException(status_code=502, detail="Failed to fetch url") from e
     return ScrapeResponse(**data)
 
 
@@ -163,18 +141,8 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[Lis
         items = await _list_dispatch(str(req.base_url), req.base_url.host or "", page, limit)
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail="Upstream returned error") from e
-    except xhamster.XhamsterBlockedError as e:
-        logger.exception("/list blocked by xhamster for base_url=%s", base_url)
-        raise HTTPException(status_code=403, detail=str(e)) from e
-    except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadTimeout) as e:
-        logger.exception("/list network error for base_url=%s page=%s limit=%s", base_url, page, limit)
-        raise HTTPException(
-            status_code=504,
-            detail=f"Upstream connection timed out/failed: {type(e).__name__}: {e}",
-        ) from e
     except Exception as e:
-        logger.exception("/list failed for base_url=%s page=%s limit=%s", base_url, page, limit)
-        raise HTTPException(status_code=502, detail=f"Failed to fetch url: {type(e).__name__}: {e}") from e
+        raise HTTPException(status_code=502, detail="Failed to fetch url") from e
 
     return [ListItem(**it) for it in items]
 
@@ -216,15 +184,7 @@ async def crawl_videos(
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail="Upstream returned error") from e
     except Exception as e:
-        logger.exception(
-            "/crawl failed for base_url=%s start_page=%s max_pages=%s per_page_limit=%s max_items=%s",
-            base_url,
-            start_page,
-            max_pages,
-            per_page_limit,
-            max_items,
-        )
-        raise HTTPException(status_code=502, detail=f"Failed to fetch url: {type(e).__name__}: {e}") from e
+        raise HTTPException(status_code=502, detail="Failed to fetch url") from e
 
     return [ListItem(**it) for it in items]
 
@@ -235,16 +195,6 @@ async def scrape_post(body: ScrapeRequest) -> ScrapeResponse:
         data = await _scrape_dispatch(str(body.url), body.url.host or "")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail="Upstream returned error") from e
-    except xhamster.XhamsterBlockedError as e:
-        logger.exception("/scrape (POST) blocked by xhamster for url=%s", str(body.url))
-        raise HTTPException(status_code=403, detail=str(e)) from e
-    except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadTimeout) as e:
-        logger.exception("/scrape (POST) network error for url=%s", str(body.url))
-        raise HTTPException(
-            status_code=504,
-            detail=f"Upstream connection timed out/failed: {type(e).__name__}: {e}",
-        ) from e
     except Exception as e:
-        logger.exception("/scrape (POST) failed for url=%s", str(body.url))
-        raise HTTPException(status_code=502, detail=f"Failed to fetch url: {type(e).__name__}: {e}") from e
+        raise HTTPException(status_code=502, detail="Failed to fetch url") from e
     return ScrapeResponse(**data)

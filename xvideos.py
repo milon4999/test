@@ -1,7 +1,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from typing import Any, Optional
@@ -19,27 +18,15 @@ async def fetch_html(url: str) -> str:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "identity",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "Upgrade-Insecure-Requests": "1",
     }
     async with httpx.AsyncClient(
         follow_redirects=True,
-        timeout=httpx.Timeout(45.0, connect=25.0),
+        timeout=httpx.Timeout(20.0, connect=20.0),
         headers=headers,
-        transport=httpx.AsyncHTTPTransport(retries=2),
     ) as client:
-        last_exc: Exception | None = None
-        for attempt in range(3):
-            try:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                return resp.text
-            except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as e:
-                last_exc = e
-                await asyncio.sleep(0.6 * (2**attempt))
-        raise last_exc if last_exc is not None else RuntimeError("fetch failed")
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.text
 
 
 def _first_non_empty(*values: Optional[str]) -> Optional[str]:
