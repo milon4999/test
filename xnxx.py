@@ -243,14 +243,22 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
         else:
              candidates.append(root)
     else:
-        candidates.extend(
-            [
+        # For pagination, XNXX uses 0-based indexing
+        # Try multiple patterns for robustness
+        if "xnxx.com" in root and len(root.split("/")) <= 4:
+            # Homepage pagination - use /best endpoint
+            candidates.extend([
+                f"{root}best/{page - 1}/",  # 0-indexed pagination
+                f"{root}best?page={page}",
+            ])
+        else:
+            # Specific category/section pagination
+            candidates.extend([
+                f"{root}{page - 1}/",       # 0-indexed direct append
                 f"{root}?p={page - 1}",
                 f"{root}?page={page}",
-                f"{root}new/{page}/",
-                f"{root}best/{page}",
-            ]
-        )
+            ])
+
 
     html = ""
     used = ""
