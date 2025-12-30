@@ -134,7 +134,19 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
     og_image = _meta(soup, prop="og:image")
     meta_desc = _meta(soup, name="description")
 
-    title = _first_non_empty(og_title, _text(soup.find("title")))
+    # Strategy 1: Look for setVideoTitle('...')
+    # This is the most accurate raw title from the player config
+    m_title = re.search(r"setVideoTitle\s*\(\s*['\"]([^'\"]+)['\"]\s*\)", html)
+    js_title = m_title.group(1) if m_title else None
+
+    title = _first_non_empty(js_title, og_title, _text(soup.find("title")))
+
+    # distinct suffix removal
+    if title:
+        for suffix in (" - XNXX.COM", " - XNXX", " XNXX.COM"):
+            if title.upper().endswith(suffix):
+                title = title[:-len(suffix)]
+
     description = _first_non_empty(og_desc, meta_desc)
     thumbnail = _first_non_empty(og_image)
 
@@ -188,6 +200,11 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
     tags = list(dict.fromkeys([t for t in tags if t]))
 
     if not duration:
+         # Try specific duration class first
+        dur_node = soup.find(class_=re.compile(r"duration", re.IGNORECASE))
+        if dur_node:
+            duration = _find_duration_like_text(_text(dur_node) or "")
+    if not duration:
         duration = _find_duration_like_text(soup.get_text(" ", strip=True))
 
     views: Optional[str] = None
@@ -217,15 +234,21 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
     root = base_url if base_url.endswith("/") else base_url + "/"
 
     # XNXX commonly uses ?p=0-based page index on some listings.
+    # XNXX commonly uses ?p=0-based page index on some listings.
     candidates: list[str] = []
     if page <= 1:
-        candidates.append(root)
+        # If it looks like the homepage, target /best directly because homepage is categories
+        if "xnxx.com" in root and len(root.split("/")) <= 4: 
+             candidates.append(f"{root}best")
+        else:
+             candidates.append(root)
     else:
         candidates.extend(
             [
                 f"{root}?p={page - 1}",
                 f"{root}?page={page}",
                 f"{root}new/{page}/",
+                f"{root}best/{page}",
             ]
         )
 
@@ -236,7 +259,7 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
         try:
             html = await fetch_html(c)
             used = c
-            if html:
+            if html and "thumb-block" in html:
                 break
         except Exception as e:
             last_exc = e
@@ -253,54 +276,93 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    for a in soup.select('a[href*="/video"]'):
-        href = a.get("href")
-        if not href:
+    # Iterate over standard XNXX thumb blocks (sharing structure with XVideos often)
+    # usually div.thumb-block
+    for block in soup.select("div.thumb-block"):
+        thumb_div = block.select_one(".thumb")
+        if not thumb_div:
             continue
-        if "/video" not in href:
+            
+        link_el = thumb_div.find("a")
+        if not link_el:
             continue
-
+        
+        href = link_el.get("href")
+        if not href or "/video" not in href:
+            continue
+            
         try:
             abs_url = str(base_uri.join(href))
         except Exception:
-            continue
+            abs_url = href
+            
         if abs_url in seen:
             continue
-
-        img = a.find("img")
+            
+        img = link_el.find("img")
         thumb = _best_image_url(img)
         if not thumb:
             continue
 
-        title = _first_non_empty(img.get("alt") if img else None, a.get("title"), _text(a))
-        duration = _find_duration_like_text(a.get_text(" ", strip=True))
+        # Title: inside .thumb-under > p > a (first paragraph, no class)
+        title = None
+        # Try finding the first paragraph in thumb-under that contains an 'a'
+        # The title class is NOT present in xnxx, so we just check for p > a
+        title_p = block.select_one(".thumb-under p a")
+        if title_p:
+            title = _first_non_empty(title_p.get("title"), _text(title_p))
+        if not title:
+            title = _first_non_empty(link_el.get("title"), img.get("alt"))
+            
+        if title:
+             if title.upper().endswith(" - XNXX.COM"):
+                title = title.replace(" - XNXX.COM", "").replace(" - XNXX", "")
 
-        container = a
-        for tag in ("article", "li", "div"):
-            p = a.find_parent(tag)
-            if p is not None:
-                container = p
-                break
+        # Duration
+        duration = None
+        # Often in .thumb-under > p.metadata text (not inside .right)
+        dur_el = block.select_one(".metadata")
+        if dur_el:
+             # Look for typical duration format in text
+             txt = _text(dur_el) or ""
+             d_match = re.search(r"\b(?:\d{1,2}:)?\d{1,2}:\d{2}\b", txt)
+             if d_match:
+                 duration = d_match.group(0)
+             # Also try text like "15min" or "60min"
+             if not duration:
+                  m_min = re.search(r"(\d+)min", txt)
+                  if m_min:
+                       mins = int(m_min.group(1))
+                       h = mins // 60
+                       m = mins % 60
+                       duration = f"{h}:{m:02d}:00" if h > 0 else f"{m}:00"
 
+        
+        # Uploader
         uploader_name = None
-        for ua in container.select('a[href*="/pornstar/"], a[href*="/profiles/"], a[href*="/model/"]'):
-            t = _text(ua)
-            if t:
-                uploader_name = t
-                break
-
+        # Usually in .thumb-under .metadata a
+        # Or .uploader .name
+        up_el = block.select_one(".uploader .name, .metadata a[href*='/pornstar/'], .metadata a[href*='/profiles/'], .metadata a[href*='/model/']")
+        if up_el:
+            uploader_name = _text(up_el)
+            
+        # Views
         views = None
-        m = re.search(r"(\d+(?:\.\d+)?|\d[\d,\.]*)\s*([KMB])?\s*(?:views|view)\b", container.get_text(" ", strip=True), re.IGNORECASE)
-        if m:
-            num = m.group(1).replace(" ", "").replace(",", "")
-            suf = (m.group(2) or "").upper()
-            views = f"{num}{suf}" if suf else num
+        meta_text = block.select_one(".metadata")
+        if meta_text:
+            raw_meta = _text(meta_text) or ""
+            # Regex for views
+            m = re.search(r"(\d+(?:\.\d+)?|\d[\d,\.]*)\s*([KMB])?\s*(?:views|view|)\b", raw_meta, re.IGNORECASE)
+            if m:
+                num = m.group(1).replace(" ", "").replace(",", "")
+                suf = (m.group(2) or "").upper()
+                views = f"{num}{suf}" if suf else num
 
         seen.add(abs_url)
         items.append(
             {
                 "url": abs_url,
-                "title": title,
+                "title": title or "Unknown Video",
                 "thumbnail_url": thumb,
                 "duration": duration,
                 "views": views,
