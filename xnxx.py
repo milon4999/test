@@ -247,10 +247,12 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
         # For pagination on search pages, XNXX often uses 0-indexed pagination
         # Check if we're on a search category page
         if "xnxx.com/search/" in root:
+            # Remove trailing slash if present for consistent URL building
+            clean_root = root.rstrip('/')
             # Category pagination typically uses /{page-1}
             candidates.extend([
-                f"{root}/{page - 1}",
-                f"{root}?p={page - 1}",
+                f"{clean_root}/{page - 1}",
+                f"{clean_root}?p={page - 1}",
             ])
         elif "xnxx.com" in root and len(root.split("/")) <= 4:
             # Homepage-like URLs - default to trending category with pagination
