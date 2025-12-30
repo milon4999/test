@@ -342,74 +342,24 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
         if abs_url in seen:
             continue
 
-        # Find the container card
-        card_container = a.find_parent(class_=re.compile(r"video-thumb(?:\s|$)"))
-        if not card_container:
-            # Fallback to 'a' itself if it is the container or close to it
-            card_container = a
-
         img = a.find("img")
         thumb = _best_image_url(img)
-        if not thumb:
-            # Sometimes image is in a sibling or child not directly in 'a' if 'a' is just a link overlay
-            img = card_container.find("img")
-            thumb = _best_image_url(img)
 
-        # Title
-        # 1. Try specific title class
-        title_el = card_container.find(class_=re.compile(r"video-thumb-info__name|video-thumb__name"))
-        # 2. Try alt attribute
+        # Try to find a specific title element first
+        title_el = a.find(class_=re.compile(r"video-thumb-info__name"))
         title = _first_non_empty(
             _text(title_el),
             img.get("alt") if img else None,
             a.get("title"),
-            _text(a), 
+            _text(a),  # Fallback to the original broad search
         )
 
-        duration = _find_duration_like_text(card_container)
+        duration = _find_duration_like_text(a)
 
-        # Initialize metadata
-        views = None
-        upload_time = None
+        # Note: xHamster's HTML doesn't reliably separate views/uploader per video card.
+        # Use /scrape endpoint for individual video details with accurate metadata.
         uploader_name = None
-        author_pic = None
-        
-        # Extract Views
-        # Look for text ending in 'views' or 'View'
-        views_el = card_container.find(text=re.compile(r"\b(?:\d+(?:[.,]\d+)?\s*[KMB]?)\s*views?\b", re.IGNORECASE))
-        if views_el:
-            views = str(views_el).strip()
-        else:
-            # Try specific class for views
-            v_tag = card_container.find(class_=re.compile(r"views|view-count"))
-            if v_tag:
-                 views = _text(v_tag)
-
-        # Extract Upload Time
-        # Look for text like "X hours ago", "X years ago"
-        time_el = card_container.find(text=re.compile(r"\b\d+\s+(?:min|hour|day|week|month|year)s?\s+ago\b", re.IGNORECASE))
-        if time_el:
-            upload_time = str(time_el).strip()
-        
-        # Extract Uploader Name (Author)
-        # Class usually contains 'author' or links to /users/ or /channels/
-        author_link = card_container.find("a", href=re.compile(r"/(?:users|channels)/"))
-        if author_link:
-            uploader_name = _text(author_link)
-        
-        # Extract Author Profile Pic (if available)
-        # Often a separate img near the author link
-        if author_link:
-             # Look for img inside or near author link
-             author_img = author_link.find("img")
-             if not author_img:
-                 # Check standard profile pic classes
-                 # This is a guess based on common xHamster patterns; might need adjustment
-                 author_img = card_container.find("img", class_=re.compile(r"thumb-image-container__image|author-thumb"))
-             
-             if author_img:
-                 author_pic = _best_image_url(author_img)
-
+        views = None
 
         # If no thumbnail, skip (usually not a card)
         if not thumb:
@@ -424,12 +374,8 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
                 "duration": duration,
                 "views": views,
                 "uploader_name": uploader_name,
-                "uploader_url": str(base_uri.join(author_link.get("href"))) if author_link else None, 
-                "uploader_pic": author_pic,
-                "upload_time": upload_time,
-                "category": None, # Category often not on the card in main lists
-                "tags": [], # Tags definitely not on card in grid view
-                "description": None # Description not on card
+                "category": None,
+                "tags": [],
             }
         )
 
