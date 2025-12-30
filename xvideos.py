@@ -200,6 +200,11 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
     tags = list(dict.fromkeys([t for t in tags if t]))
 
     if not duration:
+        # Try specific duration class first
+        dur_node = soup.find(class_=re.compile(r"duration", re.IGNORECASE))
+        if dur_node:
+            duration = _find_duration_like_text(_text(dur_node) or "")
+    if not duration:
         duration = _find_duration_like_text(soup.get_text(" ", strip=True))
 
     views: Optional[str] = None
@@ -264,59 +269,87 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    for a in soup.select('a[href*="/video"]'):
-        href = a.get("href")
-        if not href:
+    # Iterate over standard xVideos thumb blocks
+    for block in soup.select("div.thumb-block"):
+        # Determine URL and Thumbnail from the .thumb div
+        thumb_div = block.select_one(".thumb")
+        if not thumb_div:
             continue
-        if "/video" not in href:
+            
+        link_el = thumb_div.find("a")
+        if not link_el:
             continue
-
+        
+        href = link_el.get("href")
+        if not href or "/video" not in href:
+            continue
+            
         try:
             abs_url = str(base_uri.join(href))
         except Exception:
-            continue
+            abs_url = href
+            
         if abs_url in seen:
             continue
-
-        img = a.find("img")
+            
+        img = link_el.find("img")
         thumb = _best_image_url(img)
         if not thumb:
             continue
 
-        # Filter to typical xvideos video paths
-        if "/video" not in httpx.URL(abs_url).path:
-            continue
+        # Extract Title: prefer p.title > a, then link title, then img alt
+        title = None
+        title_p = block.select_one("p.title a")
+        if title_p:
+            title = _first_non_empty(title_p.get("title"), _text(title_p))
+        if not title:
+            title = _first_non_empty(link_el.get("title"), img.get("alt"))
 
-        title_el = a.find(class_=re.compile(r"title|name", re.IGNORECASE))
-        title = _first_non_empty(_text(title_el), img.get("alt") if img else None, a.get("title"), _text(a))
-        duration = _find_duration_like_text(a.get_text(" ", strip=True))
+        # Clean potential Suffixes in listing titles (rare but possible)
+        if title:
+            if title.upper().endswith(" - XVIDEOS.COM"):
+                title = title.replace(" - XVIDEOS.COM", "").replace(" - XVIDEOS", "")
 
-        container = a
-        for tag in ("article", "li", "div"):
-            p = a.find_parent(tag)
-            if p is not None:
-                container = p
-                break
+        # Duration
+        duration = None
+        dur_el = block.select_one(".duration, .video-duration")
+        if dur_el:
+             duration = _text(dur_el)
+             # cleanup like "10 min" -> "10:00" if needed, or leave as string
+             # Usually standardizer handles numbers. 
+             # If it is "14 min", _normalize_duration might not catch it if it expects seconds or ISO.
+             # but we can try regex extraction
+             
+        if duration:
+            # quick normalize if it says "min" or "sec"
+            # match finding time-like 10:00
+            d_time = re.search(r"\b\d{1,2}:\d{2}\b", duration)
+            if d_time:
+                duration = d_time.group(0)
 
+        # Uploader
         uploader_name = None
-        for ua in container.select('a[href*="/profiles/"]'):
-            t = _text(ua)
-            if t:
-                uploader_name = t
-                break
-
+        up_el = block.select_one(".metadata a[href*='/profiles/'], .metadata a[href*='/channels/']")
+        if up_el:
+            uploader_name = _text(up_el)
+            
+        # Views
         views = None
-        m = re.search(r"(\d+(?:\.\d+)?|\d[\d,\.]*)\s*([KMB])?\s*(?:views|view)\b", container.get_text(" ", strip=True), re.IGNORECASE)
-        if m:
-            num = m.group(1).replace(" ", "").replace(",", "")
-            suf = (m.group(2) or "").upper()
-            views = f"{num}{suf}" if suf else num
+        meta_text = block.select_one(".metadata")
+        if meta_text:
+            raw_meta = _text(meta_text) or ""
+            # Regex for views
+            m = re.search(r"(\d+(?:\.\d+)?|\d[\d,\.]*)\s*([KMB])?\s*(?:views|view)\b", raw_meta, re.IGNORECASE)
+            if m:
+                num = m.group(1).replace(" ", "").replace(",", "")
+                suf = (m.group(2) or "").upper()
+                views = f"{num}{suf}" if suf else num
 
         seen.add(abs_url)
         items.append(
             {
                 "url": abs_url,
-                "title": title,
+                "title": title or "Unknown Video",
                 "thumbnail_url": thumb,
                 "duration": duration,
                 "views": views,
