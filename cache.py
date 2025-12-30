@@ -157,3 +157,6 @@ class CacheManager:
 
 # Global cache instance
 cache = CacheManager()
+
+# Global cache manager instance
+cache_manager = CacheManager()
