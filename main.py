@@ -16,13 +16,61 @@ import xhamster
 import xnxx
 import xvideos
 from contextlib import asynccontextmanager
-from cache import cache_manager
+
+# ------------------------------------------------------------------------------
+# Pydantic Models
+# ------------------------------------------------------------------------------
+
+class ListRequest(BaseModel):
+    base_url: HttpUrl
+
+class ListItem(BaseModel):
+    title: str | None = None
+    thumbnail_url: str | None = None
+    duration: str | None = None
+    url: str | None = None
+    views: str | None = None
+    uploader_name: str | None = None
+    uploader_pic: str | None = None
+    uploader_url: str | None = None
+    upload_time: str | None = None
+    category: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
+
+class SourceItem(BaseModel):
+    name: str
+    base_url: str
+    favicon_url: str
+
+class ScrapeRequest(BaseModel):
+    url: HttpUrl
+
+class ScrapeResponse(BaseModel):
+    title: str | None = None
+    video_url: str | None = None
+    thumbnail_url: str | None = None
+    duration: str | None = None
+    uploader_name: str | None = None
+    uploader_pic: str | None = None
+    uploader_url: str | None = None
+    upload_time: str | None = None
+    category: str | None = None
+    tags: list[str] | None = None
+    description: str | None = None
+    views: str | None = None
+
+# ------------------------------------------------------------------------------
+# Context Manager & App
+# ------------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await cache_manager.connect()
     yield
     await cache_manager.disconnect()
+
+
 
 # Create FastAPI app
 app = FastAPI(title="OSINT Scraper API", lifespan=lifespan)
