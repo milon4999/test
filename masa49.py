@@ -301,27 +301,66 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    for a in soup.select("a"):
-        href = a.get("href")
+    # Masa49 uses WordPress fox theme with li.video cards
+    video_cards = soup.select("li.video")
+    
+    for card in video_cards:
+        # Extract video URL from title link
+        title_link = card.select_one("a.title")
+        if not title_link:
+            continue
+            
+        href = title_link.get("href")
         if not href:
             continue
-
-        img = a.find("img")
-        thumb = _best_image_url(img)
-        if not thumb:
-            continue
-
+        
         try:
             abs_url = str(base_uri.join(href))
         except Exception:
             continue
-
+            
         if abs_url in seen:
             continue
-
-        title = _first_non_empty(img.get("alt") if img else None, a.get("title"), _text(a))
-        duration = _find_duration_like_text(a)
-
+        
+        # Extract title
+        title = _text(title_link) or title_link.get("title")
+        
+        # Extract thumbnail from thumb link
+        thumb_link = card.select_one("a.thumb")
+        thumb = None
+        if thumb_link:
+            img = thumb_link.find("img")
+            thumb = _best_image_url(img)
+        
+        if not thumb:
+            continue
+        
+        # Extract duration from video-duration span
+        duration = None
+        duration_el = card.select_one("span.video-duration")
+        if duration_el:
+            duration = _text(duration_el)
+        
+        # Extract views from top-right eye div
+        views = None
+        views_el = card.select_one("div.top-right.eye")
+        if views_el:
+            views_text = _text(views_el)
+            if views_text:
+                # Clean up views (e.g., "1.8k" format)
+                views = views_text.strip()
+        
+        # Extract upload time from time div
+        upload_time = None 
+        time_el = card.select_one("div.time")
+        if time_el:
+            time_text = _text(time_el)
+            if time_text:
+                # Remove icon text and "Trending" badge if present
+                upload_time = time_text.replace("Trending", "").strip()
+        
+        # Tags, category, description not available on listing pages
+        
         seen.add(abs_url)
         items.append(
             {
@@ -329,10 +368,8 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
                 "title": title,
                 "thumbnail_url": thumb,
                 "duration": duration,
-                "views": None,
-                "uploader_name": None,
-                "category": None,
-                "tags": [],
+                "views": views,
+                "upload_time": upload_time,
             }
         )
 

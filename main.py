@@ -61,6 +61,7 @@ class ListItem(BaseModel):
     duration: str | None = None
     views: str | None = None
     uploader_name: str | None = None
+    uploader_url: str | None = None
     category: str | None = None
     tags: list[str] = []
 

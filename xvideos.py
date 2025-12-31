@@ -327,11 +327,18 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             if d_time:
                 duration = d_time.group(0)
 
-        # Uploader
+        # Uploader and profile URL
         uploader_name = None
+        uploader_url = None
         up_el = block.select_one(".metadata a[href*='/profiles/'], .metadata a[href*='/channels/']")
         if up_el:
             uploader_name = _text(up_el)
+            href = up_el.get('href')
+            if href:
+                try:
+                    uploader_url = str(base_uri.join(href))
+                except Exception:
+                    pass
             
         # Views
         views = None
@@ -354,6 +361,7 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
                 "duration": duration,
                 "views": views,
                 "uploader_name": uploader_name,
+                "uploader_url": uploader_url,
                 "category": None,
                 "tags": [],
             }
