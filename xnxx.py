@@ -232,6 +232,46 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
         duration = _find_duration_like_text(soup.get_text(" ", strip=True))
 
     if not views:
+        # Strategy 3: Regex for visible view count in metadata text
+        # e.g. " - 402,455" at the end of the metadata block
+        # or "7min | 360p - 402,455"
+        meta_node = soup.select_one(".metadata")
+        if meta_node:
+             txt = _text(meta_node) or ""
+             # Look for number at the end of the string, confusingly XNXX sometimes puts it there
+             # match things like "- 266,039" or "- 1.2M"
+             m_fallback = re.search(r"-\s*(\d+(?:\.\d+)?|\d[\d,\.]*)\s*([KMB])?$", txt, re.IGNORECASE)
+             if m_fallback:
+                  num = m_fallback.group(1).replace(" ", "").replace(",", "")
+                  suf = (m_fallback.group(2) or "").upper()
+                  views = f"{num}{suf}" if suf else num
+
+    if not views:
+        # Strategy 4: Layout with .metadata .right containing "16.3M 100%"
+        right_span = soup.select_one(".metadata .right")
+        if right_span:
+            r_text = _text(right_span) or ""
+            # Look for number that is NOT followed by % (rating)
+            # Match 16.3M, 200K, 12345
+            matches = re.finditer(r"(\d+(?:\.\d+)?|\d[\d,\.]*)\s*([KMB])?", r_text, re.IGNORECASE)
+            for m_match in matches:
+                # Check if followed by %
+                end_idx = m_match.end()
+                # Skip if immediate next char is % (ignoring whitespace in between if needed, but the regex included whitespace before KMB)
+                # Let's check the original string slice after the match
+                post_match = r_text[end_idx:].lstrip()
+                if post_match.startswith("%"):
+                    continue
+                
+                # Check if it looks like a year (e.g. 2022) or resolution (1080) if no suffix? 
+                # Usually views are large or have suffix.
+                # But simple heuristic: first non-percentage number in .right is usually views.
+                val = m_match.group(1).replace(" ", "").replace(",", "")
+                suf = (m_match.group(2) or "").upper()
+                views = f"{val}{suf}" if suf else val
+                break
+
+    if not views:
         m = re.search(r'"viewCount"\s*:\s*"?([0-9][0-9,\.]*\s*[KMB]?)"?', html, re.IGNORECASE)
         if m:
             views = m.group(1).replace(" ", "")
