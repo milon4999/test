@@ -263,16 +263,14 @@ async def scrape(url: str) -> dict[str, Any]:
 
 
 async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dict[str, Any]]:
-    # Fix for duplication on single-page categories which do not support pagination
-    if page > 1:
-        lower_url = base_url.lower()
-        if "popular-video" in lower_url or "latest-videos" in lower_url:
-            return []
-
     root = base_url if base_url.endswith("/") else base_url + "/"
+    lower_url = base_url.lower()
+    is_single_page = "popular-video" in lower_url or "latest-videos" in lower_url
 
     candidates: list[str] = []
-    if page <= 1:
+    if is_single_page:
+        candidates.append(root)
+    elif page <= 1:
         candidates.append(root)
     else:
         candidates.extend(
@@ -385,7 +383,12 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             }
         )
 
-        if len(items) >= limit:
+        if not is_single_page and len(items) >= limit:
             break
+
+    if is_single_page:
+        start = (page - 1) * limit
+        end = start + limit
+        return items[start:end]
 
     return items
