@@ -357,7 +357,13 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             time_text = _text(time_el)
             if time_text:
                 # Remove icon text and "Trending" badge if present
-                upload_time = time_text.replace("Trending", "").strip()
+                cleaned = time_text.replace("Trending", "").strip()
+                # Remove concatenated view counts (e.g., "15 hours ago1.2k" -> "15 hours ago")
+                m = re.search(r'(.+?\bago)', cleaned, re.IGNORECASE)
+                if m:
+                    upload_time = m.group(1).strip()
+                else:
+                    upload_time = cleaned
         
         # Tags, category, description not available on listing pages
         
