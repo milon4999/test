@@ -408,6 +408,22 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
                      if "avatar" in str(img.get("class", "")) or "logo" in str(img.get("class", "")):
                          uploader_avatar_url = _best_image_url(img)
 
+        # Extract preview video URL (thumbnail video)
+        preview_video_url = None
+        # Check standard data-previewvideo attribute on various containers
+        preview_el = card.find(attrs={"data-previewvideo": True})
+        if preview_el:
+             preview_video_url = preview_el.get("data-previewvideo")
+        
+        # Fallback: sometimes on the main block or direct img container
+        if not preview_video_url:
+             if block.get("data-previewvideo"):
+                 preview_video_url = block.get("data-previewvideo")
+             else:
+                 term_el = block.select_one('[data-previewvideo]')
+                 if term_el:
+                     preview_video_url = term_el.get("data-previewvideo")
+
         # If no thumbnail, skip (usually not a card)
         if not thumb:
             continue
@@ -418,6 +434,7 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
                 "url": abs_url,
                 "title": title,
                 "thumbnail_url": thumb,
+                "thumbnail_video_url": preview_video_url,
                 "duration": duration,
                 "views": views,
                 "uploader_name": uploader_name,
