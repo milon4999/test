@@ -410,8 +410,8 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
 
 
     if is_single_page:
-        start = (page - 1) * limit
-        end = start + limit
-        return items[start:end]
+        if page > 1:
+            return []
+        return items
 
     return items
