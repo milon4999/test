@@ -46,7 +46,7 @@ async def fetch_html(url: str) -> str:
     ) as client:
         resp = await client.get(url)
         resp.raise_for_status()
-        return resp.text, str(resp.url)
+        return resp.text
 
 
 def _first_non_empty(*values: Optional[str]) -> Optional[str]:
@@ -258,11 +258,17 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
 
 
 async def scrape(url: str) -> dict[str, Any]:
-    html, _ = await fetch_html(url)
+    html = await fetch_html(url)
     return parse_page(html, url)
 
 
 async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dict[str, Any]]:
+    # Fix for duplication on single-page categories which do not support pagination
+    if page > 1:
+        lower_url = base_url.lower()
+        if "popular-video" in lower_url or "latest-videos" in lower_url:
+            return []
+
     root = base_url if base_url.endswith("/") else base_url + "/"
 
     candidates: list[str] = []
@@ -272,9 +278,7 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
         candidates.extend(
             [
                 f"{root}page/{page}",
-                f"{root}page/{page}/",
                 f"{root}?page={page}",
-                f"{root}?paged={page}",
                 f"{root}pages/{page}",
             ]
         )
@@ -284,16 +288,8 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
     last_exc: Exception | None = None
     for c in candidates:
         try:
-            html, real_url = await fetch_html(c)
+            html = await fetch_html(c)
             used = c
-            
-            # Check for redirect to homepage when requesting pagination (prevents infinite loop)
-            if page > 1:
-                 clean_root = root.rstrip('/')
-                 clean_real = real_url.rstrip('/')
-                 if clean_real == clean_root:
-                     continue # Redirected to home, invalid page
-
             if html:
                 break
         except Exception as e:
