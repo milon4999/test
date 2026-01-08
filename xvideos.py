@@ -367,7 +367,6 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             }
         )
 
-        if limit and len(items) >= limit:
-            break
+
 
     return items
