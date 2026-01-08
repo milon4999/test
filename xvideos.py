@@ -327,30 +327,22 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             if d_time:
                 duration = d_time.group(0)
 
-        # Uploader and profile URL
+        # Uploader
         uploader_name = None
-        uploader_url = None
-        up_el = block.select_one(".metadata a[href*='/profiles/'], .metadata a[href*='/channels/']")
+        # Extended selectors for uploader
+        up_el = block.select_one(".metadata a[href*='/profiles/'], .metadata a[href*='/channels/'], .metadata a[href*='/models/'], .metadata a[href*='/pornstars/']")
         if up_el:
             uploader_name = _text(up_el)
-            href = up_el.get('href')
-            if href:
-                try:
-                    uploader_url = str(base_uri.join(href))
-                except Exception:
-                    pass
             
         # Views
         views = None
         meta_text = block.select_one(".metadata")
         if meta_text:
             raw_meta = _text(meta_text) or ""
-            # Regex for views
-            m = re.search(r"(\d+(?:\.\d+)?|\d[\d,\.]*)\s*([KMB])?\s*(?:views|view)\b", raw_meta, re.IGNORECASE)
+            # Regex for views (e.g. 1.2M Views, 500 Views)
+            m = re.search(r"([0-9\.,]+\s*[KMB]?)\s*views", raw_meta, re.IGNORECASE)
             if m:
-                num = m.group(1).replace(" ", "").replace(",", "")
-                suf = (m.group(2) or "").upper()
-                views = f"{num}{suf}" if suf else num
+                views = m.group(1).replace(" ", "").replace(",", "").upper()
 
         seen.add(abs_url)
         items.append(
@@ -361,7 +353,7 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
                 "duration": duration,
                 "views": views,
                 "uploader_name": uploader_name,
-                "uploader_url": uploader_url,
+
                 "category": None,
                 "tags": [],
             }
