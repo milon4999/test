@@ -263,23 +263,47 @@ async def scrape(url: str) -> dict[str, Any]:
 
 
 async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dict[str, Any]]:
-    root = base_url if base_url.endswith("/") else base_url + "/"
     lower_url = base_url.lower()
     is_single_page = "popular-video" in lower_url or "latest-videos" in lower_url
-
+    is_search = "?s=" in base_url
+    
     candidates: list[str] = []
+    
     if is_single_page:
+        # Single-page categories always use base URL
+        root = base_url if base_url.endswith("/") else base_url + "/"
         candidates.append(root)
-    elif page <= 1:
-        candidates.append(root)
+    elif is_search:
+        # Search URLs use query parameters
+        if page <= 1:
+            candidates.append(base_url)
+        else:
+            # For WordPress search, pagination uses /page/X/ after the base domain
+            # Extract domain and search query
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(base_url)
+            search_query = parse_qs(parsed.query).get('s', [''])[0]
+            
+            if search_query:
+                # WordPress pagination for search: /page/X/?s=query
+                base_domain = f"{parsed.scheme}://{parsed.netloc}"
+                candidates.extend([
+                    f"{base_domain}/page/{page}/?s={search_query}",
+                    f"{base_url}&page={page}",
+                ])
     else:
-        candidates.extend(
-            [
-                f"{root}page/{page}",
-                f"{root}?page={page}",
-                f"{root}pages/{page}",
-            ]
-        )
+        # Regular category/listing pages
+        root = base_url if base_url.endswith("/") else base_url + "/"
+        if page <= 1:
+            candidates.append(root)
+        else:
+            candidates.extend(
+                [
+                    f"{root}page/{page}",
+                    f"{root}?page={page}",
+                    f"{root}pages/{page}",
+                ]
+            )
 
     html = ""
     used = ""
