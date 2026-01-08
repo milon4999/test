@@ -32,7 +32,7 @@ def _find_duration_like_text(node: Any) -> Optional[str]:
     return m.group(0) if m else None
 
 
-async def fetch_html(url: str) -> tuple[str, str]:
+async def fetch_html(url: str) -> str:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -282,22 +282,16 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
     last_exc: Exception | None = None
     for c in candidates:
         try:
-            html, final_url = await fetch_html(c)
+            html, real_url = await fetch_html(c)
+            used = c
             
-            # Anti-loop check for pagination
+            # Check for redirect to homepage when requesting pagination (prevents infinite loop)
             if page > 1:
-                # If we ended up at the root URL (e.g. redirected to home), stop.
-                # Remove trailing slashes and query params for a rough logic check or just compare paths?
-                # Simplest: if final_url equals root (normalized)
-                r_norm = root.rstrip('/')
-                f_norm = final_url.split('?')[0].rstrip('/')
-                
-                if f_norm == r_norm:
-                    # Redirected to home/root -> End of pagination
-                    html = ""
-                    break
+                 clean_root = root.rstrip('/')
+                 clean_real = real_url.rstrip('/')
+                 if clean_real == clean_root:
+                     continue # Redirected to home, invalid page
 
-            used = final_url
             if html:
                 break
         except Exception as e:
@@ -372,13 +366,10 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             if time_text:
                 # Remove icon text and "Trending" badge if present
                 cleaned = time_text.replace("Trending", "").strip()
-                # Check for "ago" splitting to separate time and concatenated views
-                m = re.search(r'(.+?\bago)(.*)', cleaned, re.IGNORECASE)
+                # Remove concatenated view counts (e.g., "15 hours ago1.2k" -> "15 hours ago")
+                m = re.search(r'(.+?\bago)', cleaned, re.IGNORECASE)
                 if m:
                     upload_time = m.group(1).strip()
-                    tail = m.group(2).strip()
-                    if not views and tail:
-                        views = tail
                 else:
                     upload_time = cleaned
         
