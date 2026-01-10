@@ -263,7 +263,7 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             raise last_exc
         return []
 
-    soup = BeautifulSoup(html, "lxml")
+    soup = BeautifulSoup(html, "html.parser")
     base_uri = httpx.URL(used)
 
     items: list[dict[str, Any]] = []
@@ -295,6 +295,10 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
         img = link_el.find("img")
         thumb = _best_image_url(img)
         if not thumb:
+            # Fallback: sometimes data-src is in a script tag or different structure?
+            # For now, if no thumb, skip or generic?
+            # actually, xvideos consistently uses data-src. 
+            # If it's missing, it might be a text ad or weird block.
             continue
 
         # Extract Title: prefer p.title > a, then link title, then img alt
@@ -314,33 +318,42 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
         duration = None
         dur_el = block.select_one(".duration, .video-duration")
         if dur_el:
-             duration = _text(dur_el)
-             # cleanup like "10 min" -> "10:00" if needed, or leave as string
-             # Usually standardizer handles numbers. 
-             # If it is "14 min", _normalize_duration might not catch it if it expects seconds or ISO.
-             # but we can try regex extraction
-             
-        if duration:
-            # quick normalize if it says "min" or "sec"
-            # match finding time-like 10:00
-            d_time = re.search(r"\b\d{1,2}:\d{2}\b", duration)
-            if d_time:
-                duration = d_time.group(0)
+             raw_dur = _text(dur_el)
+             # Handle "21 min" format
+             if raw_dur:
+                 # Check for "X min"
+                 m_min = re.search(r"(\d+)\s*min", raw_dur, re.IGNORECASE)
+                 if m_min:
+                     mins = int(m_min.group(1))
+                     duration = f"{mins // 60}:{mins % 60:02d}:00" if mins >= 60 else f"{mins}:00"
+                 else:
+                    duration = _find_duration_like_text(raw_dur)
+                    if not duration and ":" not in raw_dur:
+                         # fallback for existing logic
+                         pass
+                    elif not duration:
+                         duration = raw_dur
 
         # Uploader
         uploader_name = None
-        # Extended selectors for uploader
-        up_el = block.select_one(".metadata a[href*='/profiles/'], .metadata a[href*='/channels/'], .metadata a[href*='/models/'], .metadata a[href*='/pornstars/']")
-        if up_el:
-            uploader_name = _text(up_el)
+        # New selector: just look for the name span inside metadata
+        name_el = block.select_one(".metadata .name")
+        if name_el:
+            uploader_name = _text(name_el)
+        else:
+             # Fallback to old strict strategy just in case structure varies significantly
+             up_el = block.select_one(".metadata a[href*='/profiles/'], .metadata a[href*='/channels/'], .metadata a[href*='/models/'], .metadata a[href*='/pornstars/']")
+             if up_el:
+                 uploader_name = _text(up_el)
             
         # Views
         views = None
         meta_text = block.select_one(".metadata")
         if meta_text:
             raw_meta = _text(meta_text) or ""
-            # Regex for views (e.g. 1.2M Views, 500 Views)
-            m = re.search(r"([0-9\.,]+\s*[KMB]?)\s*views", raw_meta, re.IGNORECASE)
+            # Regex for views (e.g. 1.2M Views, 500 Views, 174.9k Views)
+            # HTML text: " - 174.9k Views - "
+            m = re.search(r"([0-9\.,]+\s*[KMB]?)\s*Views", raw_meta, re.IGNORECASE)
             if m:
                 views = m.group(1).replace(" ", "").replace(",", "").upper()
 
@@ -352,7 +365,7 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
                 "thumbnail_url": thumb,
                 "duration": duration,
                 "views": views,
-                "uploader_name": uploader_name,
+                "uploader_name": uploader_name or "XVideos",
 
                 "category": None,
                 "tags": [],
