@@ -369,6 +369,9 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
         if duration_el:
             duration = _text(duration_el)
         
+        if not duration:
+            duration = _find_duration_like_text(card)
+        
         # Extract views from top-right eye div
         views = None
         views_el = card.select_one("div.top-right.eye")
@@ -377,6 +380,11 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             if views_text:
                 # Clean up views (e.g., "1.8k" format)
                 views = views_text.strip()
+        
+        if not views:
+            # Fallback: try to extract views using the general extraction logic on the card
+            # This handles cases where views might be in a different element or format
+            views = _extract_views(None, str(card), card)
         
         # Extract upload time from time div
         upload_time = None 
