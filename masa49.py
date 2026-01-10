@@ -382,7 +382,15 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
                 views = views_text.strip()
         
         if not views:
-            # Fallback: try to extract views using the general extraction logic on the card
+            # Fallback 2: Look for fa-eye icon and its following text (common in Popular/Latest lists)
+            eye_icon = card.select_one("i.fa-eye")
+            if eye_icon:
+                next_node = eye_icon.next_sibling
+                if next_node and str(next_node).strip():
+                     views = str(next_node).strip()
+        
+        if not views:
+            # Fallback 3: try to extract views using the general extraction logic on the card
             # This handles cases where views might be in a different element or format
             views = _extract_views(None, str(card), card)
         
@@ -394,10 +402,15 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             if time_text:
                 # Remove icon text and "Trending" badge if present
                 cleaned = time_text.replace("Trending", "").strip()
-                # Remove concatenated view counts (e.g., "15 hours ago1.2k" -> "15 hours ago")
-                m = re.search(r'(.+?\bago)', cleaned, re.IGNORECASE)
+                # Remove concatenated view counts (e.g., "15 hours ago1.2k" or "3 days ago 1.1k")
+                m = re.search(r'(.+?\bago)(.*)', cleaned, re.IGNORECASE)
                 if m:
                     upload_time = m.group(1).strip()
+                    # If views not found yet (e.g. Latest Videos), try to get from tail
+                    if not views:
+                        potential_views = m.group(2).strip()
+                        if potential_views:
+                            views = potential_views
                 else:
                     upload_time = cleaned
         
