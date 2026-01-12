@@ -77,15 +77,15 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
         # Wrap streams
         if video_data.get("streams"):
             for s in video_data["streams"]:
-                s["url"] = get_proxy_url(s["url"], api_base=base_url)
+                s["url"] = get_proxy_url(s["url"], api_base=base_url, referer=url)
         
         # Wrap HLS
         if video_data.get("hls"):
-            video_data["hls"] = get_proxy_url(video_data["hls"], api_base=base_url)
+            video_data["hls"] = get_proxy_url(video_data["hls"], api_base=base_url, referer=url)
             
         # Wrap Default
         if video_data.get("default"):
-            video_data["default"] = get_proxy_url(video_data["default"], api_base=base_url)
+            video_data["default"] = get_proxy_url(video_data["default"], api_base=base_url, referer=url)
 
     return {
         "url": url,
@@ -148,13 +148,14 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
     }
 
 
-def get_proxy_url(original_url: str, api_base: str = "http://localhost:8000") -> str:
+def get_proxy_url(original_url: str, api_base: str = "http://localhost:8000", referer: str = None) -> str:
     """
     Convert original video URL to proxied URL (for IP-restricted videos)
     
     Args:
         original_url: Original video/HLS URL
         api_base: Your API base URL
+        referer: Optional original video page URL to use as Referer header
         
     Returns:
         Proxied URL that bypasses IP restrictions
@@ -162,8 +163,13 @@ def get_proxy_url(original_url: str, api_base: str = "http://localhost:8000") ->
     import urllib.parse
     encoded_url = urllib.parse.quote(original_url, safe='')
     
+    referer_param = ""
+    if referer:
+        encoded_referer = urllib.parse.quote(referer, safe='')
+        referer_param = f"&referer={encoded_referer}"
+    
     # Check if it's an M3U8 playlist
     if ".m3u8" in original_url:
-        return f"{api_base}/api/hls/playlist?url={encoded_url}"
+        return f"{api_base}/api/hls/playlist?url={encoded_url}{referer_param}"
     else:
-        return f"{api_base}/api/hls/proxy?url={encoded_url}"
+        return f"{api_base}/api/hls/proxy?url={encoded_url}{referer_param}"

@@ -21,7 +21,7 @@ class HLSProxy:
                 timeout=self.timeout,
                 follow_redirects=True,
                 headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
                     "Accept": "*/*",
                     "Accept-Language": "en-US,en;q=0.9",
                     "Origin": "https://xhamster.com",
@@ -36,26 +36,35 @@ class HLSProxy:
             await self.client.aclose()
             self.client = None
     
-    async def proxy_m3u8(self, url: str, base_proxy_url: str) -> str:
+    async def proxy_m3u8(self, url: str, base_proxy_url: str, referer: str = None) -> str:
         """
         Proxy M3U8 playlist and rewrite URLs to point to proxy
         
         Args:
             url: Original M3U8 URL
             base_proxy_url: Base URL of our proxy endpoint
+            referer: Optional custom referer URL (e.g. video page)
         
         Returns:
             Modified M3U8 content with proxied URLs
         """
         client = await self.get_client()
         
+        headers = {}
+        if referer:
+            headers["Referer"] = referer
+        
         try:
-            response = await client.get(url)
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
             
             content = response.text
             lines = content.split('\n')
             modified_lines = []
+            
+            import urllib.parse
+            encoded_referer = urllib.parse.quote(referer, safe='') if referer else ""
+            referer_param = f"&referer={encoded_referer}" if referer else ""
             
             for line in lines:
                 line = line.strip()
@@ -65,13 +74,16 @@ class HLSProxy:
                     # Check if it's a relative or absolute URL
                     if line.startswith('http'):
                         # Absolute URL - proxy it
-                        proxied_url = f"{base_proxy_url}?url={line}"
+                        # MUST encode the target URL
+                        enc_line = urllib.parse.quote(line, safe='')
+                        proxied_url = f"{base_proxy_url}?url={enc_line}{referer_param}"
                         modified_lines.append(proxied_url)
                     else:
                         # Relative URL - make it absolute first
                         base_url = url.rsplit('/', 1)[0]
                         absolute_url = f"{base_url}/{line}"
-                        proxied_url = f"{base_proxy_url}?url={absolute_url}"
+                        enc_abs = urllib.parse.quote(absolute_url, safe='')
+                        proxied_url = f"{base_proxy_url}?url={enc_abs}{referer_param}"
                         modified_lines.append(proxied_url)
                 else:
                     modified_lines.append(line)
@@ -89,27 +101,33 @@ class HLSProxy:
                 detail=f"Failed to fetch M3U8: {str(e)}"
             )
     
-    async def stream_segment(self, url: str) -> StreamingResponse:
+    async def stream_segment(self, url: str, referer: str = None) -> StreamingResponse:
         """
         Stream video segment (TS file)
         
         Args:
             url: URL of the video segment
+            referer: Optional custom referer URL
         
         Returns:
             Streaming response with video data
         """
         client = await self.get_client()
         
+        headers = {}
+        if referer:
+            headers["Referer"] = referer
+        
         try:
             async def generate() -> AsyncGenerator[bytes, None]:
-                async with client.stream("GET", url) as response:
+                async with client.stream("GET", url, headers=headers) as response:
                     response.raise_for_status()
                     async for chunk in response.aiter_bytes(chunk_size=8192):
                         yield chunk
             
             # Get content type from original response
-            head_response = await client.head(url)
+            # Note: headers are merged with client defaults
+            head_response = await client.head(url, headers=headers)
             content_type = head_response.headers.get("content-type", "video/mp2t")
             
             return StreamingResponse(
@@ -132,30 +150,34 @@ class HLSProxy:
                 detail=f"Failed to stream segment: {str(e)}"
             )
     
-    async def proxy_request(self, url: str) -> Response:
+    async def proxy_request(self, url: str, referer: str = None) -> Response:
         """
         Generic proxy for any URL
         
         Args:
             url: URL to proxy
+            referer: Optional custom referer URL
         
         Returns:
             Response with proxied content
         """
         client = await self.get_client()
         
+        headers = {}
+        if referer:
+            headers["Referer"] = referer
+        
         try:
             # Determine if it's an M3U8 playlist
             if url.endswith('.m3u8') or 'm3u8' in url:
                 # This is a playlist - we need to rewrite URLs
-                # Note: base_proxy_url should be passed from the endpoint
                 return Response(
                     content="Use /api/hls/playlist endpoint for M3U8 files",
                     status_code=400
                 )
             
             # Stream the content
-            response = await client.get(url)
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
             
             return Response(
