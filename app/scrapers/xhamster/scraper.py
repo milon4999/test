@@ -274,6 +274,9 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
         if m:
             duration = m.group(1)
 
+    # ZERO-COST VIDEO EXTRACTION
+    video_data = _extract_video_data(html)
+
     return {
         "url": url,
         "title": title,
@@ -284,6 +287,108 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
         "uploader_name": uploader,
         "category": category,
         "tags": tags,
+        "video": video_data,  # Added video data
+    }
+
+
+def _extract_video_data(html: str) -> dict[str, Any]:
+    """
+    Extract video streams from xHamster's window.initials JSON
+    """
+    streams = []
+    hls_url = None
+    
+    try:
+        # Regex to find window.initials = { ... }
+        match = re.search(r'window\.initials\s*=\s*({.+?});', html, re.DOTALL)
+        if match:
+            initials_json = match.group(1)
+            data = json.loads(initials_json)
+            
+            # Navigate to video model
+            # Structure usually: xplayerSettings -> sources -> standard / hls
+            # Or: videoModel -> sources
+            
+            sources = None
+            
+            # Try xplayerSettings
+            xplayer = data.get("xplayerSettings")
+            if xplayer and isinstance(xplayer, dict):
+                sources = xplayer.get("sources")
+                
+            # Try videoModel if xplayer not found
+            if not sources:
+                video_model = data.get("videoModel")
+                if video_model and isinstance(video_model, dict):
+                    sources = video_model.get("sources")
+            
+            if sources:
+                # Extract HLS
+                hls = sources.get("hls")
+                if hls:
+                     # hls can be string or object
+                    if isinstance(hls, str):
+                         hls_url = hls
+                    elif isinstance(hls, dict) and "url" in hls:
+                         hls_url = hls["url"]
+
+                # Extract MP4 (standard)
+                standard = sources.get("standard")
+                if standard and isinstance(standard, dict):
+                    # xHamster often provides: 240p, 480p, 720p, 1080p
+                    for quality, items in standard.items():
+                        # items is usually a list of urls or a single object
+                        # often just key=quality, value=url or list
+                        url_to_add = None
+                        if isinstance(items, str):
+                            url_to_add = items
+                        elif isinstance(items, list) and len(items) > 0:
+                            # Usually list of dicts or strings
+                            first = items[0]
+                            if isinstance(first, str):
+                                url_to_add = first
+                            elif isinstance(first, dict):
+                                url_to_add = first.get("url")
+                                
+                        if url_to_add:
+                            # Map quality names to simpler ones
+                            q_label = quality
+                            if "1080" in quality: q_label = "1080p"
+                            elif "720" in quality: q_label = "720p"
+                            elif "480" in quality: q_label = "480p"
+                            elif "240" in quality: q_label = "240p"
+                            
+                            streams.append({
+                                "quality": q_label,
+                                "url": url_to_add,
+                                "format": "mp4"
+                            })
+
+    except Exception:
+        pass
+        
+    # Sort streams by quality (descending)
+    def quality_score(s):
+        q = s["quality"]
+        if "1080" in q: return 1080
+        if "720" in q: return 720
+        if "480" in q: return 480
+        if "240" in q: return 240
+        return 0
+        
+    streams.sort(key=quality_score, reverse=True)
+    
+    default_url = None
+    if streams:
+        default_url = streams[0]["url"]
+    elif hls_url:
+        default_url = hls_url
+        
+    return {
+        "streams": streams,
+        "hls": hls_url,
+        "default": default_url,
+        "has_video": len(streams) > 0 or hls_url is not None
     }
 
 

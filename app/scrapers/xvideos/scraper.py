@@ -222,6 +222,9 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
     if m:
         views = m.group(1).replace(" ", "")
 
+    # ZERO-COST VIDEO EXTRACTION
+    video_data = _extract_video_streams(html)
+
     return {
         "url": url,
         "title": title,
@@ -232,6 +235,56 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
         "uploader_name": uploader,
         "category": category,
         "tags": tags,
+        "video": video_data, # Added video data
+    }
+
+
+def _extract_video_streams(html: str) -> dict[str, Any]:
+    """
+    Extract video streams from XVideos HTML
+    Uses the same engine as XNXX (html5player)
+    """
+    streams = []
+    hls_url = None
+    
+    # Method 1: Find setVideoUrlHigh (best quality)
+    high_match = re.search(r'html5player\.setVideoUrlHigh\([\'"](.+?)[\'"]\)', html)
+    if high_match:
+        streams.append({
+            "quality": "1080p",
+            "url": high_match.group(1),
+            "format": "mp4"
+        })
+    
+    # Method 2: Find setVideoUrlLow (lower quality)
+    low_match = re.search(r'html5player\.setVideoUrlLow\([\'"](.+?)[\'"]\)', html)
+    if low_match:
+        low_url = low_match.group(1)
+        # Only add if different from high quality
+        if not high_match or low_url != high_match.group(1):
+            streams.append({
+                "quality": "480p",
+                "url": low_url,
+                "format": "mp4"
+            })
+    
+    # Method 3: Find HLS stream (adaptive quality)
+    hls_match = re.search(r'html5player\.setVideoHLS\([\'"](.+?)[\'"]\)', html)
+    if hls_match:
+        hls_url = hls_match.group(1)
+    
+    # Determine default stream (prefer highest quality)
+    default_url = None
+    if streams:
+        default_url = streams[0]["url"]  # First stream is highest quality
+    elif hls_url:
+        default_url = hls_url
+    
+    return {
+        "streams": streams,
+        "hls": hls_url,
+        "default": default_url,
+        "has_video": len(streams) > 0 or hls_url is not None
     }
 
 

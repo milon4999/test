@@ -254,6 +254,14 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
 
     views = _extract_views(video_obj, html, soup)
 
+    if not duration:
+        m = re.search(r"\b(\d{1,2}:\d{2}(?::\d{2})?)\b", soup.get_text(" ", strip=True))
+        if m:
+            duration = m.group(1)
+
+    # ZERO-COST VIDEO EXTRACTION
+    video_data = _extract_video_streams(html, soup)
+
     return {
         "url": url,
         "title": title,
@@ -264,6 +272,74 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
         "uploader_name": uploader,
         "category": category,
         "tags": tags,
+        "video": video_data, # Added video data
+    }
+
+
+def _extract_video_streams(html: str, soup: BeautifulSoup) -> dict[str, Any]:
+    """
+    Extract video streams from Masa49
+    Looks for MP4 files, JWPlayer config, or video tags
+    """
+    streams = []
+    
+    seen_urls = set()
+    
+    # 1. Regex for .mp4 URLs in scripts or attributes
+    # Look for: "file": "http...mp4" or src="http...mp4"
+    mp4_matches = re.finditer(r'(?:file|src|url)["\']?\s*[:=]\s*["\'](https?://[^"\']+\.mp4)["\']', html, re.IGNORECASE)
+    
+    for m in mp4_matches:
+        url = m.group(1)
+        if url not in seen_urls:
+            streams.append({
+                "quality": "default", # Masa49 usually has one quality
+                "url": url,
+                "format": "mp4"
+            })
+            seen_urls.add(url)
+            
+    # 2. Look for <source> tags
+    for source in soup.find_all("source"):
+        src = source.get("src")
+        type_ = source.get("type")
+        if src and (src.endswith(".mp4") or (type_ and "mp4" in type_)):
+            if src not in seen_urls:
+                streams.append({
+                    "quality": "default",
+                    "url": src,
+                    "format": "mp4"
+                })
+                seen_urls.add(src)
+
+    # 3. Look for JWPlayer setup
+    # jwplayer("...").setup({ ... file: "..." ... })
+    jw_match = re.search(r'jwplayer\s*\([^)]+\)\.setup\s*\(\s*({.+?})\s*\)', html, re.DOTALL)
+    if jw_match:
+        try:
+            # VERY basic JSON cleanup (JWPlayer config often not valid JSON regex)
+            # This is a best-effort fallback
+            config_str = jw_match.group(1)
+            file_match = re.search(r'file\s*:\s*["\']([^"\']+\.mp4)["\']', config_str)
+            if file_match:
+                url = file_match.group(1)
+                if url not in seen_urls:
+                    streams.append({
+                        "quality": "default",
+                        "url": url,
+                        "format": "mp4"
+                    })
+                    seen_urls.add(url)
+        except Exception:
+            pass
+
+    default_url = streams[0]["url"] if streams else None
+    
+    return {
+        "streams": streams,
+        "hls": None, # Masa49 rarely uses HLS
+        "default": default_url,
+        "has_video": len(streams) > 0
     }
 
 
