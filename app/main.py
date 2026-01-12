@@ -382,7 +382,21 @@ async def video_info_endpoint(request: Request, url: str = Query(..., descriptio
             "playable": true
         }
     """
-    return await get_video_info(url)
+    try:
+        # Determine API base URL for proxy links
+        # Priority: 1. Env Var/Settings (BASE_URL) 2. Request Host (if behind proxy) 3. Localhost
+        from app.config.settings import settings
+        
+        if settings.BASE_URL:
+             api_base = settings.BASE_URL
+        else:
+             api_base = str(request.base_url)
+
+        return await get_video_info(url, api_base_url=api_base)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch video info: {str(e)}")
 
 
 @app.get("/api/v1/video/stream")

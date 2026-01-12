@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     RELOAD: bool = False
-    BASE_URL: Optional[str] = None # Optional manual override for proxy URLs
+    BASE_URL: Optional[str] = "https://test-production-8fbc.up.railway.app" # Manual override for proxy URLs
     
     # Security
     SECRET_KEY: str = "your-secret-key-change-in-production-min-32-chars"
