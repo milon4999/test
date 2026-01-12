@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🎬 Video Streaming Demo - Your API</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        background: linear-gradient(135deg, #0a0a1f 0%, #1a1a2e 100%);
+        color: #ffffff;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        padding: 20px;
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        text-align: center;
+        margin-bottom: 10px;
+        color: #6366f1;
+        font-size: 2.5em;
+      }
+
+      .subtitle {
+        text-align: center;
+        margin-bottom: 30px;
+        color: #9ca3af;
+        font-size: 1.1em;
+      }
+
+      .search-box {
+        background: #1a1a2e;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      }
+
+      input[type="text"] {
+        width: 70%;
+        padding: 15px;
+        border-radius: 8px;
+        border: 2px solid #444;
+        background: #2a2a3e;
+        color: white;
+        font-size: 1em;
+      }
+
+      input[type="text"]:focus {
+        outline: none;
+        border-color: #6366f1;
+      }
+
+      button {
+        padding: 15px 30px;
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 1em;
+        font-weight: 600;
+        transition: transform 0.2s;
+      }
+
+      button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+      }
+
+      #player {
+        display: none;
+      }
+
+      video {
+        width: 100%;
+        max-width: 900px;
+        border-radius: 10px;
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+        margin-bottom: 20px;
+      }
+
+      .quality-buttons {
+        text-align: center;
+        margin: 20px 0;
+      }
+
+      .quality-buttons button {
+        margin: 5px;
+        padding: 10px 20px;
+        background: #6366f1;
+        font-size: 0.9em;
+      }
+
+      .quality-buttons button:hover {
+        background: #4f46e5;
+      }
+
+      .quality-buttons button.active {
+        background: #10b981;
+      }
+
+      .video-info {
+        background: #1a1a2e;
+        padding: 20px;
+        border-radius: 10px;
+        margin-top: 20px;
+      }
+
+      .video-info h3 {
+        color: #6366f1;
+        margin-bottom: 15px;
+      }
+
+      .info-item {
+        margin: 10px 0;
+        padding: 8px;
+        background: #2a2a3e;
+        border-radius: 5px;
+      }
+
+      .info-label {
+        color: #9ca3af;
+        font-weight: 600;
+      }
+
+      .loading {
+        text-align: center;
+        padding: 20px;
+        color: #6366f1;
+        font-size: 1.2em;
+      }
+
+      .error {
+        background: #dc2626;
+        padding: 15px;
+        border-radius: 8px;
+        margin: 20px 0;
+      }
+
+      .player-container {
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🎬 Video Streaming Demo</h1>
+      <p class="subtitle">
+        Your API returns video URLs - clients play them however they want!
+      </p>
+
+      <div class="search-box">
+        <input
+          type="text"
+          id="videoUrl"
+          placeholder="Enter XNXX video URL (e.g., https://www.xnxx.com/video-xxx/sample)"
+          value=""
+        />
+        <button onclick="loadVideo()">🚀 Load Video</button>
+      </div>
+
+      <div id="loading" class="loading" style="display: none">
+        Loading video info from API...
+      </div>
+
+      <div id="error" class="error" style="display: none"></div>
+
+      <div id="player">
+        <div class="player-container">
+          <video id="videoPlayer" controls autoplay>
+            <source id="videoSource" src="" type="video/mp4" />
+            Your browser doesn't support HTML5 video.
+          </video>
+        </div>
+
+        <div class="quality-buttons" id="qualityButtons"></div>
+
+        <div class="video-info">
+          <h3>Video Information</h3>
+          <div id="videoInfo"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      async function loadVideo() {
+        const url = document.getElementById("videoUrl").value.trim();
+        const errorDiv = document.getElementById("error");
+        const loadingDiv = document.getElementById("loading");
+        const playerDiv = document.getElementById("player");
+
+        // Validate URL
+        if (!url || !url.includes("xnxx.com")) {
+          errorDiv.textContent = "Please enter a valid XNXX video URL";
+          errorDiv.style.display = "block";
+          return;
+        }
+
+        // Show loading
+        errorDiv.style.display = "none";
+        playerDiv.style.display = "none";
+        loadingDiv.style.display = "block";
+
+        try {
+          // Call your API
+          const apiUrl = `https://test-production-8fbc.up.railway.app/api/v1/video/stream?url=${encodeURIComponent(
+            url
+          )}`;
+          const response = await fetch(apiUrl);
+
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || "Failed to fetch video info");
+          }
+
+          const data = await response.json();
+
+          loadingDiv.style.display = "none";
+
+          if (!data.playable || !data.video.has_video) {
+            errorDiv.textContent = "No video streams found for this URL";
+            errorDiv.style.display = "block";
+            return;
+          }
+
+          // Show player
+          playerDiv.style.display = "block";
+
+          // Set default video
+          const videoPlayer = document.getElementById("videoPlayer");
+          const videoSource = document.getElementById("videoSource");
+          videoSource.src = data.video.default;
+          videoPlayer.load();
+
+          // Show video info
+          const infoDiv = document.getElementById("videoInfo");
+          infoDiv.innerHTML = `
+                    <div class="info-item"><span class="info-label">Title:</span> ${
+                      data.title || "N/A"
+                    }</div>
+                    <div class="info-item"><span class="info-label">Duration:</span> ${
+                      data.duration || "N/A"
+                    }</div>
+                    <div class="info-item"><span class="info-label">Views:</span> ${
+                      data.views || "N/A"
+                    }</div>
+                    <div class="info-item"><span class="info-label">Uploader:</span> ${
+                      data.uploader_name || "N/A"
+                    }</div>
+                    <div class="info-item"><span class="info-label">Available Streams:</span> ${
+                      data.video.streams.length
+                    }</div>
+                    ${
+                      data.video.hls
+                        ? '<div class="info-item"><span class="info-label">HLS:</span> Available</div>'
+                        : ""
+                    }
+                `;
+
+          // Create quality buttons
+          const qualityButtons = document.getElementById("qualityButtons");
+          qualityButtons.innerHTML = "";
+
+          data.video.streams.forEach((stream, index) => {
+            const btn = document.createElement("button");
+            btn.textContent = `📺 ${stream.quality}`;
+            btn.className = index === 0 ? "active" : "";
+            btn.onclick = () => {
+              videoSource.src = stream.url;
+              videoPlayer.load();
+              videoPlayer.play();
+
+              // Update active button
+              qualityButtons
+                .querySelectorAll("button")
+                .forEach((b) => (b.className = ""));
+              btn.className = "active";
+            };
+            qualityButtons.appendChild(btn);
+          });
+
+          // Add HLS button if available
+          if (data.video.hls) {
+            const hlsBtn = document.createElement("button");
+            hlsBtn.textContent = "🎬 HLS (Adaptive)";
+            hlsBtn.onclick = () => {
+              alert(
+                "HLS streams require an HLS player library like hls.js. Direct M3U8 playback is limited in browsers."
+              );
+            };
+            qualityButtons.appendChild(hlsBtn);
+          }
+        } catch (error) {
+          loadingDiv.style.display = "none";
+          errorDiv.textContent = `Error: ${error.message}`;
+          errorDiv.style.display = "block";
+          console.error("Error loading video:", error);
+        }
+      }
+
+      // Allow Enter key to load video
+      document
+        .getElementById("videoUrl")
+        .addEventListener("keypress", function (e) {
+          if (e.key === "Enter") {
+            loadVideo();
+          }
+        });
+    </script>
+  </body>
+</html>
