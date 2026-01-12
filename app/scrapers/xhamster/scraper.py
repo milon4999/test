@@ -389,6 +389,14 @@ def _extract_video_data(html: str) -> dict[str, Any]:
                          hls_url = hls
                     elif isinstance(hls, dict) and "url" in hls:
                          hls_url = hls["url"]
+                    
+                    # Add HLS to streams array with proper format label
+                    if hls_url:
+                        streams.append({
+                            "quality": "adaptive",
+                            "url": hls_url,
+                            "format": "hls"
+                        })
 
                 # Extract MP4 (standard - dict format)
                 standard = sources.get("standard")
@@ -456,6 +464,12 @@ def _extract_video_data(html: str) -> dict[str, Any]:
         m = re.search(r'["\'](https:[^"\']+\.m3u8[^"\']*)["\']', html)
         if m:
             hls_url = m.group(1).replace("\\/", "/")
+            # Add HLS to streams if extracted via fallback
+            streams.append({
+                "quality": "adaptive",
+                "url": hls_url,
+                "format": "hls"
+            })
         
     # Sort streams by quality (descending)
     def quality_score(s):

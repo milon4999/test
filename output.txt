@@ -1,0 +1,24 @@
+﻿Testing: https://xhamster.com/videos/my-stepbrother-came-in-my-bedroom-and-fuck-my-pussy-hardly-shopna25-xh8YYPL
+
+============================================================
+VIDEO DATA:
+============================================================
+
+has_video: True
+hls: https://video-cf.xhcdn.com/ELCHX6TO1xbadhpCyVy%2Bcaqss4v2Sl2kVAAOQDPEMHM%3D/104/1768273200/media=hls4/multi=256x144:144p:,426x240:240p:,854x480:480p:,1280x720:720p:,1920x1080:1080p:/024/399/175/_TPL_.av1.mp4.m3u8
+default: https://video-cf.xhcdn.com/01ce9dc0eb907c8caa815227792ca035abc5e40bdd1cd6a6975bf6e067dc5b14ae47eed802c7bbb9c3b84bc2926d3d3a228c09a87a/104/1768273200/media=hls4/multi=256x144:144p:,426x240:240p:,854x480:480p:,1280x720:720p:,1920x1080:1080p:/024/399/175/_TPL_.av1.mp4.m3u8
+
+
+STREAMS (3):
+------------------------------------------------------------
+  - Quality: av1        | Format: mp4   | URL: https://video-cf.xhcdn.com/01ce9dc0eb907c8caa815227792ca035abc5e40bdd1cd6a6975bf...
+  - Quality: h264       | Format: mp4   | URL: https://video-cf.xhcdn.com/017c710b4bdc7871233b7260d48a3b2d4ecd4c8b88d2edd3b97eb...
+  - Quality: adaptive   | Format: hls   | URL: https://video-cf.xhcdn.com/ELCHX6TO1xbadhpCyVy%2Bcaqss4v2Sl2kVAAOQDPEMHM%3D/104/...
+
+============================================================
+RESULT:
+============================================================
+[SUCCESS] HLS stream found in streams array with format='hls'
+   Quality: adaptive
+   URL: https://video-cf.xhcdn.com/ELCHX6TO1xbadhpCyVy%2Bcaqss4v2Sl2kVAAOQDPEMHM%3D/104/1768273200/media=hls...
+[OK] HLS URL also available at video['hls']
