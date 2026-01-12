@@ -55,7 +55,7 @@ async def global_search(
     start_time = time()
     
     # Import scraper modules
-    import xhamster, xnxx, xvideos, masa49
+    from app.scrapers import xhamster, xnxx, xvideos, masa49
     
     # Build scraper registry (until we have real registry)
     available_scrapers = {
@@ -201,7 +201,7 @@ async def global_trending(
     
     Similar to global search but uses trending pages
     """
-    import xhamster, xnxx, xvideos, masa49
+    from app.scrapers import xhamster, xnxx, xvideos, masa49
     
     available_scrapers = {
         'xhamster': (xhamster, "https://xhamster.com/trending"),

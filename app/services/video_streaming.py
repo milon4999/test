@@ -36,7 +36,7 @@ async def get_video_info(url: str) -> dict:
         }
     """
     # Import here to avoid circular dependency
-    import xnxx, xhamster, xvideos, masa49
+    from app.scrapers import xnxx, xhamster, xvideos, masa49
     from urllib.parse import urlparse
     
     # Parse URL to get host
