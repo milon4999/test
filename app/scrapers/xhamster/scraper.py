@@ -390,7 +390,7 @@ def _extract_video_data(html: str) -> dict[str, Any]:
                     elif isinstance(hls, dict) and "url" in hls:
                          hls_url = hls["url"]
 
-                # Extract MP4 (standard)
+                # Extract MP4 (standard - dict format)
                 standard = sources.get("standard")
                 if standard and isinstance(standard, dict):
                     # xHamster often provides: 240p, 480p, 720p, 1080p
@@ -421,6 +421,27 @@ def _extract_video_data(html: str) -> dict[str, Any]:
                                 "url": url_to_add,
                                 "format": "mp4"
                             })
+
+                # Extract MP4 (h264/mp4 - list format)
+                # Some videos use 'h264' (list of dicts) instead of 'standard'
+                mp4_list = sources.get("h264") or sources.get("mp4")
+                if mp4_list and isinstance(mp4_list, list):
+                     for item in mp4_list:
+                         if isinstance(item, dict) and "url" in item:
+                             # Extract quality
+                             raw_q = str(item.get("quality", "default") or "default")
+                             q_label = raw_q
+                             
+                             if "1080" in raw_q: q_label = "1080p"
+                             elif "720" in raw_q: q_label = "720p"
+                             elif "480" in raw_q: q_label = "480p"
+                             elif "240" in raw_q: q_label = "240p"
+                             
+                             streams.append({
+                                "quality": q_label,
+                                "url": item["url"],
+                                "format": "mp4"
+                             })
 
     except Exception:
         pass
