@@ -4,7 +4,7 @@ import httpx
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse, Response
 from typing import AsyncGenerator
-from config import settings
+from app.config.settings import settings
 
 
 class HLSProxy:

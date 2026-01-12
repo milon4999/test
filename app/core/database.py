@@ -3,8 +3,8 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 from typing import AsyncGenerator
-from config import settings
-from models import Base
+from app.config.settings import settings
+from app.models.models import Base
 
 
 # Create async engine

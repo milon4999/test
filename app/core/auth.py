@@ -10,10 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import secrets
 
-from config import settings
-from database import get_db
-from models import User
-from schemas import UserResponse
+from app.config.settings import settings
+from app.core.database import get_db
+from app.models.models import User
+from app.models.schemas import UserResponse
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
