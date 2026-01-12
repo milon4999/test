@@ -223,6 +223,9 @@ class HLSProxy:
                     headers={
                         "Accept-Ranges": "bytes",
                         "Cache-Control": "public, max-age=3600",
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Methods": "GET, OPTIONS",
+                        "Access-Control-Allow-Headers": "*",
                     }
                 )
             else:
@@ -242,6 +245,9 @@ class HLSProxy:
                     headers={
                         "Accept-Ranges": "bytes",
                         "Cache-Control": "public, max-age=3600",
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Methods": "GET, OPTIONS",
+                        "Access-Control-Allow-Headers": "*",
                     }
                 )
         
@@ -283,6 +289,9 @@ class HLSProxy:
                 headers={
                     "Content-Type": response.headers.get("content-type", "application/octet-stream"),
                     "Cache-Control": "public, max-age=3600",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, OPTIONS",
+                    "Access-Control-Allow-Headers": "*"
                 }
             )
         
