@@ -5,7 +5,7 @@ Killer feature from porn-app.com's Pro tier ($3.99/mo)
 """
 
 from fastapi import Query
-from typing import Optional
+from app.core.exceptions import ScraperExceptional
 import asyncio
 import logging
 

@@ -12,6 +12,16 @@ from bs4 import BeautifulSoup
 def can_handle(host: str) -> bool:
     return host.lower().endswith("xhamster.com")
 
+def get_categories() -> list[dict]:
+    import os
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        json_path = os.path.join(current_dir, "categories.json")
+        with open(json_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
 
 def _best_image_url(img: Any) -> Optional[str]:
     if img is None:
