@@ -49,3 +49,55 @@ async def proxy_playlist(
         content=content, 
         media_type="application/vnd.apple.mpegurl"
     )
+
+@router.get("/test-connection")
+async def test_connection(
+    url: str = Query(None, description="Optional specific URL to test"),
+    referer: str = Query(None, description="Optional Referer URL")
+):
+    """
+    Debug endpoint to diagnose Railway connectivity and cookies
+    """
+    import json
+    
+    # 1. Check curl_cffi status
+    # We access the class variable HAS_CURL_CFFI via import in hls_proxy module
+    from app.services.hls_proxy import HAS_CURL_CFFI, hls_proxy
+    
+    result = {
+        "has_curl_cffi": HAS_CURL_CFFI,
+        "cached_cookies_count": len(hls_proxy.cookie_cache.get(referer, [[]])[0]) if referer in hls_proxy.cookie_cache else 0,
+        "tests": {}
+    }
+    
+    # 2. Test Connection (HomePage)
+    try:
+        # Use the proxy's internal client logic to test connection
+        # Force a fresh client or session to debug
+        client = await hls_proxy.get_client()
+        
+        # Test 1: Homepage (to get cookies)
+        home_url = "https://xhamster.com/"
+        resp_home = await client.get(home_url)
+        result["tests"]["homepage"] = {
+            "status": resp_home.status_code,
+            "headers_count": len(resp_home.headers),
+            "cookies_captured": len(client.cookies) if hasattr(client, 'cookies') else 0
+        }
+    except Exception as e:
+        result["tests"]["homepage"] = {"error": str(e)}
+        
+    # 3. Test Specific URL
+    if url:
+        try:
+             # Try with current proxy logic
+             resp_target = await client.get(url, headers={"Referer": referer} if referer else {})
+             result["tests"]["target"] = {
+                 "status": resp_target.status_code,
+                 "content_length": len(resp_target.content),
+                 "sample": str(resp_target.content[:100])
+             }
+        except Exception as e:
+             result["tests"]["target"] = {"error": str(e)}
+    
+    return result
