@@ -14,9 +14,13 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # Server
+    MAX_SITES_SEARCH: int = 30
+    
+    # Server configuration
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     RELOAD: bool = False
+    BASE_URL: Optional[str] = None # Optional manual override for proxy URLs
     
     # Security
     SECRET_KEY: str = "your-secret-key-change-in-production-min-32-chars"

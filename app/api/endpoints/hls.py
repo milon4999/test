@@ -24,8 +24,14 @@ async def proxy_playlist(request: Request, url: str = Query(..., description="M3
     # We use the base URL of the incoming request to rewrite links
     # This ensures links work on both localhost and production (Railway)
     
-    # request.base_url returns e.g. "https://my-app.railway.app/"
-    base_url = str(request.base_url).rstrip("/")
+    # Priority: 1. Env Var (BASE_URL) 2. Request Host
+    from app.config.settings import settings
+    
+    if settings.BASE_URL:
+        base_url = settings.BASE_URL.rstrip("/")
+    else:
+        # request.base_url returns e.g. "https://my-app.railway.app/"
+        base_url = str(request.base_url).rstrip("/")
     
     # Construct the proxy endpoint URL
     base_proxy_url = f"{base_url}/api/hls/proxy"
