@@ -195,17 +195,18 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
     
     url = base_url.rstrip("/")
     
-    # Check if header/footer link
     # Spankbang standard: /2 for page 2
     if page > 1:
-        if url == "https://spankbang.com" or url == "https://spankbang.com/":
+        if url == "https://spankbang.com":
              url = "https://spankbang.com/trending_videos"
+        elif "/s/" in url:
+             # Ensure /s/ URLs keep structure: /s/query/page
+             # If url was .../s/amateur, make it .../s/amateur/2
+             pass 
         
-        if "/s/" in url: # Search
-            url = f"{url}/{page}"
-        else:
-            url = f"{url}/{page}"
-            
+        # Append page number
+        url = f"{url}/{page}"
+
     try:
         html = await fetch_html(url)
     except Exception:
