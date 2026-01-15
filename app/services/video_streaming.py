@@ -120,9 +120,16 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             selected_quality = "default"
             logger.warning(f"Quality {quality} not available, using default")
     
+    # Determine format and refine quality label
+    fmt = "mp4"
+    if ".m3u8" in stream_url:
+        fmt = "hls"
+        if selected_quality == "default":
+            selected_quality = "adaptive"
+            
     return {
         "stream_url": stream_url,
         "quality": selected_quality,
-        "format": "mp4",
+        "format": fmt,
         "available_qualities": [s["quality"] for s in video_data["streams"]]
     }
