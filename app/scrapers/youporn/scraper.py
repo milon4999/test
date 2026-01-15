@@ -46,8 +46,9 @@ def _extract_video_streams(html: str) -> dict[str, Any]:
     
     m = re.search(r'var\s+page_params\s*=\s*(\{.*?\});', html, re.DOTALL)
     if not m:
-        # Fallback: look for other JSON blobs
-        m = re.search(r'mediaDefinitions\s*:\s*(\[.*?\])', html, re.DOTALL)
+        # Fallback: look for mediaDefinitions directly in JSON
+        # Pattern: "mediaDefinitions":[...]
+        m = re.search(r'["\']?mediaDefinitions["\']?\s*:\s*(\[.*?\])', html, re.DOTALL)
     
     data = None
     if m:
@@ -69,6 +70,10 @@ def _extract_video_streams(html: str) -> dict[str, Any]:
             for md in media_defs:
                 video_url = md.get("videoUrl")
                 if not video_url: continue
+                
+                # Skip poster/thumbnail images
+                if video_url.endswith('.jpg') or video_url.endswith('.jpeg') or video_url.endswith('.png'):
+                    continue
                 
                 fmt = md.get("format") # mp4, hls
                 quality = md.get("quality") # 720p, 1080p, etc
@@ -98,12 +103,14 @@ def _extract_video_streams(html: str) -> dict[str, Any]:
         video = soup.find("video")
         if video:
             src = video.get("src")
-            if src:
+            # Skip poster images in video src attribute
+            if src and not (src.endswith('.jpg') or src.endswith('.jpeg') or src.endswith('.png')):
                  streams.append({"quality": "unknown", "url": src, "format": "mp4"})
             for source in video.find_all("source"):
                 src = source.get("src")
                 type_ = source.get("type", "")
-                if src:
+                # Skip poster images
+                if src and not (src.endswith('.jpg') or src.endswith('.jpeg') or src.endswith('.png')):
                     fmt = "hls" if "mpegurl" in type_ or ".m3u8" in src else "mp4"
                     if fmt == "hls":
                         hls_url = src
