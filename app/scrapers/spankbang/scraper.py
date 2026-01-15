@@ -38,58 +38,86 @@ async def fetch_html(url: str) -> str:
 def _extract_video_streams(html: str) -> dict[str, Any]:
     streams = []
     
-    # SpankBang usually has a simple 'stream_url' variable in JS
-    # var stream_url = "https://...";
-    # Or 'stream_data' object
+    # SpankBang usually has video sources in <source> tags or JavaScript
+    # Try multiple methods to extract streams
     
-    # Look for stream_url
-    video_url = None
-    
-    # 1. Check for stream_url
-    m = re.search(r'stream_url\s*=\s*["\'](https?://.*?)["\']', html)
-    if m:
-        video_url = m.group(1)
-        streams.append({
-            "quality": "default", # Usually the highest available or adaptive
-            "url": video_url,
-            "format": "mp4" # or m3u8 if detected
-        })
-        
-    # 2. Check for stream_data = { ... "4k": "...", "1080p": "..." }
-    # var stream_data = {"4k":[],"1080p":["https:\/\/..."],"720p":["..."]};
-    m_data = re.search(r'var\s+stream_data\s*=\s*(\{.*?\});', html, re.DOTALL)
-    if m_data:
-        try:
-            data = json.loads(m_data.group(1))
-            for q, urls in data.items():
-                if isinstance(urls, list) and len(urls) > 0:
-                    url = urls[0] # Prefer first
-                elif isinstance(urls, str):
-                    url = urls
+    #1. Parse <source> tags from video element (most reliable)
+    soup = BeautifulSoup(html, "lxml")
+    sources = soup.select("video source, source")  # Get all source tags, not just those with src
+    for source in sources:
+        # Check both src and data-src attributes
+        src = source.get("src") or source.get("data-src")
+        if src and (src.startswith("http") or src.startswith("//")):
+            if src.startswith("//"):
+                src = "https:" + src
+            
+            # Skip thumbnail/preview URLs (they contain /t/ and td.mp4)
+            if "/t/" in src and "td.mp4" in src:
+                continue
+            
+            # Skip if URL looks like a thumbnail server (tbv.sb-cd.com)
+            if "tbv.sb-cd.com" in src:
+                continue
+            
+            # Try to extract quality from data attributes or URL
+            quality = source.get("size") or source.get("label") or source.get("data-res")
+            
+            # If no quality attribute, try to extract from URL (e.g., "9584549-480p.mp4")
+            if not quality:
+                m = re.search(r'[-_](\d+p)\.mp4', src)
+                if m:
+                    quality = m.group(1).replace('p', '')  # Extract "480" from "480p"
                 else:
-                    continue
-                    
-                if url:
-                    url = url.replace('\\/', '/')
-                    streams.append({
-                        "quality": q.replace('p', ''),
-                        "url": url,
-                        "format": "mp4"
-                    })
-        except:
-             pass
+                    quality = "unknown"
+            
+            # Detect format from URL
+            fmt = "hls" if ".m3u8" in src else "mp4"
+            
+            streams.append({
+                "quality": str(quality),
+                "url": src,
+                "format": fmt
+            })
+    
+    # 2. Check for stream_url variable (fallback)
+    if not streams:
+        m = re.search(r'stream_url\s*=\s*["\'](https?://.*?)["\']', html)
+        if m:
+            video_url = m.group(1)
+            streams.append({
+                "quality": "default",
+                "url": video_url,
+                "format": "mp4"
+            })
+        
+    # 3. Check for stream_data object (second fallback)
+    if not streams:
+        m_data = re.search(r'var\s+stream_data\s*=\s*(\{.*?\});', html, re.DOTALL)
+        if m_data:
+            try:
+                data = json.loads(m_data.group(1))
+                for q, urls in data.items():
+                    if isinstance(urls, list) and len(urls) > 0:
+                        url = urls[0]
+                    elif isinstance(urls, str):
+                        url = urls
+                    else:
+                        continue
+                        
+                    if url:
+                        url = url.replace('\\/', '/')
+                        streams.append({
+                            "quality": q.replace('p', ''),
+                            "url": url,
+                            "format": "mp4"
+                        })
+            except:
+                 pass
              
     # Determine default
     default_url = None
-    # Sort streams by quality if possible (4k > 1080 > 720 > 480)
-    # But usually 'default' (stream_url) is acceptable
-    
     if streams:
-        # If we have a stream_url, it's often the best bet for default
-        if video_url:
-            default_url = video_url
-        else:
-            default_url = streams[0]["url"]
+        default_url = streams[0]["url"]
             
     return {
         "streams": streams,

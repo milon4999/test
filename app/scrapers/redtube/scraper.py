@@ -9,7 +9,8 @@ import httpx
 from bs4 import BeautifulSoup
 
 def can_handle(host: str) -> bool:
-    return "redtube.com" in host.lower()
+    host_lower = host.lower()
+    return "redtube.com" in host_lower or "redtube.net" in host_lower
 
 def get_categories() -> list[dict]:
     try:
@@ -24,16 +25,54 @@ async def fetch_html(url: str) -> str:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        # RedTube usually works well with standard headers
     }
     async with httpx.AsyncClient(
         follow_redirects=True,
-        timeout=httpx.Timeout(20.0, connect=20.0),
+        timeout=httpx.Timeout(30.0, connect=30.0),
         headers=headers,
     ) as client:
         resp = await client.get(url)
         resp.raise_for_status()
         return resp.text
+
+async def _resolve_proxy_url(proxy_url: str) -> list[dict]:
+    """
+    Resolve a RedTube proxy URL (e.g., /media/mp4?s=...) to actual CDN streams.
+    Returns a list of stream objects with quality, url, format.
+    """
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+        }
+        async with httpx.AsyncClient(headers=headers, timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(proxy_url)
+            if resp.status_code != 200:
+                return []
+            
+            data = resp.json()
+            if isinstance(data, list):
+                streams = []
+                for item in data:
+                    quality = item.get("quality")
+                    video_url = item.get("videoUrl")
+                    fmt = item.get("format", "mp4")
+                    
+                    if video_url:
+                        # Convert quality to string
+                        if isinstance(quality, int):
+                            quality = str(quality)
+                        
+                        streams.append({
+                            "quality": quality if quality else "unknown",
+                            "url": video_url,
+                            "format": fmt
+                        })
+                return streams
+    except Exception:
+        pass
+    
+    return []
 
 def _extract_video_streams(html: str) -> dict[str, Any]:
     streams = []
@@ -56,6 +95,10 @@ def _extract_video_streams(html: str) -> dict[str, Any]:
                  if not data and "video" in full:
                      data = full["video"].get("mediaDefinitions", [])
 
+            # Two-pass extraction: first try direct CDN URLs, then fall back to proxy URLs
+            direct_streams = []
+            proxy_streams = []
+            
             for md in data:
                 video_url = md.get("videoUrl")
                 if not video_url: continue
@@ -63,21 +106,45 @@ def _extract_video_streams(html: str) -> dict[str, Any]:
                 fmt = md.get("format")
                 quality = md.get("quality")
                 
-                if isinstance(quality, list): quality = str(quality[0])
+                # Convert quality to string if it's an integer
+                if isinstance(quality, int):
+                    quality = str(quality)
+                elif isinstance(quality, list):
+                    quality = str(quality[0])
                 
+                # Build stream object
+                stream = {
+                    "quality": quality if quality else "unknown",
+                    "url": video_url,
+                    "format": fmt or "mp4"
+                }
+                
+                # Categorize as direct CDN or proxy
+                is_proxy = video_url.startswith("/media/") or "?s=eyJ" in video_url
+                
+                # Convert relative URLs to absolute
+                if video_url.startswith("/"):
+                    stream["url"] = "https://www.redtube.com" + video_url
+                
+                # Adjust quality and format for HLS
                 if fmt == "hls" or ".m3u8" in video_url:
-                     hls_url = video_url
-                     streams.append({
-                        "quality": "adaptive",
-                        "url": video_url,
-                        "format": "hls"
-                    })
-                elif fmt == "mp4":
-                     streams.append({
-                        "quality": str(quality) if quality else "unknown",
-                        "url": video_url,
-                        "format": "mp4"
-                    })
+                    stream["quality"] = "adaptive"
+                    stream["format"] = "hls"
+                    if not is_proxy:
+                        hls_url = stream["url"]
+                
+                # Add to appropriate list
+                if is_proxy:
+                    proxy_streams.append(stream)
+                else:
+                    direct_streams.append(stream)
+            
+            # Prefer direct CDN URLs, fall back to proxy if none found
+            if direct_streams:
+                streams = direct_streams
+            else:
+                streams = proxy_streams
+                
         except Exception:
             pass
             
@@ -154,7 +221,40 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
 
 async def scrape(url: str) -> dict[str, Any]:
     html = await fetch_html(url)
-    return parse_page(html, url)
+    result = parse_page(html, url)
+    
+    # Check if we have proxy URLs and resolve them to real CDN streams
+    video_data = result.get("video", {})
+    streams = video_data.get("streams", [])
+    
+    # If any stream is a proxy URL, try to resolve it
+    for stream in streams[:]:  # Copy list to modify while iterating
+        stream_url = stream.get("url", "")
+        if "/media/" in stream_url and "?s=eyJ" in stream_url:
+            # This is a proxy URL - resolve it
+            resolved_streams = await _resolve_proxy_url(stream_url)
+            if resolved_streams:
+                # Remove the proxy stream
+                streams.remove(stream)
+                # Add all resolved streams
+                streams.extend(resolved_streams)
+    
+    # Update default URL based on resolved streams
+    if streams:
+        # Find HLS adaptive stream or highest quality MP4
+        hls_stream = next((s for s in streams if s.get("format") == "hls"), None)
+        if hls_stream:
+            video_data["default"] = hls_stream["url"]
+        else:
+            # Find highest quality MP4
+            mp4_streams = [s for s in streams if s.get("format") == "mp4"]
+            if mp4_streams:
+                # Sort by quality (try to get 1080, 720, etc.)
+                qualities = {"1080": 4, "720": 3, "480": 2, "240": 1}
+                mp4_streams.sort(key=lambda s: qualities.get(s.get("quality", ""), 0), reverse=True)
+                video_data["default"] = mp4_streams[0]["url"]
+    
+    return result
 
 async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dict[str, Any]]:
     # RedTube: /?page=2 or /videos?page=2

@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     SCRAPER_MAX_RETRIES: int = 3
     SCRAPER_RETRY_DELAY: int = 2
     
+    # HLS Proxy
+    HLS_PROXY_ENABLED: bool = True
+    HLS_PROXY_TIMEOUT: int = 30
+    
     # API Keys
     REQUIRE_AUTH: bool = False  # Set to True to require authentication
     API_KEY_HEADER: str = "X-API-Key"
