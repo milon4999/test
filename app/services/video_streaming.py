@@ -130,6 +130,5 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
     return {
         "stream_url": stream_url,
         "quality": selected_quality,
-        "format": fmt,
-        "available_qualities": [s["quality"] for s in video_data["streams"]]
+        "format": fmt
     }
