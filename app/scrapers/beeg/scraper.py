@@ -135,7 +135,7 @@ def _parse_externulls_response(item: dict, url: str, video_id: str) -> dict[str,
             uploader = t.get("tg_name")
             break
             
-    # Streams
+    # Streams - Use hls_resources which have correct CDN paths
     streams = []
     
     # 1. HLS Master (Multi)
@@ -145,24 +145,26 @@ def _parse_externulls_response(item: dict, url: str, video_id: str) -> dict[str,
         streams.append({
             "quality": "adaptive",
             "format": "hls",
-            "url": f"https://video.externulls.com/{multi}"
+            "url": f"https://video.externulls.com/{multi}.m3u8"  # Add .m3u8 extension
         })
-        
-    # 2. Individual Qualities (MP4/HLS segments?)
-    # usually qualities -> h264 -> list
-    qualities = file_info.get("qualities", {})
-    # check h264, h265, av1
-    for codec in ["h264", "h265", "av1"]:
-        q_list = qualities.get(codec, [])
-        for q_item in q_list:
-            q_val = str(q_item.get("quality"))
-            q_url = q_item.get("url")
-            if q_url:
-                streams.append({
-                    "quality": f"{q_val}p",
-                    "format": "mp4", # Assuming mp4 for these direct links based on browser/json
-                    "url": f"https://video.externulls.com/{q_url}"
-                })
+    
+    # 2. Individual quality HLS streams (these work, unlike the qualities section)
+    quality_map = {
+        "fl_cdn_240": "240p",
+        "fl_cdn_360": "360p",
+        "fl_cdn_480": "480p",
+        "fl_cdn_720": "720p",
+        "fl_cdn_1080": "1080p"
+    }
+    
+    for cdn_key, quality_label in quality_map.items():
+        cdn_url = hls_res.get(cdn_key)
+        if cdn_url:
+            streams.append({
+                "quality": quality_label,
+                "format": "hls",  # These are HLS segments, not direct MP4
+                "url": f"https://video.externulls.com/{cdn_url}.m3u8"  # Add .m3u8 extension
+            })
                 
     # Sort streams? VideoStreaming service handles sorting usually.
     # But let's ensure HLS is present.
