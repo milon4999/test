@@ -265,7 +265,10 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             thumb = None
             if img:
                 thumb = img.get("data-src") or img.get("src")
-                if thumb and thumb.startswith("//"): thumb = "https:" + thumb
+                if thumb:
+                    if thumb.startswith("//"): thumb = "https:" + thumb
+                    # Upgrade resolution: w:300 -> w:1200
+                    thumb = thumb.replace("w:300", "w:1200")
                 
             # Duration: in data-testid="video-item-length"
             duration = "0:00"
