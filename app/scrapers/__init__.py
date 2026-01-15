@@ -15,5 +15,6 @@ from . import xnxx
 from . import xhamster
 from . import xvideos
 from . import masa49
+from . import pornhub
 
-__all__ = ['xnxx', 'xhamster', 'xvideos', 'masa49']
+__all__ = ['xnxx', 'xhamster', 'xvideos', 'masa49', 'pornhub']

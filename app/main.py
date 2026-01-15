@@ -7,7 +7,7 @@ from pydantic import BaseModel, HttpUrl, field_validator
 from typing import Any, Optional
 
 # Scrapers from app package
-from app.scrapers import masa49, xhamster, xnxx, xvideos
+from app.scrapers import masa49, xhamster, xnxx, xvideos, pornhub
 import json
 import os
 import asyncio
@@ -69,9 +69,10 @@ class ScrapeRequest(BaseModel):
             or host.endswith("masa49.org")
             or host.endswith("xnxx.com")
             or host.endswith("xvideos.com")
+            or "pornhub.com" in host
         ):
             return v
-        raise ValueError("Only xhamster.com, masa49.org, xnxx.com and xvideos.com URLs are allowed")
+        raise ValueError("Only xhamster.com, masa49.org, xnxx.com, xvideos.com and pornhub.com URLs are allowed")
 
 
 class ScrapeResponse(BaseModel):
@@ -121,9 +122,10 @@ class ListRequest(BaseModel):
             or host.endswith("masa49.org")
             or host.endswith("xnxx.com")
             or host.endswith("xvideos.com")
+             or "pornhub.com" in host
         ):
             return v
-        raise ValueError("Only xhamster.com, masa49.org, xnxx.com and xvideos.com base_url are allowed")
+        raise ValueError("Only xhamster.com, masa49.org, xnxx.com, xvideos.com and pornhub.com base_url are allowed")
 
 
 async def _scrape_dispatch(url: str, host: str) -> dict[str, object]:
@@ -135,6 +137,8 @@ async def _scrape_dispatch(url: str, host: str) -> dict[str, object]:
         return await xnxx.scrape(url)
     if xvideos.can_handle(host):
         return await xvideos.scrape(url)
+    if pornhub.can_handle(host):
+        return await pornhub.scrape(url)
     raise HTTPException(status_code=400, detail="Unsupported host")
 
 
@@ -147,6 +151,8 @@ async def _list_dispatch(base_url: str, host: str, page: int, limit: int) -> lis
         return await xnxx.list_videos(base_url=base_url, page=page, limit=limit)
     if xvideos.can_handle(host):
         return await xvideos.list_videos(base_url=base_url, page=page, limit=limit)
+    if pornhub.can_handle(host):
+        return await pornhub.list_videos(base_url=base_url, page=page, limit=limit)
     raise HTTPException(status_code=400, detail="Unsupported host")
 
 
