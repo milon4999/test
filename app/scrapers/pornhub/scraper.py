@@ -183,6 +183,11 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
     # simple listing: pornhub.com/video?page=2
     
     url = base_url
+    
+    # Handle homepage URL by defaulting to /video for pagination support
+    if url.rstrip("/") in ("https://www.pornhub.com", "http://www.pornhub.com"):
+        url = "https://www.pornhub.com/video"
+        
     if "?" in url:
         url += f"&page={page}"
     else:
