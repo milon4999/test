@@ -207,7 +207,6 @@ def _extract_video_urls(html: str) -> dict[str, Any]:
     
     return {
         "streams": streams,
-        "hls": hls_url,
         "default": default_url,
         "has_video": len(streams) > 0 or hls_url is not None
     }
