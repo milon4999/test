@@ -198,6 +198,9 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
     # Check if header/footer link
     # Spankbang standard: /2 for page 2
     if page > 1:
+        if url == "https://spankbang.com" or url == "https://spankbang.com/":
+             url = "https://spankbang.com/trending_videos"
+        
         if "/s/" in url: # Search
             url = f"{url}/{page}"
         else:
