@@ -7,7 +7,7 @@ from pydantic import BaseModel, HttpUrl, field_validator
 from typing import Any, Optional
 
 # Scrapers from app package
-from app.scrapers import masa49, xhamster, xnxx, xvideos, pornhub
+from app.scrapers import masa49, xhamster, xnxx, xvideos, pornhub, youporn, redtube, beeg, spankbang
 import json
 import os
 import asyncio
@@ -70,9 +70,13 @@ class ScrapeRequest(BaseModel):
             or host.endswith("xnxx.com")
             or host.endswith("xvideos.com")
             or "pornhub.com" in host
+            or "youporn.com" in host
+            or "redtube.com" in host
+            or "beeg.com" in host
+            or "spankbang.com" in host
         ):
             return v
-        raise ValueError("Only xhamster.com, masa49.org, xnxx.com, xvideos.com and pornhub.com URLs are allowed")
+        raise ValueError("Only xhamster.com, masa49.org, xnxx.com, xvideos.com, pornhub.com, youporn.com, redtube.com, beeg.com and spankbang.com URLs are allowed")
 
 
 class ScrapeResponse(BaseModel):
@@ -123,9 +127,13 @@ class ListRequest(BaseModel):
             or host.endswith("xnxx.com")
             or host.endswith("xvideos.com")
              or "pornhub.com" in host
+             or "youporn.com" in host
+             or "redtube.com" in host
+             or "beeg.com" in host
+             or "spankbang.com" in host
         ):
             return v
-        raise ValueError("Only xhamster.com, masa49.org, xnxx.com, xvideos.com and pornhub.com base_url are allowed")
+        raise ValueError("Only xhamster.com, masa49.org, xnxx.com, xvideos.com, pornhub.com, youporn.com, redtube.com, beeg.com and spankbang.com base_url are allowed")
 
 
 async def _scrape_dispatch(url: str, host: str) -> dict[str, object]:
@@ -139,6 +147,14 @@ async def _scrape_dispatch(url: str, host: str) -> dict[str, object]:
         return await xvideos.scrape(url)
     if pornhub.can_handle(host):
         return await pornhub.scrape(url)
+    if youporn.can_handle(host):
+        return await youporn.scrape(url)
+    if redtube.can_handle(host):
+        return await redtube.scrape(url)
+    if beeg.can_handle(host):
+        return await beeg.scrape(url)
+    if spankbang.can_handle(host):
+        return await spankbang.scrape(url)
     raise HTTPException(status_code=400, detail="Unsupported host")
 
 
@@ -153,6 +169,14 @@ async def _list_dispatch(base_url: str, host: str, page: int, limit: int) -> lis
         return await xvideos.list_videos(base_url=base_url, page=page, limit=limit)
     if pornhub.can_handle(host):
         return await pornhub.list_videos(base_url=base_url, page=page, limit=limit)
+    if youporn.can_handle(host):
+        return await youporn.list_videos(base_url=base_url, page=page, limit=limit)
+    if redtube.can_handle(host):
+        return await redtube.list_videos(base_url=base_url, page=page, limit=limit)
+    if beeg.can_handle(host):
+        return await beeg.list_videos(base_url=base_url, page=page, limit=limit)
+    if spankbang.can_handle(host):
+        return await spankbang.list_videos(base_url=base_url, page=page, limit=limit)
     raise HTTPException(status_code=400, detail="Unsupported host")
 
 
@@ -498,6 +522,46 @@ async def get_xhamster_categories() -> list[CategoryItem]:
     """Get list of xHamster categories"""
     try:
         categories = xhamster.get_categories()
+        return [CategoryItem(**cat) for cat in categories]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load categories: {str(e)}")
+
+
+@app.get("/youporn/categories", response_model=list[CategoryItem])
+async def get_youporn_categories() -> list[CategoryItem]:
+    """Get list of YouPorn categories"""
+    try:
+        categories = youporn.get_categories()
+        return [CategoryItem(**cat) for cat in categories]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load categories: {str(e)}")
+
+
+@app.get("/redtube/categories", response_model=list[CategoryItem])
+async def get_redtube_categories() -> list[CategoryItem]:
+    """Get list of RedTube categories"""
+    try:
+        categories = redtube.get_categories()
+        return [CategoryItem(**cat) for cat in categories]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load categories: {str(e)}")
+
+
+@app.get("/beeg/categories", response_model=list[CategoryItem])
+async def get_beeg_categories() -> list[CategoryItem]:
+    """Get list of Beeg categories"""
+    try:
+        categories = beeg.get_categories()
+        return [CategoryItem(**cat) for cat in categories]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load categories: {str(e)}")
+
+
+@app.get("/spankbang/categories", response_model=list[CategoryItem])
+async def get_spankbang_categories() -> list[CategoryItem]:
+    """Get list of SpankBang categories"""
+    try:
+        categories = spankbang.get_categories()
         return [CategoryItem(**cat) for cat in categories]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load categories: {str(e)}")

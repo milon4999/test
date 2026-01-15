@@ -24,7 +24,7 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
         }
     """
     # Import here to avoid circular dependency
-    from app.scrapers import xnxx, xhamster, xvideos, masa49, pornhub
+    from app.scrapers import xnxx, xhamster, xvideos, masa49, pornhub, youporn, redtube, beeg, spankbang
     from urllib.parse import urlparse
     
     # Parse URL to get host
@@ -45,10 +45,18 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
         scraper_module = masa49
     elif pornhub.can_handle(host):
         scraper_module = pornhub
+    elif youporn.can_handle(host):
+        scraper_module = youporn
+    elif redtube.can_handle(host):
+        scraper_module = redtube
+    elif beeg.can_handle(host):
+        scraper_module = beeg
+    elif spankbang.can_handle(host):
+        scraper_module = spankbang
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported host: {host}. Supported: xnxx.com, xhamster.com, xvideos.com, masa49.org"
+            detail=f"Unsupported host: {host}. Supported: xnxx, xhamster, xvideos, masa49, pornhub, youporn, redtube, beeg, spankbang"
         )
     
     try:

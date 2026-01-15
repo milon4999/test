@@ -16,5 +16,9 @@ from . import xhamster
 from . import xvideos
 from . import masa49
 from . import pornhub
+from . import youporn
+from . import redtube
+from . import beeg
+from . import spankbang
 
-__all__ = ['xnxx', 'xhamster', 'xvideos', 'masa49', 'pornhub']
+__all__ = ['xnxx', 'xhamster', 'xvideos', 'masa49', 'pornhub', 'youporn', 'redtube', 'beeg', 'spankbang']

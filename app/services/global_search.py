@@ -55,7 +55,7 @@ async def global_search(
     start_time = time()
     
     # Import scraper modules
-    from app.scrapers import xhamster, xnxx, xvideos, masa49, pornhub
+    from app.scrapers import xhamster, xnxx, xvideos, masa49, pornhub, youporn, redtube, beeg, spankbang
     
     # Build scraper registry (until we have real registry)
     available_scrapers = {
@@ -63,7 +63,11 @@ async def global_search(
         'xnxx': xnxx,
         'xvideos': xvideos,
         'masa49': masa49,
-        'pornhub': pornhub
+        'pornhub': pornhub,
+        'youporn': youporn,
+        'redtube': redtube,
+        'beeg': beeg,
+        'spankbang': spankbang
     }
     
     # Determine which sites to search
@@ -149,7 +153,11 @@ def _build_search_url(site_name: str, query: str, scraper_module) -> str:
         "xnxx": f"https://www.xnxx.com/search/{query_encoded}",
         "xvideos": f"https://www.xvideos.com/?k={query_encoded}",
         "masa49": f"https://masa49.org/search/{query_encoded}/",
-        "pornhub": f"https://www.pornhub.com/video/search?search={query_encoded}"
+        "pornhub": f"https://www.pornhub.com/video/search?search={query_encoded}",
+        "youporn": f"https://www.youporn.com/search/?query={query_encoded}",
+        "redtube": f"https://www.redtube.com/?search={query_encoded}",
+        "beeg": f"https://beeg.com/search?q={query_encoded}",
+        "spankbang": f"https://spankbang.com/s/{query_encoded}/"
     }
     
     return search_patterns.get(site_name)
@@ -203,14 +211,18 @@ async def global_trending(
     
     Similar to global search but uses trending pages
     """
-    from app.scrapers import xhamster, xnxx, xvideos, masa49, pornhub
+    from app.scrapers import xhamster, xnxx, xvideos, masa49, pornhub, youporn
     
     available_scrapers = {
         'xhamster': (xhamster, "https://xhamster.com/trending"),
         'xnxx': (xnxx, "https://www.xnxx.com/hits"),
         'xvideos': (xvideos, "https://www.xvideos.com/"),
         'masa49': (masa49, "https://masa49.org/"),
-        'pornhub': (pornhub, "https://www.pornhub.com/video?o=ht")
+        'pornhub': (pornhub, "https://www.pornhub.com/video?o=ht"),
+        'youporn': (youporn, "https://www.youporn.com/top-rated/"),
+        'redtube': (redtube, "https://www.redtube.com/top"),
+        'beeg': (beeg, "https://beeg.com/section/asian"), # Beeg has no general 'trending', checking asian as placeholder or main
+        'spankbang': (spankbang, "https://spankbang.com/trending_videos")
     }
     
     if not sites:
