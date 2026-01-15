@@ -248,8 +248,6 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
                 "duration": duration,
                 "views": views,
                 "uploader_name": uploader,
-                "category": None,
-                "tags": []
             })
         except Exception:
             continue
