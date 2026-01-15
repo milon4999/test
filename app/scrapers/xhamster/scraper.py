@@ -480,6 +480,9 @@ def _extract_video_data(html: str) -> dict[str, Any]:
         if "240" in q: return 240
         return 0
         
+    # Filter streams to keep ONLY 'hls' format
+    streams = [s for s in streams if s.get("format") == "hls"]
+
     streams.sort(key=quality_score, reverse=True)
     
     default_url = None
