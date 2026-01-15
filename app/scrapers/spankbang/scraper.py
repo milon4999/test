@@ -239,7 +239,7 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             selected_items = best_container.select(container_selector)
     
     # 2. Fallback: If no containers found (or empty), select from global soup
-    if notSelected_items:
+    if not selected_items:
          selected_items = soup.select(container_selector)
          
     for item in selected_items:
