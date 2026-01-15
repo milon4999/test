@@ -178,7 +178,7 @@ def _extract_video_urls(html: str) -> dict[str, Any]:
             })
     
     # Method 3: Find HLS stream (adaptive quality)
-    hls_match = re.search(r'html5player\.setVideoHLS\([\'"](.+?)[\'"]\)', html)
+    hls_match = re.search(r'html5player\.setVideoHLS\s*\(\s*[\'"](.+?)[\'"]\s*\)', html)
     if hls_match:
         hls_url = hls_match.group(1)
     
