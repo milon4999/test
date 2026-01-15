@@ -60,9 +60,22 @@ def _extract_video_streams(html: str) -> dict[str, Any]:
                 if isinstance(quality, list): quality = str(quality[0])
                 
                 if fmt == "hls" or ".m3u8" in video_url:
+                    # Extract quality from URL if strictly "hls" or "adaptive" in metadata
+                    parsed_quality = "adaptive"
+                    if quality and isinstance(quality, str) and quality.isdigit():
+                         parsed_quality = f"{quality}p"
+                    elif quality and isinstance(quality, list) and len(quality) > 0:
+                         parsed_quality = str(quality[0])
+                    
+                    # Try regex on URL if quality is not specific
+                    if not parsed_quality or parsed_quality == "adaptive":
+                        m_q = re.search(r'(\d+)[pP]_', video_url)
+                        if m_q:
+                            parsed_quality = f"{m_q.group(1)}p"
+
                     hls_url = video_url
                     streams.append({
-                        "quality": "adaptive",
+                        "quality": parsed_quality,
                         "url": video_url,
                         "format": "hls"
                     })
