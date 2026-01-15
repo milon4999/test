@@ -212,7 +212,7 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             if not link: continue
             
             href = link.get("href")
-            if not href: continue
+            if not href or "javascript" in href.lower(): continue
             
             if not href.startswith("http"):
                 href = "https://www.pornhub.com" + href
