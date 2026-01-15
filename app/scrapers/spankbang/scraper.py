@@ -165,10 +165,19 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
     if u_el: uploader = u_el.get_text(strip=True)
     
     tags = []
-    for t in soup.select(".categories a, .tags a"):
-        txt = t.get_text(strip=True)
-        if txt and txt.lower() not in ["tags", "categories"]:
-            tags.append(txt)
+    # SpankBang stores tags in meta keywords
+    meta_keywords = soup.find("meta", attrs={"name": "keywords"})
+    if meta_keywords and meta_keywords.get("content"):
+        keywords = meta_keywords.get("content")
+        # Split by comma and clean up
+        tags = [t.strip() for t in keywords.split(",") if t.strip()]
+    
+    # Fallback: try HTML tags
+    if not tags:
+        for t in soup.select(".categories a, .tags a"):
+            txt = t.get_text(strip=True)
+            if txt and txt.lower() not in ["tags", "categories"]:
+                tags.append(txt)
             
     video_data = _extract_video_streams(html)
     
