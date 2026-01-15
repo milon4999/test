@@ -61,9 +61,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"  # json or text
     
-    # HLS Proxy
-    HLS_PROXY_ENABLED: bool = True
-    HLS_PROXY_TIMEOUT: int = 30
+
     
     # Scraping
     SCRAPER_TIMEOUT: int = 30
