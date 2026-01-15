@@ -36,6 +36,7 @@ async def fetch_html(url: str) -> str:
             resp.raise_for_status()
             return resp.text
     except Exception as e:
+        print(f"⚠️ SpankBang curl_cffi failed: {e}. Falling back to httpx...")
         # Fallback to httpx if curl_cffi fails
         import httpx
         async with httpx.AsyncClient(
