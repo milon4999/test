@@ -144,6 +144,12 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
     og_image = _meta(soup, prop="og:image")
     meta_desc = _meta(soup, name="description")
 
+    # Preview URL extraction
+    preview_url = None
+    m_preview = re.search(r"setThumbSlide\s*\(\s*['\"]([^'\"]+)['\"]\s*\)", html)
+    if m_preview:
+        preview_url = m_preview.group(1)
+
     # Strategy 1: Look for setVideoTitle('...')
     # This is the most accurate raw title from the player config
     m_title = re.search(r"setVideoTitle\s*\(\s*['\"]([^'\"]+)['\"]\s*\)", html)
