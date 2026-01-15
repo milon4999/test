@@ -12,15 +12,14 @@ def can_handle(host: str) -> bool:
     return "pornhub.com" in host.lower()
 
 def get_categories() -> list[dict]:
-    # TODO: Scraping categories dynamically or static list
-    return [
-        {"name": "Recommended", "url": "https://www.pornhub.com/recommended", "id": "recommended"},
-        {"name": "Hentai", "url": "https://www.pornhub.com/video/search?search=hentai", "id": "hentai"},
-        {"name": "Milf", "url": "https://www.pornhub.com/video/search?search=milf", "id": "milf"},
-        {"name": "Teen", "url": "https://www.pornhub.com/video/search?search=teen", "id": "teen"},
-        {"name": "Japanese", "url": "https://www.pornhub.com/video/search?search=japanese", "id": "japanese"},
-        {"name": "Big Tits", "url": "https://www.pornhub.com/video/search?search=big+tits", "id": "big-tits"},
-    ]
+    import os
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        json_path = os.path.join(current_dir, "categories.json")
+        with open(json_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
 
 
 async def fetch_html(url: str) -> str:
