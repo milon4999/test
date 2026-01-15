@@ -210,10 +210,15 @@ async def scrape(url: str) -> ScrapeResponse:
     
     # Check cache first (ZERO COST OPTIMIZATION)
     cache_key = f"scrape:{str(req.url)}"
-    cached_result = await cache.get(cache_key)
-    if cached_result:
-        logging.info(f"⚡ Cache HIT for {url}")
-        return ScrapeResponse(**cached_result)
+    
+    # Disable cache for SpankBang
+    use_cache = "spankbang.com" not in str(req.url)
+    
+    if use_cache:
+        cached_result = await cache.get(cache_key)
+        if cached_result:
+            logging.info(f"⚡ Cache HIT for {url}")
+            return ScrapeResponse(**cached_result)
     
     # Cache miss - scrape the URL
     try:
@@ -224,8 +229,10 @@ async def scrape(url: str) -> ScrapeResponse:
         raise HTTPException(status_code=502, detail="Failed to fetch url") from e
     
     # Store in cache for 1 hour (3600 seconds)
-    await cache.set(cache_key, data, ttl_seconds=3600)
-    logging.info(f"💾 Cached result for {url}")
+    # Store in cache for 1 hour (3600 seconds)
+    if use_cache:
+        await cache.set(cache_key, data, ttl_seconds=3600)
+        logging.info(f"💾 Cached result for {url}")
     
     return ScrapeResponse(**data)
 
@@ -242,10 +249,15 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[Lis
 
     # Check cache (ZERO COST OPTIMIZATION)
     cache_key = f"list:{str(req.base_url)}:p{page}:l{limit}"
-    cached_items = await cache.get(cache_key)
-    if cached_items:
-        logging.info(f"⚡ Cache HIT for list {base_url} page {page}")
-        return [ListItem(**it) for it in cached_items]
+    
+    # Disable cache for SpankBang
+    use_cache = "spankbang.com" not in str(req.base_url)
+
+    if use_cache:
+        cached_items = await cache.get(cache_key)
+        if cached_items:
+            logging.info(f"⚡ Cache HIT for list {base_url} page {page}")
+            return [ListItem(**it) for it in cached_items]
 
     try:
         items = await _list_dispatch(str(req.base_url), req.base_url.host or "", page, limit)
@@ -255,8 +267,9 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[Lis
         raise HTTPException(status_code=502, detail="Failed to fetch url") from e
     
     # Cache for 15 minutes (900 seconds)
-    await cache.set(cache_key, items, ttl_seconds=900)
-    logging.info(f"💾 Cached list for {base_url} page {page}")
+    if use_cache:
+        await cache.set(cache_key, items, ttl_seconds=900)
+        logging.info(f"💾 Cached list for {base_url} page {page}")
     
     return [ListItem(**it) for it in items]
     
