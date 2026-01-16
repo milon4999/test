@@ -45,6 +45,7 @@ async def _resolve_proxy_url(proxy_url: str) -> list[dict]:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
         }
         async with httpx.AsyncClient(headers=headers, timeout=10.0, follow_redirects=True) as client:
             resp = await client.get(proxy_url)
@@ -254,11 +255,62 @@ async def scrape(url: str) -> dict[str, Any]:
     streams = video_data.get("streams", [])
     
     # If any stream is a proxy URL, try to resolve it
+    # If any stream is a proxy URL, try to resolve it
     for stream in streams[:]:  # Copy list to modify while iterating
         stream_url = stream.get("url", "")
-        if "/media/" in stream_url and "?s=" in stream_url:
+        # YouPorn HLS proxy: /media/hls/?s= or similar
+        is_hls_proxy = "/media/hls/" in stream_url
+        is_mp4_proxy = "/media/mp4/" in stream_url
+        
+        if (is_hls_proxy or is_mp4_proxy) and "?s=" in stream_url:
             # This is a proxy URL - resolve it
+            # We need slightly different headers for HLS proxy to get JSON
             resolved_streams = await _resolve_proxy_url(stream_url)
+            
+            # Special handling for HLS proxy results to build master playlist
+            if is_hls_proxy and resolved_streams:
+                # Filter for HLS streams from the resolution result
+                hls_variants = [s for s in resolved_streams if s.get("format") == "hls"]
+                
+                # Try to construct master playlist
+                master_url = None
+                if hls_variants:
+                    try:
+                        # Logic similar to RedTube master construction
+                        # URl: .../VID/SEGMENT.mp4/master.m3u8?params
+                        first_url = hls_variants[0]["url"]
+                        parts = first_url.split('/')
+                        if len(parts) >= 3 and "master.m3u8" in parts[-1] and ".mp4" in parts[-2]:
+                            base_url = "/".join(parts[:-2]) + "/"
+                            params = ""
+                            if "?" in parts[-1]:
+                                params = parts[-1].split("?")[1]
+                            
+                            segments = []
+                            seen_segments = set()
+                            for s in hls_variants:
+                                p = s["url"].split('/')
+                                if len(p) >= 3:
+                                    seg = p[-2]
+                                    if seg not in seen_segments:
+                                        segments.append(seg)
+                                        seen_segments.add(seg)
+                            
+                            if segments:
+                                joined = ",".join(segments)
+                                master_url = f"{base_url},{joined},.urlset/master.m3u8"
+                                if params:
+                                    master_url += f"?{params}"
+                    except Exception:
+                        pass
+                
+                if master_url:
+                    streams.append({
+                        "quality": "m3u8",
+                        "url": master_url,
+                        "format": "hls"
+                    })
+            
             if resolved_streams:
                 # Remove the proxy stream
                 streams.remove(stream)
