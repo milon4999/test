@@ -170,6 +170,13 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
     if quality == "default":
         stream_url = video_data["default"]
         selected_quality = "default"
+        
+        # Try to find the quality metadata of the default stream
+        streams = video_data.get("streams", [])
+        for s in streams:
+            if s.get("url") == stream_url:
+                selected_quality = s.get("quality", "default")
+                break
     else:
         # Find matching quality
         streams = video_data["streams"]
