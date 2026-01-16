@@ -105,6 +105,10 @@ async def hls_proxy(
                             params += f"&referer={quote(referer)}"
                         if origin:
                             params += f"&origin={quote(origin)}"
+                        if user_agent:
+                            headers["User-Agent"] = user_agent # Ensure header is set for this request too (redundant but safe)
+                            # Actually this is loop for rewriting URLs for NEXT requests
+                            params += f"&user_agent={quote(user_agent)}"
                             
                         new_lines.append(f"{proxy_base}{params}")
                 
