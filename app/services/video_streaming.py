@@ -105,7 +105,7 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
                 proxy_url = f"{base}/api/v1/hls/proxy?url={encoded_url}&referer={encoded_referer}"
                 if "rdtcdn.com" in stream_url:
                     # Force a safe User-Agent for RedTube (browser UA gets 403)
-                    proxy_url += f"&user_agent={quote('python-httpx/0.24.1')}"
+                    proxy_url += f"&user_agent={quote('OkHttp/4.9.3')}"
                     
                 return proxy_url
             return stream_url
@@ -221,8 +221,8 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             
             stream_url = f"{api_base_url}/api/v1/hls/proxy?url={encoded_url}&referer={encoded_referer}"
             if "rdtcdn.com" in stream_url:
-                # Force a safe User-Agent for RedTube
-                stream_url += f"&user_agent={quote('python-httpx/0.24.1')}"
+                # Force a safe User-Agent for RedTube (OkHttp mimics app traffic, less likely to be blocked on cloud)
+                stream_url += f"&user_agent={quote('OkHttp/4.9.3')}"
             
     return {
         "stream_url": stream_url,
