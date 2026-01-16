@@ -56,19 +56,34 @@ def _extract_video_streams(html: str) -> dict[str, Any]:
                 fmt = md.get("format") # mp4, hls
                 quality = md.get("quality") # 720p, 1080p, etc
                 
-                if isinstance(quality, list): quality = str(quality[0])
+                # Handle list types safely
+                if isinstance(quality, list): 
+                    if quality:
+                        quality = str(quality[0])
+                    else:
+                        quality = None
                 
+                # Fallback to height if quality is missing
+                if not quality and md.get("height"):
+                     quality = str(md.get("height"))
+
                 if fmt == "hls" or ".m3u8" in video_url:
                     # Extract quality from URL if strictly "hls" or "adaptive" in metadata
                     parsed_quality = "adaptive"
-                    if quality and isinstance(quality, str) and quality.isdigit():
-                         parsed_quality = f"{quality}p"
-                    elif quality and isinstance(quality, list) and len(quality) > 0:
-                         parsed_quality = str(quality[0])
+                    
+                    if quality:
+                        if isinstance(quality, str) and quality.isdigit():
+                             parsed_quality = f"{quality}p"
+                        else:
+                             parsed_quality = str(quality)
                     
                     # Try regex on URL if quality is not specific
                     if not parsed_quality or parsed_quality == "adaptive":
-                        m_q = re.search(r'(\d+)[pP]_', video_url)
+                        # Try finding /1080P/ or similar patterns
+                        m_q = re.search(r'/(\d{3,4})[pP]?/', video_url)
+                        if not m_q:
+                             m_q = re.search(r'(\d{3,4})[pP]_', video_url)
+                             
                         if m_q:
                             parsed_quality = f"{m_q.group(1)}p"
 
