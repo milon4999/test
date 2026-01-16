@@ -243,8 +243,11 @@ async def scrape(url: str) -> dict[str, Any]:
     pass
 
     
-    # Update default URL based on resolved streams (Legacy logic, just in case master const failed)
-    if streams and "default" not in result.get("video", {}) or result["video"].get("default") is None:
+    # Always recalculate default to ensure it points to a resolved stream (not a raw proxy URL)
+    if streams:
+        # Reset default to allow re-selection
+        result["video"]["default"] = None
+        
         # Find HLS adaptive stream or highest quality MP4
         # ... (rest of legacy logic)
         hls_stream = next((s for s in streams if s.get("quality") == "m3u8"), None)
