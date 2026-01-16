@@ -16,6 +16,7 @@ async def hls_proxy(
     url: str = Query(..., description="Target HLS URL"),
     referer: str = Query(None, description="Referer header to send"),
     origin: str = Query(None, description="Origin header to send"),
+    user_agent: str = Query(None, description="User-Agent header to send"),
     request: Request = None
 ):
     """
@@ -26,9 +27,13 @@ async def hls_proxy(
         raise HTTPException(status_code=400, detail="Missing URL")
     
     # Headers to send to upstream
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-    }
+    headers = {}
+    
+    # Forward User-Agent from request if available, or allow override via query
+    ua = user_agent if user_agent else request.headers.get("user-agent")
+    if ua:
+        headers["User-Agent"] = ua
+        
     if referer:
         headers["Referer"] = referer
     if origin:

@@ -100,7 +100,13 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
                 encoded_referer = quote(referer)
                 # Ensure api_base_url is valid
                 base = api_base_url if api_base_url else "http://localhost:8000"
-                return f"{base}/api/v1/hls/proxy?url={encoded_url}&referer={encoded_referer}"
+                
+                proxy_url = f"{base}/api/v1/hls/proxy?url={encoded_url}&referer={encoded_referer}"
+                if "redtube.com" in referer:
+                    # Force a safe User-Agent for RedTube to avoid browser checks
+                    proxy_url += f"&user_agent={quote('python-httpx/0.24.1')}"
+                    
+                return proxy_url
             return stream_url
 
         # Wrap extracted streams
@@ -213,6 +219,9 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             encoded_referer = quote(referer)
             
             stream_url = f"{api_base_url}/api/v1/hls/proxy?url={encoded_url}&referer={encoded_referer}"
+            if "redtube.com" in referer:
+                # Force a safe User-Agent for RedTube
+                stream_url += f"&user_agent={quote('python-httpx/0.24.1')}"
             
     return {
         "stream_url": stream_url,
