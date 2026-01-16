@@ -220,8 +220,20 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             stream_url = f"{api_base_url}/api/v1/hls/proxy?url={encoded_url}&referer={encoded_referer}"
             # RedTube user_agent logic removed
             
+    # Collect all available qualities (HLS only)
+    available_qualities = []
+    all_streams = video_data.get("streams", [])
+    for s in all_streams:
+        if s.get("format") == "hls":
+            available_qualities.append({
+                "quality": s.get("quality", "unknown"),
+                "url": s.get("url"),
+                "format": "hls"
+            })
+            
     return {
         "stream_url": stream_url,
         "quality": selected_quality,
-        "format": fmt
+        "format": fmt,
+        "available_qualities": available_qualities
     }
