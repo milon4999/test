@@ -239,12 +239,75 @@ async def scrape(url: str) -> dict[str, Any]:
                 # Add all resolved streams
                 streams.extend(resolved_streams)
     
-    # Update default URL based on resolved streams
-    if streams:
+    # Post-processing: Construct HLS Master Playlist if multiple HLS streams exist
+    hls_streams = [s for s in streams if s.get("format") == "hls" and "videoUrl" not in s] # Filter simplistic check, actually rely on format
+    # Refine: check for RDTCdn HLS streams that strictly match the pattern
+    rdt_hls = []
+    for s in streams:
+        if s.get("format") == "hls" and "/hls/videos/" in s.get("url", "") and ".mp4/" in s.get("url", ""):
+            rdt_hls.append(s)
+            
+    if rdt_hls:
+        try:
+            # Group by base structure to ensure we are combining same video's segments
+            # URl: https://ev-h-ph.rdtcdn.com/.../VIDEOID/SEGMENT.mp4/master.m3u8?params
+            
+            # We assume all rdt_hls belong to the same video if we are scraping one page.
+            # But let's be safe and take the first one's base.
+            first_url = rdt_hls[0]["url"]
+            parts = first_url.split('/')
+            # Check structure: .../VID/SEG/master.m3u8
+            if len(parts) >= 3 and "master.m3u8" in parts[-1] and ".mp4" in parts[-2]:
+                base_url = "/".join(parts[:-2]) + "/"
+                params = ""
+                if "?" in parts[-1]:
+                    params = parts[-1].split("?")[1]
+                
+                segments = []
+                # Collect all segments from all compatible HLS streams
+                seen_segments = set()
+                for s in rdt_hls:
+                    p = s["url"].split('/')
+                    if len(p) >= 3:
+                        seg = p[-2] # The 720P...mp4 part
+                        if seg not in seen_segments:
+                            segments.append(seg)
+                            seen_segments.add(seg)
+                
+                if segments:
+                    # Construct Master URL
+                    # Format: BASE,seg1,seg2,seg3,.urlset/master.m3u8?params
+                    joined = ",".join(segments)
+                    master_url = f"{base_url},{joined},.urlset/master.m3u8"
+                    if params:
+                        master_url += f"?{params}"
+                        
+                    # Add master stream
+                    streams.append({
+                        "quality": "m3u8", # "All in one"
+                        "url": master_url,
+                        "format": "hls"
+                    })
+                    
+                    # Update default to master if available
+                    for s in streams:
+                        if s["url"] == master_url:
+                            result["video"]["default"] = master_url
+                            
+        except Exception as e:
+            # print(f"Master construction failed: {e}")
+            pass
+    
+    # Update default URL based on resolved streams (Legacy logic, just in case master const failed)
+    if streams and "default" not in result.get("video", {}) or result["video"].get("default") is None:
         # Find HLS adaptive stream or highest quality MP4
-        hls_stream = next((s for s in streams if s.get("format") == "hls"), None)
+        # ... (rest of legacy logic)
+        hls_stream = next((s for s in streams if s.get("quality") == "m3u8"), None)
+        if not hls_stream:
+             hls_stream = next((s for s in streams if s.get("format") == "hls"), None)
+             
         if hls_stream:
-            video_data["default"] = hls_stream["url"]
+            result["video"]["default"] = hls_stream["url"]
         else:
             # Find highest quality MP4
             mp4_streams = [s for s in streams if s.get("format") == "mp4"]
@@ -252,7 +315,7 @@ async def scrape(url: str) -> dict[str, Any]:
                 # Sort by quality (try to get 1080, 720, etc.)
                 qualities = {"1080": 4, "720": 3, "480": 2, "240": 1}
                 mp4_streams.sort(key=lambda s: qualities.get(s.get("quality", ""), 0), reverse=True)
-                video_data["default"] = mp4_streams[0]["url"]
+                result["video"]["default"] = mp4_streams[0]["url"]
     
     return result
 
