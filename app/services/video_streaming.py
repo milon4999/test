@@ -227,10 +227,10 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "format": fmt
     }
     
-    # Add available_qualities for Pornhub only
+    # Add available_qualities for Pornhub and YouPorn only
     from urllib.parse import urlparse
     parsed_url = urlparse(url)
-    if "pornhub.com" in parsed_url.netloc.lower():
+    if "pornhub.com" in parsed_url.netloc.lower() or "youporn.com" in parsed_url.netloc.lower():
         qualities = {}
         all_streams = video_data.get("streams", [])
         for s in all_streams:
