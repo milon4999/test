@@ -243,39 +243,28 @@ async def scrape(url: str) -> dict[str, Any]:
     pass
 
     
-    # Always recalculate default to ensure it points to a resolved stream (not a raw proxy URL)
-    if streams:
-        # Reset default to allow re-selection
-        result["video"]["default"] = None
+    # Smarter/Shorter: If we have direct MP4 streams, filter out the raw HLS streams 
+    # (which are less compatible/require headers) to keep the list clean.
+    mp4_streams = [s for s in streams if s.get("format") == "mp4"]
+    if mp4_streams:
+        streams = mp4_streams
         
-        # Find HLS adaptive stream or highest quality MP4
-        # ... (rest of legacy logic)
-        hls_stream = next((s for s in streams if s.get("quality") == "m3u8"), None)
-        if not hls_stream:
-             hls_stream = next((s for s in streams if s.get("format") == "hls"), None)
-             
-        if hls_stream:
-            result["video"]["default"] = hls_stream["url"]
-        else:
-            # Find highest quality MP4
-            # Find highest quality MP4 (prioritize over HLS if master is disabled/missing)
-            mp4_streams = [s for s in streams if s.get("format") == "mp4"]
-            
-            # Helper to extract numeric quality
-            def get_quality_val(s):
-                q = s.get("quality", "")
-                if not q: return 0
-                # Extract digits: "720P" -> 720
-                digits = "".join(filter(str.isdigit, str(q)))
-                return int(digits) if digits else 0
-
-            if mp4_streams:
-                # Sort by numeric quality descending
-                mp4_streams.sort(key=get_quality_val, reverse=True)
-                result["video"]["default"] = mp4_streams[0]["url"]
-            elif hls_stream:
-                 # Fallback to single HLS if no MP4
-                 result["video"]["default"] = hls_stream["url"]
+    # Rearrange: Sort strictly by numeric quality descending
+    def get_quality_val(s):
+        q = s.get("quality", "")
+        if not q: return 0
+        # Extract digits: "720P" -> 720
+        digits = "".join(filter(str.isdigit, str(q)))
+        return int(digits) if digits else 0
+        
+    streams.sort(key=get_quality_val, reverse=True)
+    
+    # Write back to result
+    result["video"]["streams"] = streams
+    
+    # Default is the first one (Highest Quality MP4)
+    if streams:
+        result["video"]["default"] = streams[0]["url"]
     
     return result
 
