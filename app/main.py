@@ -56,6 +56,10 @@ app.add_exception_handler(500, internal_error_handler)
 app.add_exception_handler(StarletteHTTPException, general_exception_handler)
 app.add_exception_handler(HTTPException, general_exception_handler)
 
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -139,7 +143,11 @@ async def _crawl_dispatch(base_url: str, host: str, start_page: int, max_pages: 
     if xhamster.can_handle(host):
         return await xhamster.crawl_videos(base_url=base_url, start_page=start_page, max_pages=max_pages, per_page_limit=per_page_limit, max_items=max_items)
     raise HTTPException(status_code=400, detail="Unsupported host")
-
+def get_api_base(request: Request) -> str:
+    from app.config.settings import settings
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+    return settings.BASE_URL.rstrip("/") if settings.BASE_URL else f"{scheme}://{host}"
 
 @api_v1_router.post("/scrapes", response_model=ScrapeResponse, tags=["Scraping"])
 async def create_scrape(request: Request, body: ScrapeRequestV1) -> ScrapeResponse:
@@ -147,8 +155,7 @@ async def create_scrape(request: Request, body: ScrapeRequestV1) -> ScrapeRespon
     Scrape a single video URL.
     Renamed from /scrape to POST /scrapes (create a scrape).
     """
-    from app.config.settings import settings
-    api_base = settings.BASE_URL or str(request.base_url)
+    api_base = get_api_base(request)
     cache_key = f"scrape:{str(body.url)}"
     cached_result = await cache.get(cache_key)
     if cached_result:
@@ -198,8 +205,7 @@ async def list_videos(request: Request, base_url: str, page: int = 1, limit: int
     
     if items:
         # Wrap thumbnails in proxy for certain sources (like HQPorner)
-        from app.config.settings import settings
-        api_base = settings.BASE_URL or str(request.base_url)
+        api_base = get_api_base(request)
         for it in items:
             if "thumbnail_url" in it:
                 it["thumbnail_url"] = thumbnails.wrap_thumbnail_url(it["thumbnail_url"], api_base)
@@ -229,8 +235,7 @@ async def create_crawl(request: Request, body: CrawlRequestV1) -> list[ListItem]
 
     if items:
         # Wrap thumbnails in proxy for certain sources (like HQPorner)
-        from app.config.settings import settings
-        api_base = settings.BASE_URL or str(request.base_url)
+        api_base = get_api_base(request)
         for it in items:
             if "thumbnail_url" in it:
                 it["thumbnail_url"] = thumbnails.wrap_thumbnail_url(it["thumbnail_url"], api_base)
@@ -282,8 +287,7 @@ async def global_search_endpoint(
     limit_per_site: int = Query(10, ge=1, le=50),
     max_sites: int = Query(30, ge=1, le=50)
 ):
-    from app.config.settings import settings
-    api_base = settings.BASE_URL or str(request.base_url)
+    api_base = get_api_base(request)
     res = await _global_search(query, sites, limit_per_site, max_sites)
     if "results" in res:
         for item in res["results"]:
@@ -297,8 +301,7 @@ async def global_trending_endpoint(
     sites: Optional[list[str]] = Query(None),
     limit_per_site: int = Query(10, ge=1, le=50)
 ):
-    from app.config.settings import settings
-    api_base = settings.BASE_URL or str(request.base_url)
+    api_base = get_api_base(request)
     res = await global_trending(sites, limit_per_site)
     if "results" in res:
         for item in res["results"]:
@@ -312,8 +315,7 @@ from fastapi import Request
 
 @api_v1_router.get("/videos/info", tags=["Streaming"])
 async def video_info_endpoint(request: Request, url: str = Query(..., description="Video page URL")):
-    from app.config.settings import settings
-    api_base = settings.BASE_URL or str(request.base_url)
+    api_base = get_api_base(request)
     try:
         return await get_video_info(url, api_base_url=api_base)
     except HTTPException:
@@ -327,8 +329,7 @@ async def direct_stream_endpoint(
     url: str = Query(..., description="Video page URL"),
     quality: str = Query("default")
 ):
-    from app.config.settings import settings
-    api_base = settings.BASE_URL or str(request.base_url)
+    api_base = get_api_base(request)
     try:
         return await get_stream_url(url, quality, api_base_url=api_base)
     except HTTPException:
@@ -343,8 +344,7 @@ async def video_download_endpoint(request: Request, url: str = Query(..., descri
     Returns only MP4 download links for a given video URL.
     Filters out HLS/adaptive streams.
     """
-    from app.config.settings import settings
-    api_base = settings.BASE_URL or str(request.base_url)
+    api_base = get_api_base(request)
     try:
         info = await get_video_info(url, api_base_url=api_base)
         video_data = info.get("video", {})
