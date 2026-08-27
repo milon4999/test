@@ -10,10 +10,11 @@ from bs4 import BeautifulSoup
 
 from app.core.pool import fetch_html as pool_fetch_html
 
-# Live content is served on uncutmaza.xxx. Legacy hosts rewrite to the canonical domain for fetches.
-CANONICAL_HOST = "uncutmaza.xxx"
+# Live content is served on uncutmaza.gg. Legacy hosts rewrite to the canonical domain for fetches.
+CANONICAL_HOST = "uncutmaza.gg"
 _REGISTRY_HOSTS = frozenset(
     {
+        "uncutmaza.gg",
         "uncutmaza.xxx",
         "uncutmazaa.com",
         "uncutmaza.com",

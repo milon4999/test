@@ -473,6 +473,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "milfporn8.net" in parsed_url.netloc.lower() or
         "indianporn365.xyz" in parsed_url.netloc.lower() or
         "mmsbro.com" in parsed_url.netloc.lower() or
+        "desifile.org" in parsed_url.netloc.lower() or
         "thekamababa.com" in parsed_url.netloc.lower() or
         "desimms2.site" in parsed_url.netloc.lower() or
         "desiporn.one" in parsed_url.netloc.lower() or
@@ -483,6 +484,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "uncutmazaa.com" in parsed_url.netloc.lower() or
         "uncutmaza.cc" in parsed_url.netloc.lower() or
         "uncutmaza.xxx" in parsed_url.netloc.lower() or
+        "uncutmaza.gg" in parsed_url.netloc.lower() or
         "mydesi2.dev" in parsed_url.netloc.lower() or
         "mydesimms.watch" in parsed_url.netloc.lower() or
         "mydesix10.watch" in parsed_url.netloc.lower() or
@@ -645,6 +647,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "milfporn8.net" in host_l
             or "indianporn365.xyz" in host_l
             or "mmsbro.com" in host_l
+            or "desifile.org" in host_l
             or "thekamababa.com" in host_l
             or "desimms2.site" in host_l
             or "desiporn.one" in host_l
@@ -655,6 +658,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "uncutmazaa.com" in host_l
             or "uncutmaza.cc" in host_l
             or "uncutmaza.xxx" in host_l
+            or "uncutmaza.gg" in host_l
             or "mydesi2.dev" in host_l
             or "mydesimms.watch" in host_l
             or "mydesix10.watch" in host_l
