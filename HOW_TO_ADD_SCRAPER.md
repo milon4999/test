@@ -5017,3 +5017,92 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=sosalkino"
 
 curl "http://127.0.0.1:8000/api/v1/videos/info?url=https://wvw.sosalkino.guru/videos/fotosessiya-12-letney-davnosti/"
 ```
+
+## TubePornClassic (tubepornclassic.com) Implementation Notes
+
+[TubePornClassic](https://tubepornclassic.com/) is a Tubecup-network vintage/classic tube site (same JSON API stack as [TXXX](https://txxx.com/), [HotMovs](https://hotmovs.tube/), and [ShemaleZ](https://shemalez.com/)). Home HTML is JS-heavy; listing and scrape use JSON APIs, not card HTML. Watch URLs use a numeric ID and slug: `https://tubepornclassic.com/videos/{id}/{slug}/` (e.g. `/videos/1248889/crazy-porn-clip-vintage-greatest/`). Embed fallback: `https://tubepornclassic.com/embed/{id}`. Thumbnails live on `tn.tubepornclassic.com`.
+
+### Host aliases
+
+- `tubepornclassic.com`
+- `www.tubepornclassic.com`
+- `tn.tubepornclassic.com` (thumbnails/CDN)
+- Any `*.tubepornclassic.com` subdomain (`can_handle()` suffix match; `tn.` is normalized back to the main host for API calls)
+
+Stream CDN hosts resolve to `*.ahcdn.com` — already covered by the global `ahcdn.com` allowlist in `schemas.py` and `video_streaming.py`.
+
+### Listing and pagination (`list_videos`)
+
+Uses the Tubecup JSON API — not HTML scraping:
+
+- **Latest:** `https://tubepornclassic.com/latest-updates/` (page 2+ → `/latest-updates/2/`)
+- **Sort feeds:** `/most-popular/`, `/longest/`, `/top-rated/`, `/most-viewed/`
+- **Categories:** `/categories/{slug}/` (page 2+ → `/categories/{slug}/2/`). Confirmed working slug: `vintage`
+- **Search:** `/search/?s={query}`
+
+List endpoint:
+
+```text
+GET /api/videos2.php?params={lifetime}/str/{sort}/{count}/{section}.{object_id}.{page}.all..
+```
+
+Search adds `&s={query}` with `sort=relevance`. Response shape: `{ "videos": [ ... ], "total_count", "pages" }`.
+
+Use `curl_cffi` (Chrome impersonation) as primary fetch. Plain httpx may still work on this host (home + `videos2.php` returned 200 without impersonation in probing).
+
+### Metadata and streams (`scrape`)
+
+1. **Video info:** `GET /api/json/video/{lifetime}/{million_bucket}/{thousand_bucket}/{id}.json`
+   - Example: `/api/json/video/86400/1000000/1248000/1248889.json`
+   - `million_bucket = int(1e6 * (id // 1e6))`, `thousand_bucket = 1000 * (id // 1000)`
+2. **Stream files:** `GET /api/videofile.php?video_id={id}&lifetime=8640000`
+   - Returns array of `{ format, video_url }` where `video_url` is custom-base64-encoded
+3. **Decode streams:** translate Cyrillic look-alike chars + `,`/`.`/`~` → standard base64, then decode to CDN URL (often `/get_file/...`)
+4. **Resolve `/get_file/`:** follow redirect (no auto-redirect) to signed MP4/HLS URL
+5. **Embed fallback:** `https://{host}/embed/{id}` when direct streams fail
+
+Embed URLs (`/embed/{id}`) are accepted by `scrape()` — the numeric id is extracted and full metadata/streams are resolved the same way as watch-page URLs.
+
+### Preview clips
+
+The API `pv` field is often stale/wrong. Build preview URLs from video id when `pv` does not contain the id:
+
+```text
+https://vp2.txxx.com/c12/videos/{1000*(id//1000)}/{id}/{id}_tr.mp4
+```
+
+(Same shared Tubecup preview CDN as TXXX/HotMovs/ShemaleZ.)
+
+### Categories (`get_categories`)
+
+`/api/json/categories/14400/str.json` returned an empty `categories` array on this host. Ship sort feeds plus working category slugs (Vintage, Classic, Retro, HD, MILF, Mature, Anal, Lesbian, etc.) in `categories.json`.
+
+### Registration checklist for TubePornClassic
+
+Package folder: `backend/app/scrapers/tubepornclassic/`.
+
+Also update:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` — source aliases: `tubepornclassic`, `tubepornclassic.com`)
+- `backend/app/services/video_streaming.py` (scraper branch, supported-host text, quality map)
+- `backend/app/models/schemas.py` (scrape/list URL allowlists including `tn.tubepornclassic.com`)
+- `backend/app/api/endpoints/explore.py` (`sourceId="tubepornclassic"`)
+
+### TubePornClassic verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://tubepornclassic.com/videos/1248889/crazy-porn-clip-vintage-greatest/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://tubepornclassic.com/latest-updates/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://tubepornclassic.com/categories/vintage/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://tubepornclassic.com/search/?s=vintage&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=tubepornclassic"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://tubepornclassic.com/videos/1248889/crazy-porn-clip-vintage-greatest/"
+```
