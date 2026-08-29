@@ -5106,3 +5106,78 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=tubepornclassic"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://tubepornclassic.com/videos/1248889/crazy-porn-clip-vintage-greatest/"
 ```
+
+## XXXDan (xxxdan.com) Implementation Notes
+
+[XXXDan](https://xxxdan.com/) is a cdn3x/Xozilla tube site. Watch URLs use a short alphanumeric id plus slug: `https://xxxdan.com/{id}/{slug}.html` (e.g. `/O5Na1z/lonely-55-year-old-milf-mom-hooks-up-with-stepson.html`). Embed fallback: `https://xxxdan.com/embed/{id}`. Thumbnails live on `t*.cdn3x.com`; progressive MP4s on `c*.cdn3x.com` / `d*.cdn3x.com`.
+
+### Host aliases
+
+- `xxxdan.com`
+- `www.xxxdan.com`
+- `xxxdan2.com`
+- `www.xxxdan2.com`
+- Any `*.xxxdan.com` / `*.xxxdan2.com` subdomain (`can_handle()` suffix match)
+
+Stream/thumbnail CDN hosts resolve to `*.cdn3x.com` — allowlisted in `schemas.py` and `video_streaming.py`. Do **not** put `cdn3x.com` in `can_handle()`; that would treat CDN URLs as watch pages.
+
+### Listing and pagination (`list_videos`)
+
+Parse cards from `a.video-card[href]` (`data-vid`, `data-tid`, `.video-card__title`, `.video-card__duration`, thumb `img`).
+
+- **Home / Trending:** `https://xxxdan.com/` or `https://xxxdan.com/straight/trending` (page 2+ → `/straight/trending/{page}`)
+- **Popular:** `/straight/popular1` (page N → `/straight/popular{N}`)
+- **Recent:** `/newest` (page 2+ → `/newest/{page}`)
+- **Category:** `/channel/{slug}` (page 2+ → `/channel/{slug}/{page}`)
+- **Search:** `/search/{query}` or `/search?query={query}` (page 2+ → `/search/{query}/{page}`)
+
+Language prefixes (`/ja/`, `/fr/`, …) are stripped when building list URLs. Do **not** treat `/channel/{slug}` as a watch URL — `channel` is a reserved path.
+
+### Metadata and streams (`scrape`)
+
+- **Metadata:** JSON-LD `VideoObject` (`name`, `thumbnailUrl`, `duration`, `uploadDate`, `embedUrl`), `h1.video-title`, Open Graph `og:image`
+- **Duration:** `PT00H33M10S` / `PT33M10S` on JSON-LD or `.video-desc__stat time`
+- **Tags:** `.tag-row a[rel=tag]` and related-tag chips
+- **Streams:** inline Flowplayer config:
+
+```js
+sources.push({type:'video/mp4',src:'https://c44.cdn3x.com/xd/...',engine:'html5'});
+```
+
+Two CDN mirrors of the same file are common. Keep both. Quality is usually unlabeled (`default`).
+
+### Categories (`get_categories`)
+
+`categories.json` has sort feeds (Trending, Popular, Recent) plus high-traffic `/channel/{slug}` feeds scraped from `/channels`.
+
+### Registration checklist for XXXDan
+
+Package folder: `backend/app/scrapers/xxxdan/`.
+
+Also update:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` — source aliases: `xxxdan`, `xxxdan.com`, `www.xxxdan.com`)
+- `backend/app/services/video_streaming.py` (scraper branch, supported-host text, quality map including `cdn3x.com`)
+- `backend/app/models/schemas.py` (scrape/list URL allowlists including `cdn3x.com`)
+- `backend/app/api/endpoints/explore.py` (`sourceId="xxxdan"`)
+
+### XXXDan verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://xxxdan.com/O5Na1z/lonely-55-year-old-milf-mom-hooks-up-with-stepson.html\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://xxxdan.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://xxxdan.com/straight/trending&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://xxxdan.com/channel/milf&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://xxxdan.com/search/milf&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=xxxdan"
+
+curl "http://127.0.0.1:8000/api/v1/videos/info?url=https://xxxdan.com/O5Na1z/lonely-55-year-old-milf-mom-hooks-up-with-stepson.html"
+```

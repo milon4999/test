@@ -275,6 +275,11 @@ class ScrapeRequest(BaseModel):
             "91p52.com",
             "cdn77.org",
             "mjedge.net",
+            "xxxdan.com",
+            "www.xxxdan.com",
+            "xxxdan2.com",
+            "www.xxxdan2.com",
+            "cdn3x.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
@@ -543,6 +548,11 @@ class ListRequest(BaseModel):
             "91p52.com",
             "cdn77.org",
             "mjedge.net",
+            "xxxdan.com",
+            "www.xxxdan.com",
+            "xxxdan2.com",
+            "www.xxxdan2.com",
+            "cdn3x.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
