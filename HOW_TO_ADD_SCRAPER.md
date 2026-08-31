@@ -5405,3 +5405,11 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.porntrex.com/vi
 ```
 
 Expected `video.streams` for the sample video: `1080p FHD` / `720p HD` / `480p` resolved to `pcdn.cdntrex.com/...mp4?expires=...&md5=...` URLs (HTTP 206 `video/mp4`), default = 1080p.
+
+### PornTrex REVISION (curl_cffi + tile-window parser)
+
+Two fixes after the first pass, matching the goon-foss extractor (`app/extractors/tubes/porntrex.py` + `porntrex_browse.py`):
+
+1. **Transport: curl_cffi browser impersonation.** The shared aiohttp pool's Python TLS handshake times out intermittently against porntrex's expired-cert server. The scraper now prefers a module-level `curl_cffi.requests.AsyncSession(impersonate="chrome124", verify=False)` for page fetches **and** get_file resolution (same session = same cookie jar, which the session-bound token requires). Pool + `ssl=False` remains the fallback when curl_cffi is missing or the impersonated fetch fails.
+2. **Listing parser: regex tile-windows.** Each `/video/` anchor opens a window until the next anchor; `img[alt]` (title), `img[data-src]` (thumb) and the duration are pulled from that window. This handles both `class="duration">MM:SS<` and the 2026 markup variant `class="durations"><i class="fa fa-clock-o"></i> MM:SS` (BS4 `.duration`-only matching silently lost durations for ~95% of tiles). Duration regex supports `H:MM:SS`.
+3. Minor: `related_videos` now excludes the scraped URL itself; JSON-LD `VideoObject` title is HTML-unescaped before suffix stripping.

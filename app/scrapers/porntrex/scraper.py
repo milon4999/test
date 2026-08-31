@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html as html_mod
 import json
 import os
 import re
@@ -10,8 +11,6 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
 
-import aiohttp
-
 from app.core.pool import fetch_html as pool_fetch_html, pool
 
 BASE_HOST = "porntrex.com"
@@ -19,10 +18,27 @@ _BASE = f"https://www.{BASE_HOST}"
 
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
-# PornTrex serves an expired TLS certificate; verify=False is required.
-_FETCH_KWARGS: dict[str, Any] = {"ssl": False}
+# PornTrex serves an expired TLS certificate and dislikes Python TLS handshakes:
+# prefer curl_cffi browser impersonation (same-session get_file resolve like the
+# reference extractor); fall back to the shared aiohttp pool with ssl=False.
+try:  # pragma: no cover - environment dependent
+    from curl_cffi import requests as _cffi_requests
 
-_VIDEO_HREF_RE = re.compile(r"^/video/\d+/[^/?#]+/?$", flags=re.IGNORECASE)
+    _HAS_CURL = True
+except Exception:  # pragma: no cover
+    _cffi_requests = None  # type: ignore[assignment]
+    _HAS_CURL = False
+
+_CURL_IMPERSONATE = "chrome124"
+
+_VIDEO_HREF_RE = re.compile(
+    r'<a\s+href="(?P<url>https?://(?:www\.)?porntrex\.com/video/\d+/[^"]*)"', re.IGNORECASE
+)
+_ALT_RE = re.compile(r'alt="([^"]*)"')
+_THUMB_RE = re.compile(r'data-src="(//[^"]+\.(?:jpg|jpeg|webp|png)[^"]*)"', re.IGNORECASE)
+_DUR_RE = re.compile(
+    r'class="durations?"[^>]*>(?:\s*<i[^>]*>\s*</i>)?\s*([\d]{1,2}(?:\s*:\s*[\d]{2}){1,2})'
+)
 
 _DEAD_RE = re.compile(
     r"this video (?:was|has been) deleted|video (?:was|has been) removed"
@@ -32,6 +48,9 @@ _DEAD_RE = re.compile(
 
 _URL_RE = re.compile(r"(video(?:_alt)?_url\d*)\s*:\s*'([^']+)'", re.IGNORECASE)
 _TEXT_RE = re.compile(r"(video(?:_alt)?_url\d*)_text\s*:\s*'([^']*)'", re.IGNORECASE)
+
+_curl_session: Any = None
+_curl_loop: Any = None
 
 
 def can_handle(host: str) -> bool:
@@ -49,14 +68,59 @@ def get_categories() -> list[dict]:
         return []
 
 
+def _get_curl_session() -> Any:
+    """Shared curl_cffi AsyncSession (browser TLS impersonation, verify=False).
+
+    Recreated when the event loop changes, mirroring app.core.pool semantics."""
+    global _curl_session, _curl_loop
+    if not _HAS_CURL:
+        return None
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+    if _curl_session is None or _curl_loop is not current_loop:
+        try:
+            _curl_session = _cffi_requests.AsyncSession(
+                impersonate=_CURL_IMPERSONATE, verify=False, timeout=30
+            )
+            _curl_loop = current_loop
+        except Exception:
+            return None
+    return _curl_session
+
+
+async def _curl_get(url: str, referer: str, *, range_header: Optional[str] = None) -> Optional[Any]:
+    session = _get_curl_session()
+    if session is None:
+        return None
+    headers = {"User-Agent": _UA, "Referer": referer}
+    if range_header:
+        headers["Range"] = range_header
+    try:
+        return await session.get(url, headers=headers, allow_redirects=True, verify=False, timeout=30)
+    except Exception:
+        return None
+
+
 async def fetch_page(url: str, referer: str = f"{_BASE}/") -> str:
+    resp = await _curl_get(url, referer)
+    if resp is not None and getattr(resp, "status_code", 599) < 400:
+        return resp.text
+
+    if resp is not None:
+        try:
+            await resp.aclose()
+        except Exception:
+            pass
+
     headers = {
         "User-Agent": _UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": referer,
     }
-    return await pool_fetch_html(url, headers=headers, **_FETCH_KWARGS)
+    return await pool_fetch_html(url, headers=headers, ssl=False)
 
 
 def _first_non_empty(*values: Optional[str]) -> Optional[str]:
@@ -149,14 +213,13 @@ def _normalize_video_href(href: str) -> Optional[str]:
     host = parsed.netloc.lower()
     if not (host == BASE_HOST or host == f"www.{BASE_HOST}" or host.endswith("." + BASE_HOST)):
         return None
-    if not _VIDEO_HREF_RE.match(parsed.path or ""):
+    if not re.match(r"^/video/\d+/[^/?#]+/?$", parsed.path or "", flags=re.IGNORECASE):
         return None
     return urlunparse(("https", f"www.{BASE_HOST}", parsed.path.rstrip("/") + "/", "", "", ""))
 
 
-async def _resolve_get_file(get_file_url: str, *, timeout: float = 20.0) -> Optional[str]:
-    """Follow the cookie-bound get_file 302 in the pooled session (same session as the
-    page fetch) and return the final portable signed CDN URL. None when resolve fails."""
+async def _resolve_get_file_pool(get_file_url: str, *, timeout: float = 20.0) -> Optional[str]:
+    """aiohttp-pool fallback resolver (same pooled session as pool fetches)."""
     sep = "&" if "?" in get_file_url else "?"
     url = f"{get_file_url}{sep}rnd={int(time.time() * 1000)}"
     session = await pool.get_session()
@@ -177,11 +240,31 @@ async def _resolve_get_file(get_file_url: str, *, timeout: float = 20.0) -> Opti
     return final
 
 
-def _extract_flashvars_streams(html: str) -> list[dict[str, str]]:
-    """KVS flashvars: video_url / video_alt_url{,2,3} + *_text quality labels.
+async def _resolve_get_file(get_file_url: str) -> Optional[str]:
+    """Follow the session-bound get_file 302 and return the final portable signed
+    CDN URL. curl_cffi session first (page fetches use it too), pool fallback."""
+    sep = "&" if "?" in get_file_url else "?"
+    url = f"{get_file_url}{sep}rnd={int(time.time() * 1000)}"
 
-    Same-session get_file resolution happens later (async) — here we only collect.
-    """
+    resp = await _curl_get(url, f"{_BASE}/", range_header="bytes=0-1")
+    if resp is not None:
+        try:
+            status = getattr(resp, "status_code", 599)
+            final = str(getattr(resp, "url", "") or "")
+        finally:
+            try:
+                await resp.aclose()
+            except Exception:
+                pass
+        if status < 400 and final and "/get_file/" not in final:
+            return final
+        return None
+
+    return await _resolve_get_file_pool(get_file_url)
+
+
+def _extract_flashvars_streams(html: str) -> list[dict[str, str]]:
+    """KVS flashvars: video_url / video_alt_url{,2,3} + *_text quality labels."""
     quality_by_var: dict[str, str] = {}
     for m in _TEXT_RE.finditer(html):
         quality_by_var[m.group(1).lower()] = m.group(2).strip()
@@ -208,9 +291,9 @@ async def _resolve_streams(streams: list[dict[str, str]]) -> list[dict[str, str]
     return out
 
 
-def _extract_related(soup: BeautifulSoup, limit: int = 24) -> list[dict[str, Any]]:
+def _extract_related(soup: BeautifulSoup, exclude_url: str, limit: int = 24) -> list[dict[str, Any]]:
     related: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    seen: set[str] = {exclude_url}
     for a in soup.select("a[href*='/video/']"):
         href = _normalize_video_href(a.get("href") or "")
         if not href or href in seen:
@@ -220,7 +303,7 @@ def _extract_related(soup: BeautifulSoup, limit: int = 24) -> list[dict[str, Any
         if not thumb:
             continue
         title = a.get("title") or (img.get("alt") if img is not None else None) or a.get_text(" ", strip=True)
-        title = _clean_title(title) or "Unknown Video"
+        title = _clean_title(html_mod.unescape(str(title))) or "Unknown Video"
         seen.add(href)
         related.append(
             {
@@ -235,6 +318,23 @@ def _extract_related(soup: BeautifulSoup, limit: int = 24) -> list[dict[str, Any
         if len(related) >= limit:
             break
     return related
+
+
+def _parse_json_ld(soup: BeautifulSoup) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw = script.string or script.get_text(strip=False)
+        if not raw:
+            continue
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            out.append(parsed)
+        elif isinstance(parsed, list):
+            out.extend([x for x in parsed if isinstance(x, dict)])
+    return out
 
 
 def parse_video_page(html: str, url: str) -> dict[str, Any]:
@@ -263,9 +363,8 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
     if thumbnail and thumbnail.startswith("//"):
         thumbnail = f"https:{thumbnail}"
 
-    duration = None
-    views = None
-    uploader_name = None
+    duration: Optional[str] = None
+    uploader_name: Optional[str] = None
 
     for obj in _parse_json_ld(soup):
         types = obj.get("@type")
@@ -273,8 +372,9 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
         if "videoobject" not in tnames:
             continue
         if obj.get("name"):
-            title = _clean_title(str(obj["name"])) or title
-        duration = _first_non_empty(duration, str(obj.get("duration")) if obj.get("duration") else None)
+            title = _clean_title(html_mod.unescape(str(obj["name"]))) or title
+        if obj.get("duration"):
+            duration = _parse_duration(str(obj.get("duration"))) or duration
         if obj.get("thumbnailUrl"):
             thumb = obj.get("thumbnailUrl")
             if isinstance(thumb, list):
@@ -286,10 +386,17 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
         elif isinstance(author, str):
             uploader_name = _first_non_empty(author, uploader_name)
 
-    text_blob = soup.get_text(" ", strip=True)
     if not duration:
-        duration = _parse_duration(text_blob)
-    views = _extract_views(text_blob)
+        # KVS meta[itemprop=duration] or the visible duration badge.
+        dur_meta = soup.find("meta", attrs={"itemprop": "duration"})
+        if dur_meta is not None and dur_meta.get("content"):
+            duration = _parse_duration(str(dur_meta.get("content")))
+    if not duration:
+        dur_el = soup.select_one(".duration, .durations, .info .duration")
+        if dur_el is not None:
+            duration = _parse_duration(dur_el.get_text(" ", strip=True))
+
+    views = _extract_views(soup.get_text(" ", strip=True))
 
     tags: list[str] = []
     for tag_link in soup.select("a[href*='/search/'], a[href*='/tags/']"):
@@ -319,26 +426,9 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
             "has_video": False,
             "_pending": _extract_flashvars_streams(html),
         },
-        "related_videos": _extract_related(soup),
+        "related_videos": _extract_related(soup, url),
         "preview_url": None,
     }
-
-
-def _parse_json_ld(soup: BeautifulSoup) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
-        raw = script.string or script.get_text(strip=False)
-        if not raw:
-            continue
-        try:
-            parsed = json.loads(raw)
-        except Exception:
-            continue
-        if isinstance(parsed, dict):
-            out.append(parsed)
-        elif isinstance(parsed, list):
-            out.extend([x for x in parsed if isinstance(x, dict)])
-    return out
 
 
 async def scrape(url: str) -> dict[str, Any]:
@@ -350,10 +440,9 @@ async def scrape(url: str) -> dict[str, Any]:
         playable = [s for s in resolved if "/get_file/" not in s["url"]]
         streams = playable or resolved
         streams.sort(key=lambda s: _quality_rank(s.get("quality")), reverse=True)
-        hls = next((s["url"] for s in streams if s.get("format") == "hls"), None)
         data["video"] = {
             "streams": streams,
-            "hls": hls,
+            "hls": None,
             "default": streams[0]["url"] if streams else None,
             "has_video": bool(streams),
         }
@@ -373,54 +462,70 @@ def _build_list_page_url(base_url: str, page: int) -> str:
     if page <= 1:
         return urlunparse((scheme, netloc, path, "", urlencode(query_items), ""))
 
-    if re.search(r"/latest-updates/(\d+)/?$", path):
+    if re.search(r"/(?:latest-updates|top-rated|most-popular|search)/(\d+)/?$", path):
         page_path = re.sub(r"/(\d+)/?$", f"/{page}/", path)
         return urlunparse((scheme, netloc, page_path, "", urlencode(query_items), ""))
-    if re.search(r"/search/(\d+)/?$", path):
+    if re.search(r"/categories/[a-z0-9\-]+/(\d+)/?$", path, flags=re.IGNORECASE):
         page_path = re.sub(r"/(\d+)/?$", f"/{page}/", path)
         return urlunparse((scheme, netloc, page_path, "", urlencode(query_items), ""))
 
-    # KVS generic: /videos/{n}/, /categories/{slug}/{n}/, /members/{name}/{n}/
-    m = re.match(r"^(.*?/)(\d+)/?$", path)
-    if m:
-        page_path = f"{m.group(1)}{page}/"
-        return urlunparse((scheme, netloc, page_path, "", urlencode(query_items), ""))
     page_path = path.rstrip("/") + f"/{page}/"
     return urlunparse((scheme, netloc, page_path, "", urlencode(query_items), ""))
 
 
-def _parse_list_card(a: Any) -> Optional[dict[str, Any]]:
-    href = _normalize_video_href(a.get("href") or "")
-    if not href:
+def _slug_title(scene_url: str) -> Optional[str]:
+    sl = re.search(r"/video/\d+/([a-z0-9\-]+)", scene_url, flags=re.IGNORECASE)
+    if not sl:
         return None
+    return sl.group(1).replace("-", " ").strip().title()
 
-    img = a.find("img") or (a.select_one(".video-tile-model img") if a else None)
-    thumb = _best_image_url(img)
-    if not thumb:
-        return None
 
-    title = (
-        a.get("title")
-        or (img.get("alt") if img is not None else None)
-        or a.get_text(" ", strip=True)
-    )
-    if not title or title in ("POST THUMB", "thumb"):
-        return None
-    title = _clean_title(title) or "Unknown Video"
+def parse_listing(html: str, limit: int) -> list[dict[str, Any]]:
+    """Goon-style tile-window parser: each /video/ anchor opens a window until the
+    next anchor; alt / data-src / duration are pulled from that window. Handles
+    both `class="duration"` and `class="durations"` (icon variant) markup."""
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
 
-    duration = None
-    dur_el = a.select_one(".duration, .durations") if a is not None else None
-    if dur_el is not None:
-        duration = _parse_duration(dur_el.get_text(" ", strip=True))
+    anchors = list(_VIDEO_HREF_RE.finditer(html))
+    for idx, m in enumerate(anchors):
+        if len(items) >= limit:
+            break
+        scene_url = _normalize_video_href(m.group("url"))
+        if not scene_url or scene_url in seen:
+            continue
 
-    return {
-        "url": href,
-        "title": title,
-        "thumbnail_url": thumb,
-        "duration": duration,
-        "views": None,
-        "uploader_name": None,
-    }
+        window = html[m.start() : anchors[idx + 1].start() if idx + 1 < len(anchors) else m.end() + 700]
+
+        am = _ALT_RE.search(window)
+        title = html_mod.unescape(am.group(1)).strip() if am else ""
+        if not title or title in ("POST THUMB", "thumb"):
+            title = _slug_title(scene_url) or ""
+        if not title:
+            continue
+        title = _clean_title(title) or "Unknown Video"
+
+        tm = _THUMB_RE.search(window)
+        if not tm:
+            continue
+        thumb = "https:" + tm.group(1)
+
+        dm = _DUR_RE.search(window)
+        duration = _parse_duration(dm.group(1) if dm else None)
+
+        seen.add(scene_url)
+        items.append(
+            {
+                "url": scene_url,
+                "title": title,
+                "thumbnail_url": thumb,
+                "duration": duration,
+                "views": None,
+                "uploader_name": None,
+            }
+        )
+
+    return items[:limit]
 
 
 async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[dict[str, Any]]:
@@ -430,17 +535,4 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
     except Exception:
         return []
 
-    soup = BeautifulSoup(html, "lxml")
-    items: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    for a in soup.select("a[href*='/video/']"):
-        if len(items) >= limit:
-            break
-        item = _parse_list_card(a)
-        if not item or item["url"] in seen:
-            continue
-        seen.add(item["url"])
-        items.append(item)
-
-    return items[:limit]
+    return parse_listing(html, limit)
