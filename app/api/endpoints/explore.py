@@ -1431,6 +1431,20 @@ EXPLORE_SOURCES = [
         pageSize=25,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://sxyprn.com/",
+        nickname="SxyPrn",
+        favicon="https://sxyprn.com/favicon.ico",
+        accentColor="#E48300",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://sxyprn.com/{query}.html",
+        sourceId="sxyprn",
+        disable=False,
+        pageSize=25,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

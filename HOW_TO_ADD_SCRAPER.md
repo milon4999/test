@@ -5255,3 +5255,97 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=pornxxx"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://pornxxx.tube/gallery/14693036/jav-hd-asian-wants-real-sex-in-her-lingerie/"
 ```
+
+## SxyPrn Implementation Notes
+
+[SxyPrn](https://sxyprn.com/) (SexyPorn) is a community/blog-style tube. Videos are "posts" at `/post/{hex_id}.html`; thumbnails/preview clips live on `b1/b2/b3.trafficdeposit.com`. Posts are user-made: the actual playable sources are usually **external players linked in the post text** (Vidara, LuluStream, DoodStream, SaveFiles), not a direct file.
+
+### Direct .vid link — known dead end (do NOT use)
+
+The page HTML carries `<span class='vidsnfo' data-vnfo='{"{id}":"/cdn/cN/.../....vid"}'>`. `main2.js` rebuilds a direct URL with (see `getvsrc`/`ssut51`/`boo`/`preda`):
+
+```
+tmp[1] += "8/" + base64url("<digitsum(seg6)>-sxyprn.com-<digitsum(seg7)>")   # '=' -> '.'
+tmp[5] = str(int(tmp[5]) - digitsum(seg6) - digitsum(seg7))
+```
+
+This transform was implemented and verified byte-for-byte against `main2.js`, but the built `https://sxyprn.com/cdn8/.../....vid` URL still returns **404** server-side (tested with fresh tokens + PHPSESSID + Referer, Range and plain GET). The scraper therefore **excludes** the direct link and returns embed streams only.
+
+### Host aliases
+
+- `sxyprn.com`
+- `www.sxyprn.com`
+- Any `*.sxyprn.com` subdomain (`can_handle()` suffix match)
+
+Do not put `trafficdeposit.com` (media CDN) or embed hosts in `can_handle()`; they are allowlisted in `schemas.py` only.
+
+### Stream extraction (`scrape`) — embeds from post text
+
+Each post text contains external player links as `a.extlink` anchors. They are normalized to embed (player) form and returned as `format="embed"` streams labeled `Server 1`, `Server 2`, ...:
+
+| Found in post text             | Returned stream                          |
+|--------------------------------|------------------------------------------|
+| `https://vidara.so/v/{id}`     | `https://vidara.so/e/{id}`               |
+| `https://vidara.to/v/{id}`     | `https://vidara.to/e/{id}`               |
+| `https://lulustream.com/{id}`  | `https://luluvdo.com/e/{id}`             |
+| `https://doodstream.co/e/{id}` | unchanged (already embed form)           |
+| `https://doodstream.co/{id}`   | `https://doodstream.co/e/{id}`           |
+| `https://savefiles.com/{id}`   | kept as-is (embed host, no /e/ route)    |
+
+- `video.default` = first embed (`Server 1`); `has_video=True` only when at least one embed link exists.
+- Metadata: `og:title` (suffix ` on SexyPorn OG` / ` on the SexyPorn` stripped), `og:description`, `og:image` for thumbnail; duration from `meta[itemprop=duration]` (`PT11M2S` -> `11:02`), fallback to the `Video Info -> duration:` block; views from `.post_control_time` (`35267 views`); uploader from `.pes_author_div .a_name`; tags from `a.hash_link[label]` in the main post.
+- Deleted posts are soft-404 (HTTP 200 + "Post Not Found") â€” the scraper raises so callers return 502 instead of an empty result.
+- Related videos: other `.post_el_small` cards on the post page (same parser as listings).
+
+### Listing and pagination (`list_videos`)
+
+Cards are `div.post_el_small` containing `a.js-pop[href^="/post/{hex_id}.html"]`, thumb `img[data-src]` (trafficdeposit, protocol-relative), duration in `span.duration_small`, views in `.post_control_time`.
+
+Page URLs by route (page 1 = `base_url` unchanged):
+
+- **Home/New:** `https://sxyprn.com/` (page N -> `/main-{N}.html`)
+- **Tag/Search keys:** `/{tag}.html` (page N -> `/{tag}-{N}.html`)
+- **Top:** `/popular/top-pop.html`, `/popular/top-viewed.html` (page N -> `/popular/top-pop-{N}.html`)
+- **Blog/Porn Wall:** `/blog/all/0.html` is page 1, `/blog/all/1.html` is page 2 (0-based!)
+- **Author:** `/blog/{author_id}/0.html` (same 0-based pattern)
+- **Orgasmic:** `/orgasm` (page N -> `/orgasm-{N}.html`)
+
+`_build_list_page_url` implements all of these; search uses the tag route (`/{query}.html`), which doubles as search.
+
+### Categories (`get_categories`)
+
+`categories.json` seeds the sort feeds (New `/`, Top `/popular/top-pop.html`, Viewed `/popular/top-viewed.html`) plus high-traffic `/{tag}.html` keys (anal, asian, milf, onlyfans, teen, ...).
+
+### Registration checklist for SxyPrn
+
+Package folder: `backend/app/scrapers/sxyprn/`.
+
+Also update:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` â€” source aliases: `sxyprn`, `sxyprn.com`, `www.sxyprn.com`)
+- `backend/app/services/video_streaming.py` (scraper branch, supported-host text, `available_qualities` host list + `per_stream_format_keys` so flat `Server N` / `Server N_format` fields are emitted)
+- `backend/app/models/schemas.py` (scrape allowlist incl. `trafficdeposit.com` + embed hosts; list base_url allowlist incl. `sxyprn.com`)
+- `backend/app/api/endpoints/explore.py` (`sourceId="sxyprn"`)
+
+### SxyPrn verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://sxyprn.com/post/6a94662d957e8.html\"}"
+
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://sxyprn.com/post/6a948fbfb23a5.html\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://sxyprn.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://sxyprn.com/anal.html&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=sxyprn"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://sxyprn.com/post/6a94662d957e8.html"
+```
+
+Expected stream result for `6a94662d957e8` (post embeds Vidara): `Server 1` -> `https://vidara.so/e/0Kf3bhXfpwEQX`. For `6a948fbfb23a5`: `Server 1` -> `https://luluvdo.com/e/8lvf2vq7kjvg`, `Server 2` -> `https://doodstream.co/e/fvar94xwdw8f`.

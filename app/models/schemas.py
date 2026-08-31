@@ -287,6 +287,19 @@ class ScrapeRequest(BaseModel):
             "vcdn01.pornxxx.tube",
             "vcdn02.pornxxx.tube",
             "u3.pornxxx.tube",
+            "sxyprn.com",
+            "www.sxyprn.com",
+            "trafficdeposit.com",
+            "b1.trafficdeposit.com",
+            "b2.trafficdeposit.com",
+            "b3.trafficdeposit.com",
+            "vidara.so",
+            "vidara.to",
+            "lulustream.com",
+            "luluvdo.com",
+            "doodstream.co",
+            "doodstream.com",
+            "savefiles.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
@@ -562,6 +575,8 @@ class ListRequest(BaseModel):
             "cdn3x.com",
             "pornxxx.tube",
             "www.pornxxx.tube",
+            "sxyprn.com",
+            "www.sxyprn.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
