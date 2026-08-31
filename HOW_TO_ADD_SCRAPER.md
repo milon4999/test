@@ -5181,3 +5181,77 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=xxxdan"
 
 curl "http://127.0.0.1:8000/api/v1/videos/info?url=https://xxxdan.com/O5Na1z/lonely-55-year-old-milf-mom-hooks-up-with-stepson.html"
 ```
+
+## PornXXX Implementation Notes
+
+[PornXXX.tube](https://pornxxx.tube/) is a hprofits-style gallery tube. Video pages live under `/gallery/{id}/{slug}/`, category pages under `/videos/{slug}/`, tag/search pages under `/tags/{query}/`. Thumbnails come from `icdn05.pornxxx.tube`; signed progressive MP4s from `vcdn01/vcdn02.pornxxx.tube`.
+
+### Host aliases
+
+- `pornxxx.tube`
+- `www.pornxxx.tube`
+- Any `*.pornxxx.tube` subdomain (`can_handle()` suffix match)
+
+Do **not** put the CDN hosts (`icdn05.`, `vcdn01.`, `vcdn02.`, `u3.`) in `can_handle()`; they are media hosts only and are allowlisted in `schemas.py`.
+
+### Listing and pagination (`list_videos`)
+
+Parse cards from `a.js-gallery-link[href]` matching `/gallery/{numeric_id}/{slug}`:
+
+- title: anchor `title` attr, then `.b-thumb-item__title`, then img `alt`
+- thumbnail: img `data-src` (`https://icdn05.pornxxx.tube/{dir}/{gid}_{n}.jpg`)
+- duration: `.b-thumb-item__duration span` (`mm:ss` / `hh:mm:ss`)
+- views: not exposed by this platform (`None`)
+
+Pagination is a query param on every listing route (verified `?page=2..N`):
+
+- **Popular:** `https://pornxxx.tube/` (page N → `/?page=N`)
+- **Newest:** `https://pornxxx.tube/new-vids/` (page N → `/new-vids/?page=N`)
+- **Category:** `https://pornxxx.tube/videos/{slug}/` (page N → `/videos/{slug}/?page=N`)
+- **Tag/Search:** `https://pornxxx.tube/tags/{query}/` (page N → `/tags/{query}/?page=N`)
+
+Skip the ad cards (`random-thumb` blocks) — they never match the `/gallery/` href pattern, so the `_normalize_video_href` filter drops them automatically.
+
+### Metadata and streams (`scrape`)
+
+- **Metadata:** `og:title` (suffix ` - PornXXX.tube` is stripped), `og:description`, poster from `video#video[poster]` / `og:image` (both `icdn05.pornxxx.tube`).
+- **Duration:** the `script#video-track-data` JSON blob carries `"vd": <seconds>`; format to `mm:ss` / `hh:mm:ss`, fallback to text regex.
+- **Uploader:** `.b-gallery-meta__item.channel-link .b-gallery-meta__text` (the "Uploaded by:" value).
+- **Tags:** all `/tags/{slug}/` anchor texts. **Category:** first `/videos/{slug}/` anchor text.
+- **Streams:** the page embeds a direct signed progressive MP4 in `<video id="video"><source src="https://vcdn02.pornxxx.tube/key=...,end=.../video18/.../{hash}_480.mp4" type="video/mp4">`. The `end=<unix>` token is time-limited but the scraper returns it fresh per request, so no redirect resolution is needed (no `get_file` dance).
+- Quality is parsed from the filename suffix (`_480.mp4` → `480p`), unknown → `source`. Inline scripts are also scanned (unescaped `\/`, `\u0026`) for `.mp4`/`.m3u8` fallbacks; `video.default` prefers the highest-scored MP4.
+- **Related videos:** the `.js-related-list` section is parsed into `related_videos` (same shape as list items), enabling `hasRelatedVideos=True` in the explore source.
+
+### Categories (`get_categories`)
+
+`categories.json` seeds the Popular/Newest tabs plus `/videos/{slug}/` category routes from the public `/categories` index (counts available in `.b-thumb-item__count`).
+
+### Registration checklist for PornXXX
+
+Package folder: `backend/app/scrapers/pornxxx/`.
+
+Also update:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` — source aliases: `pornxxx`, `pornxxx.tube`, `www.pornxxx.tube`)
+- `backend/app/services/video_streaming.py` (scraper branch, supported-host text)
+- `backend/app/models/schemas.py` (scrape allowlist incl. CDN hosts; list base_url allowlist incl. `pornxxx.tube`)
+- `backend/app/api/endpoints/explore.py` (`sourceId="pornxxx"`, `hasRelatedVideos=True`)
+
+### PornXXX verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://pornxxx.tube/gallery/14693036/jav-hd-asian-wants-real-sex-in-her-lingerie/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://pornxxx.tube/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://pornxxx.tube/new-vids/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://pornxxx.tube/videos/asian/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=pornxxx"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://pornxxx.tube/gallery/14693036/jav-hd-asian-wants-real-sex-in-her-lingerie/"
+```

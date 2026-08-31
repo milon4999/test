@@ -1417,6 +1417,20 @@ EXPLORE_SOURCES = [
         disable=True,
         pageSize=20,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://pornxxx.tube/",
+        nickname="PornXXX",
+        favicon="https://pornxxx.tube/static/images/favicon/favicon-32x32-512ca8dc84.png",
+        accentColor="#F11E26",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://pornxxx.tube/tags/{query}/",
+        sourceId="pornxxx",
+        disable=False,
+        pageSize=25,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(
