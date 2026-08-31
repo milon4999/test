@@ -1455,7 +1455,7 @@ EXPLORE_SOURCES = [
         hasCategories=True,
         searchUrlTemplate="https://www.porntrex.com/search/{query}/",
         sourceId="porntrex",
-        disable=False,
+        disable=True,
         pageSize=42,
         hasRelatedVideos=True,
     ),
