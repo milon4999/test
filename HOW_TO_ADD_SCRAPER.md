@@ -1,4 +1,4 @@
-# How to Add a New Scraper
+﻿# How to Add a New Scraper
 
 This guide matches the current backend layout and registration flow.
 
@@ -6,19 +6,19 @@ This guide matches the current backend layout and registration flow.
 
 ```text
 backend/
-├── main.py
-└── app/
-    ├── main.py
-    └── scrapers/
-        ├── __init__.py
-        ├── xnxx/
-        │   ├── __init__.py
-        │   ├── scraper.py
-        │   └── categories.json
-        └── <site_name>/
-            ├── __init__.py
-            ├── scraper.py
-            └── categories.json
+â”œâ”€â”€ main.py
+â””â”€â”€ app/
+    â”œâ”€â”€ main.py
+    â””â”€â”€ scrapers/
+        â”œâ”€â”€ __init__.py
+        â”œâ”€â”€ xnxx/
+        â”‚   â”œâ”€â”€ __init__.py
+        â”‚   â”œâ”€â”€ scraper.py
+        â”‚   â””â”€â”€ categories.json
+        â””â”€â”€ <site_name>/
+            â”œâ”€â”€ __init__.py
+            â”œâ”€â”€ scraper.py
+            â””â”€â”€ categories.json
 ```
 
 ## Required Interface
@@ -271,9 +271,9 @@ So `list_videos(base_url, page)` should generally build `base_url + "?_page={pag
 For `scrape(url)`:
 
 - Extract metadata from `og:title`, `og:description`, `og:image`, plus `h1` fallback.
-- Collect player embed URLs from `iframe[src]` (skip ad iframes). The site uses two tabs (`Server 1` / `Server 2`); expose each iframe as its own stream with `format="embed"` and `quality` set to `"Server 1"`, `"Server 2"`, … matching the UI.
-- Set `video.default` to the **Byse / byseraguci.com** embed (“Server 2”) when present, else **hrnyvid / LuluStream**, else the first embed.
-- `GET /api/v1/videos/stream` for `hornysimp.com` includes **flat per-source fields** (`Server 1`, `Server 2`, …) in the JSON response, same pattern as `xxxparodyhd.net` (see `get_stream_url` in `video_streaming.py`).
+- Collect player embed URLs from `iframe[src]` (skip ad iframes). The site uses two tabs (`Server 1` / `Server 2`); expose each iframe as its own stream with `format="embed"` and `quality` set to `"Server 1"`, `"Server 2"`, â€¦ matching the UI.
+- Set `video.default` to the **Byse / byseraguci.com** embed (â€œServer 2â€) when present, else **hrnyvid / LuluStream**, else the first embed.
+- `GET /api/v1/videos/stream` for `hornysimp.com` includes **flat per-source fields** (`Server 1`, `Server 2`, â€¦) in the JSON response, same pattern as `xxxparodyhd.net` (see `get_stream_url` in `video_streaming.py`).
 
 ### Registration checklist for HornySimp
 
@@ -325,9 +325,9 @@ def can_handle(host: str) -> bool:
 ### Metadata and streams (`scrape`)
 
 - Prefer `og:title`, `og:description`, `og:image`, plus `<meta name="keywords">` for tags.
-- **Progressive MP4** URLs appear in the HTML as same-origin `https://pimpbunny.com/get_file/.../*.mp4` (often several resolutions, e.g. `_360p`, `_720p`, `_1080p`, plus a basename `/{id}.mp4` “source” variant).
+- **Progressive MP4** URLs appear in the HTML as same-origin `https://pimpbunny.com/get_file/.../*.mp4` (often several resolutions, e.g. `_360p`, `_720p`, `_1080p`, plus a basename `/{id}.mp4` â€œsourceâ€ variant).
 - A **HEAD** request to each `get_file` URL (with `Referer: https://pimpbunny.com/`) usually returns **302** to the real playable URL on a CDN host: `https://st*.pimpbunny.com/remote_control.php?time=...&file=%2Fvideos%2F...&cv=...` (tokens are short-lived). If **HEAD** does not redirect, try **GET** with `Range: bytes=0-0` the same way. Tiers that still do not redirect (often premium-only) are **dropped** from `video.streams` so the API does not expose non-playable bare `get_file` links.
-- Parse with regex after unescaping `\\/` → `/` and `\\u0026` → `&`. Build `video.streams` with `format="mp4"` and `quality` from the filename (`_720p`, `_pb_1080p`, etc.). The HTML often lists **the same quality more than once** with different signing hashes; **keep the last match per quality** (the player config block is usually later and is the one that returns 302).
+- Parse with regex after unescaping `\\/` â†’ `/` and `\\u0026` â†’ `&`. Build `video.streams` with `format="mp4"` and `quality` from the filename (`_720p`, `_pb_1080p`, etc.). The HTML often lists **the same quality more than once** with different signing hashes; **keep the last match per quality** (the player config block is usually later and is the one that returns 302).
 - Resolve each `get_file` like the browser: **Referer** = the **full video page URL**, `GET` with `Range: bytes=0-` (and `HEAD` / `Range: 0-0` as fallbacks), URL form `...mp4/?rnd=<unix_ms>` (see network tab).
 - The page also references `https://pimpbunny.com/embed/{numericId}`; you can expose that as `format="embed"` / `quality="embed"` as a fallback for clients that only handle embeds.
 - Set `video.default` to the best MP4 by resolution, not the embed.
@@ -1913,11 +1913,11 @@ def can_handle(host: str) -> bool:
 
 - Video URLs: `https://www.85po.com/v/{id}/{slug}/`
 - Embed player: `https://www.85po.com/embed/{id}` (iframe shell; also exposes `/get_file/` MP4 tiers inside)
-- Parse only the main list block (not the “watching now” sidebar):
+- Parse only the main list block (not the â€œwatching nowâ€ sidebar):
   - home / default: `#list_videos_most_recent_videos`
   - `/4k/`: `#list_videos_latest_videos_list`
   - `/tags/...`: `#list_videos_common_videos_list`
-- Pagination uses query param `from` (page 2 → `?from=2`), not `?page=`. AJAX `#more` blocks exist but GET `?from={n}` is sufficient for the API list endpoint.
+- Pagination uses query param `from` (page 2 â†’ `?from=2`), not `?page=`. AJAX `#more` blocks exist but GET `?from={n}` is sufficient for the API list endpoint.
 
 ### Metadata and streams (`scrape`)
 
@@ -1980,9 +1980,9 @@ Use `hornysimp` for embed fallbacks and `zeenite` for JSON-LD + stream ordering 
 
 ### Listing and pagination (`list_videos`)
 
-- Home: `https://cosxplay.com/` → page 2 is `https://cosxplay.com/page/2/`
-- Category: `https://cosxplay.com/7841-nier-automata/` → `https://cosxplay.com/7841-nier-automata/page/2/`
-- Parse cards via `div.video-block[data-post-id]` → `a.infos[href]` / `a.thumb[href]`; duration from `.video-datas span.duration.notranslate` (or `span.duration` on the card)
+- Home: `https://cosxplay.com/` â†’ page 2 is `https://cosxplay.com/page/2/`
+- Category: `https://cosxplay.com/7841-nier-automata/` â†’ `https://cosxplay.com/7841-nier-automata/page/2/`
+- Parse cards via `div.video-block[data-post-id]` â†’ `a.infos[href]` / `a.thumb[href]`; duration from `.video-datas span.duration.notranslate` (or `span.duration` on the card)
 - Only accept single-segment `/{id}-{slug}/` URLs (exclude `/tag/`, `/categories/`, `/embed/`, etc.)
 
 ### Metadata and streams (`scrape`)
@@ -2035,7 +2035,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://cosxplay.com/78642-
 
 ## MemoJav Implementation Notes
 
-[MemoJav](https://memojav.com/) is a JAV catalog site. Canonical video pages use `/video/{CODE}` **without** a trailing slash (for example `/video/START-579` — `/video/START-579/` returns 404). Listings use `a.video-item` cards with `img.video-poster`; pagination is `page-{n}` under the current section path without a trailing slash (for example `/video/page-2`).
+[MemoJav](https://memojav.com/) is a JAV catalog site. Canonical video pages use `/video/{CODE}` **without** a trailing slash (for example `/video/START-579` â€” `/video/START-579/` returns 404). Listings use `a.video-item` cards with `img.video-poster`; pagination is `page-{n}` under the current section path without a trailing slash (for example `/video/page-2`).
 
 ### Host aliases
 
@@ -2047,15 +2047,15 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://cosxplay.com/78642-
 - Home: `https://memojav.com/`
 - Best: `https://memojav.com/best/`
 - New: `https://memojav.com/video/`
-- Page 2 on new videos: `https://memojav.com/video/page-2` (no trailing slash — `/video/page-2/` is 404)
-- Parse `a.video-item[href]` → title from `.video-title`, thumb from `img.video-poster`
+- Page 2 on new videos: `https://memojav.com/video/page-2` (no trailing slash â€” `/video/page-2/` is 404)
+- Parse `a.video-item[href]` â†’ title from `.video-title`, thumb from `img.video-poster`
 
 ### Metadata and streams (`scrape`)
 
 - Metadata: `og:*`, `#title`, `#title-description`, `var mm = {type,id,vi}`, schema `itemprop="duration"` (`PT123M0S`), actress link, trailer `#preview-vid`.
 - Full movie streams come from `/hls/get_video_info.php?id={CODE}&sig=...&sts=...` (same `video_sig()` algorithm as `static/main.js`). Response is JSON prefixed with `for (;;);`.
-  - `type: "hls"` → `master.m3u8` on `video*.memojav.net` (preferred default).
-  - `type: "mp4"` → base URL with `=m37` / `=m22` / `=m18` quality suffixes (JW Player convention).
+  - `type: "hls"` â†’ `master.m3u8` on `video*.memojav.net` (preferred default).
+  - `type: "mp4"` â†’ base URL with `=m37` / `=m22` / `=m18` quality suffixes (JW Player convention).
 - Always include embed fallback: `https://memojav.com/embed/{CODE}`.
 
 ### Categories (`get_categories`)
@@ -2101,7 +2101,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://memojav.com/video/S
 
 ## HoHoJ Implementation Notes
 
-[HoHoJ](https://hohoj.tv/) (好好J) is a JAV catalog site in the GGJAV family (CDN thumbnails on `cdn-*.ggjav.com`, streams on `video-*.ggjav.com`). Video pages use numeric IDs: `/video?id={ID}` (not slug paths). The detail page embeds `/embed?id={ID}`, which exposes the HLS master URL in `<video src="...index.m3u8">` and `var videoSrc = "..."`.
+[HoHoJ](https://hohoj.tv/) (å¥½å¥½J) is a JAV catalog site in the GGJAV family (CDN thumbnails on `cdn-*.ggjav.com`, streams on `video-*.ggjav.com`). Video pages use numeric IDs: `/video?id={ID}` (not slug paths). The detail page embeds `/embed?id={ID}`, which exposes the HLS master URL in `<video src="...index.m3u8">` and `var videoSrc = "..."`.
 
 ### Host aliases
 
@@ -2120,8 +2120,8 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://memojav.com/video/S
 - Sort order (optional `order`): `popular` (default), `latest`, `views`, `likes`
 - Text search: `https://hohoj.tv/search?text={query}&p=1`
 - Actresses index: `https://hohoj.tv/all_models`
-- Parse cards in `div.video-item`; links are rendered as `{% if href="/video?id=123" %}` — extract with regex `/video?id=\d+`
-- Pagination: set/replace query param `p` (page 2 → `p=2`)
+- Parse cards in `div.video-item`; links are rendered as `{% if href="/video?id=123" %}` â€” extract with regex `/video?id=\d+`
+- Pagination: set/replace query param `p` (page 2 â†’ `p=2`)
 
 ### Metadata and streams (`scrape`)
 
@@ -2192,13 +2192,13 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://hohoj.tv/video?id=5
   - Anime: `https://ggjav.com/main/cartoon`
 - Text search: `https://ggjav.com/main/search?string={query}`
 - Parse cards in `div.item` with `a[href*="/main/video?id="]`; title in `.item_title`, thumb `img.item_image`, views in `.item_views`
-- Pagination: query param `page` (site sometimes emits `&&page` — normalize to `&page`)
+- Pagination: query param `page` (site sometimes emits `&&page` â€” normalize to `&page`)
 
 ### Metadata and streams (`scrape`)
 
 - Metadata: `og:*`, `.title_text`, `.info img`, `.ctg_button` / `.ctg a`, optional `.model .model_name`
-- Player map: `var l = "{base64}"` on the video page → decode (`b64` then subtract `0x58` per byte) → JSON object `links.{server}[]`
-- Preferred HLS path: `links.ggjav[0]` is `/main/embed?u={base64_mp4_path}&poster=...` → decode `u` → append `/index.m3u8` to the `.mp4` base URL (e.g. `https://video-6.ggjav.com/video_1/...mp4/index.m3u8`)
+- Player map: `var l = "{base64}"` on the video page â†’ decode (`b64` then subtract `0x58` per byte) â†’ JSON object `links.{server}[]`
+- Preferred HLS path: `links.ggjav[0]` is `/main/embed?u={base64_mp4_path}&poster=...` â†’ decode `u` â†’ append `/index.m3u8` to the `.mp4` base URL (e.g. `https://video-6.ggjav.com/video_1/...mp4/index.m3u8`)
 - Alternate embed fallbacks: `mmfl04`, `mmsw02`, `embedrise`, `tapewithadblock`, etc. from the same `links` map
 - Embed fallback: `https://ggjav.com/main/embed?id={ID}`
 
@@ -2258,21 +2258,21 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://ggjav.com/main/vide
 - Home: `https://porn87.com/`
 - Latest: `https://porn87.com/main/tag?lineup=create_time`
 - Popular: `https://porn87.com/main/tag?lineup=recent_views`
-- Tag browse: `https://porn87.com/main/tag?name={tag}` (e.g. `高清日本AV`, `中港台`)
+- Tag browse: `https://porn87.com/main/tag?name={tag}` (e.g. `é«˜æ¸…æ—¥æœ¬AV`, `ä¸­æ¸¯å°`)
 - Text search: `https://porn87.com/main/search?name={query}`
 - Parse cards in `div.chunk > a[href*="/main/html?id="]`; thumb `img.video_thumbnail`, duration `.video_time`, views/likes via `fi-eye` / `fi-heart`
-- Pagination: query param `page` is **1-based** (UI page 2 → `page=2`; API `page=1` omits the param)
+- Pagination: query param `page` is **1-based** (UI page 2 â†’ `page=2`; API `page=1` omits the param)
 
 ### Metadata and streams (`scrape`)
 
 - Metadata: `og:*`, title spans, `.video_time`, tag links (`/main/tag?name=`), optional model links
-- Streams: fetch `https://porn87.com/main/embed?id={ID}` → read HLS from `#my-video[src]` or `var videoSrc`
+- Streams: fetch `https://porn87.com/main/embed?id={ID}` â†’ read HLS from `#my-video[src]` or `var videoSrc`
 - Optional multi-server map on the HTML page: same `var l = "{base64}"` decode as GGJAV (`b64` then subtract `0x58` per byte) for external embed fallbacks
 - Embed fallback: `https://porn87.com/main/embed?id={ID}`
 
 ### Categories (`get_categories`)
 
-Seed from nav: Home, Latest, Popular, HD Japanese AV, Asian Homemade (中港台), All Tags, Actresses.
+Seed from nav: Home, Latest, Popular, HD Japanese AV, Asian Homemade (ä¸­æ¸¯å°), All Tags, Actresses.
 
 ### Registration checklist for Porn87
 
@@ -2311,7 +2311,7 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=porn87"
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://porn87.com/main/html?id=5952"
 ```
 
-## GoodAV (正妹AV) Implementation Notes
+## GoodAV (æ­£å¦¹AV) Implementation Notes
 
 [GoodAV](http://goodav17.com/) (`goodav17.com`) is a JAV catalog in the GGJAV CDN family. Video pages use `/html/{ID}/`; playback is via an embedded `ggjav.com/main/embed?u={base64_mp4_path}&site=goodav` iframe (HLS on `video-*.ggjav.com` / `cdn-*.ggjav.com`).
 
@@ -2322,22 +2322,22 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://porn87.com/main/htm
 
 ### Listing and pagination (`list_videos`)
 
-- Home (latest): `http://goodav17.com/` — page *n* &gt; 1 is `http://goodav17.com/{n}/`
-- Types: `http://goodav17.com/type/{name}/{page}/` (e.g. `/type/無碼/1/`, page 2 → `/type/無碼/2/`)
+- Home (latest): `http://goodav17.com/` â€” page *n* &gt; 1 is `http://goodav17.com/{n}/`
+- Types: `http://goodav17.com/type/{name}/{page}/` (e.g. `/type/ç„¡ç¢¼/1/`, page 2 â†’ `/type/ç„¡ç¢¼/2/`)
 - Actresses: `http://goodav17.com/actor/{name}/{page}/`
 - VR: `http://goodav17.com/vr/{page}/`
 - Homemade: `http://goodav17.com/local/{page}/`
-- Parse cards in `div.movie` → `a[href*="/html/"]`; thumbs from `img` (`src`, `large_image` on `cdn-*.ggjav.com`)
+- Parse cards in `div.movie` â†’ `a[href*="/html/"]`; thumbs from `img` (`src`, `large_image` on `cdn-*.ggjav.com`)
 
 ### Metadata and streams (`scrape`)
 
 - Metadata: `og:*`, title, tag/actor links (`/type/`, `/actor/`)
-- Streams: read `iframe#video_frame` → GGJAV embed URL → decode `u` query (base64 MP4 path) → `{path}/index.m3u8`, or fetch embed HTML for `videoSrc` (same helpers as `ggjav` scraper)
+- Streams: read `iframe#video_frame` â†’ GGJAV embed URL â†’ decode `u` query (base64 MP4 path) â†’ `{path}/index.m3u8`, or fetch embed HTML for `videoSrc` (same helpers as `ggjav` scraper)
 - Embed fallback: the GGJAV embed URL from the iframe
 
 ### Categories (`get_categories`)
 
-Seed from nav: Home, sample types (無碼, 人妻, 巨乳, 中出), VR, Asian Homemade, sample actress.
+Seed from nav: Home, sample types (ç„¡ç¢¼, äººå¦», å·¨ä¹³, ä¸­å‡º), VR, Asian Homemade, sample actress.
 
 ### Registration checklist for GoodAV
 
@@ -2380,7 +2380,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=http://goodav17.com/html/20
 
 ## KanAV Implementation Notes
 
-[KanAV](https://kanav.ad/) (`kanav.ad`) is a MacCMS (苹果CMS) JAV site. Listings link to play pages; the player exposes `player_aaaa` JSON with `encrypt: 2` and a base64-encoded HLS URL (decoded per MacCMS `player.js`: base64 then `unescape`).
+[KanAV](https://kanav.ad/) (`kanav.ad`) is a MacCMS (è‹¹æžœCMS) JAV site. Listings link to play pages; the player exposes `player_aaaa` JSON with `encrypt: 2` and a base64-encoded HLS URL (decoded per MacCMS `player.js`: base64 then `unescape`).
 
 ### Host aliases
 
@@ -2399,12 +2399,12 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=http://goodav17.com/html/20
 
 - Canonical play URL: `https://kanav.ad/index.php/vod/play/id/{ID}/sid/1/nid/1.html`
 - Also accept `/index.php/vod/detail/id/{ID}.html` (same ID, fetches play page)
-- Streams: parse `player_aaaa={...}` from play HTML → `"url"` field → base64 decode when `encrypt==2` → `.m3u8` on `*.11yun.space` / `*.11yun.xyz`
+- Streams: parse `player_aaaa={...}` from play HTML â†’ `"url"` field â†’ base64 decode when `encrypt==2` â†’ `.m3u8` on `*.11yun.space` / `*.11yun.xyz`
 - Title from `vod_data.vod_name`, `og:title`, or `<title>`
 
 ### Categories (`get_categories`)
 
-Seed from nav type links: Home, 中文字幕 (id=1), 日韩有码, 日韩无码, 国产AV, etc.
+Seed from nav type links: Home, ä¸­æ–‡å­—å¹• (id=1), æ—¥éŸ©æœ‰ç , æ—¥éŸ©æ— ç , å›½äº§AV, etc.
 
 ### Registration checklist for KanAV
 
@@ -2447,7 +2447,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://kanav.ad/index.php/
 
 ## MissAV Implementation Notes
 
-[MissAV](https://missav.ai/) is a JAV catalog site. Video pages use a DVD-style slug (`fc2-ppv-1434674`, `ssni-123`, etc.) with optional locale prefix (`/en/`, `/ja/`, …). Thumbnails and previews are served from `fourhoi.com`; HLS playback uses obfuscated `surrit.com` URLs in an inline `eval(...)` player block.
+[MissAV](https://missav.ai/) is a JAV catalog site. Video pages use a DVD-style slug (`fc2-ppv-1434674`, `ssni-123`, etc.) with optional locale prefix (`/en/`, `/ja/`, â€¦). Thumbnails and previews are served from `fourhoi.com`; HLS playback uses obfuscated `surrit.com` URLs in an inline `eval(...)` player block.
 
 ### Host aliases
 
@@ -2458,14 +2458,14 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://kanav.ad/index.php/
 
 - Browse URLs use a rotating `dm{id}` prefix, e.g. `https://missav.ai/dm428/fc2`, `https://missav.ai/dm539/new`
 - Localized browse: `https://missav.ai/dm428/en/fc2`
-- Parse cards in `div.thumbnail` → `a[href]` to `https://missav.ai/{slug}` or `https://missav.ai/en/{slug}`; thumb `img[data-src]` (`fourhoi.com/{slug}/cover-t.jpg`), duration in `span.absolute.bottom-1.right-1`
-- Pagination: query param `page` (page 2 → `?page=2`). Preserve the full `dm{id}/…` path from `base_url` (the numeric `dm` segment can change between mirrors)
+- Parse cards in `div.thumbnail` â†’ `a[href]` to `https://missav.ai/{slug}` or `https://missav.ai/en/{slug}`; thumb `img[data-src]` (`fourhoi.com/{slug}/cover-t.jpg`), duration in `span.absolute.bottom-1.right-1`
+- Pagination: query param `page` (page 2 â†’ `?page=2`). Preserve the full `dm{id}/â€¦` path from `base_url` (the numeric `dm` segment can change between mirrors)
 
 ### Metadata and streams (`scrape`)
 
 - Canonical page: `https://missav.ai/en/{dvd-slug}` (also accept `https://missav.ai/{dvd-slug}` and mirror paths like `https://missav.ai/dm1/en/{dvd-slug}`)
 - Metadata: `og:title`, `og:image` (`fourhoi.com/{slug}/cover-n.jpg`), `og:video:duration` (seconds), `og:video:release_date`, `<h1>`, actress/genre links
-- Streams: locate `eval(function(p,a,c,k,e,d){...}('e=\'...\';c=\'...\';b=\'...\';',15,15,'m3u8|...|surrit|https|...'.split('|'),0,{}))` → decode digit placeholders against the split array; `d` in the template is the `dvdId` slug → master HLS is variable `e`, e.g. `https://surrit.com/{hash}/{dvd-slug}.m3u8`
+- Streams: locate `eval(function(p,a,c,k,e,d){...}('e=\'...\';c=\'...\';b=\'...\';',15,15,'m3u8|...|surrit|https|...'.split('|'),0,{}))` â†’ decode digit placeholders against the split array; `d` in the template is the `dvdId` slug â†’ master HLS is variable `e`, e.g. `https://surrit.com/{hash}/{dvd-slug}.m3u8`
 - `dvdId` is also exposed in Alpine `x-data` as `dvdId: 'fc2-ppv-1434674'`
 
 ### Categories (`get_categories`)
@@ -2525,8 +2525,8 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://missav.ai/en/fc2-pp
 - New release: `https://jable.tv/new-release/`
 - Categories: `https://jable.tv/categories/{slug}/`
 - Tags: `https://jable.tv/tags/{slug}/`
-- Parse cards in `div.video-img-box` → `.img-box a[href*='/videos/']`; title in `h6.title a`; thumb `img[data-src]`; duration in `span.label`; views in `p.sub-title`
-- Pagination: append page segment — page 2 of latest is `https://jable.tv/latest-updates/2/`
+- Parse cards in `div.video-img-box` â†’ `.img-box a[href*='/videos/']`; title in `h6.title a`; thumb `img[data-src]`; duration in `span.label`; views in `p.sub-title`
+- Pagination: append page segment â€” page 2 of latest is `https://jable.tv/latest-updates/2/`
 
 ### Metadata and streams (`scrape`)
 
@@ -2575,9 +2575,9 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=jable"
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://jable.tv/videos/start-579/"
 ```
 
-## Tianmei (天美影院 / 94mt.cc) Implementation Notes
+## Tianmei (å¤©ç¾Žå½±é™¢ / 94mt.cc) Implementation Notes
 
-[天美影院](https://www.94mt.cc/) (`94mt.cc`, easy domain `tianmei.one`) is a MacCMS (苹果CMS) Chinese adult catalog. Video pages use numeric IDs under `/index.php/vod/play/id/{ID}/sid/1/nid/1.html`. Streams come from inline `player_aaaa` JSON; this site typically uses `"encrypt":0` with a plain `"url"` HLS field (not base64 like some `encrypt:2` mirrors).
+[å¤©ç¾Žå½±é™¢](https://www.94mt.cc/) (`94mt.cc`, easy domain `tianmei.one`) is a MacCMS (è‹¹æžœCMS) Chinese adult catalog. Video pages use numeric IDs under `/index.php/vod/play/id/{ID}/sid/1/nid/1.html`. Streams come from inline `player_aaaa` JSON; this site typically uses `"encrypt":0` with a plain `"url"` HLS field (not base64 like some `encrypt:2` mirrors).
 
 ### Host aliases
 
@@ -2588,20 +2588,20 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://jable.tv/videos/sta
 ### Listing and pagination (`list_videos`)
 
 - Home: `https://www.94mt.cc/`
-- Categories: `https://www.94mt.cc/index.php/vod/type/id/{type_id}.html` (e.g. `1` = 麻豆视频)
-- Parse `div.box-item` → `a.item-link` / `a.movie-name`; title from `a.movie-name` or `title` attr; thumb `img[src]`; optional `upload_date` from `em span`
-- Pagination: `/index.php/vod/type/id/{type_id}/page/{n}.html` (page 2 → `.../page/2.html`)
+- Categories: `https://www.94mt.cc/index.php/vod/type/id/{type_id}.html` (e.g. `1` = éº»è±†è§†é¢‘)
+- Parse `div.box-item` â†’ `a.item-link` / `a.movie-name`; title from `a.movie-name` or `title` attr; thumb `img[src]`; optional `upload_date` from `em span`
+- Pagination: `/index.php/vod/type/id/{type_id}/page/{n}.html` (page 2 â†’ `.../page/2.html`)
 
 ### Metadata and streams (`scrape`)
 
 - Canonical play URL: `https://www.94mt.cc/index.php/vod/play/id/{ID}/sid/1/nid/1.html`
 - Also accept `/index.php/vod/detail/id/{ID}.html` (same ID, fetches play page)
-- Streams: parse `player_aaaa={...}` → when `encrypt==0`, use `"url"` directly (e.g. `https://*.cdn2020.com/.../index.m3u8`); when `encrypt==2`, base64 decode then `unescape` (MacCMS `player.js`)
+- Streams: parse `player_aaaa={...}` â†’ when `encrypt==0`, use `"url"` directly (e.g. `https://*.cdn2020.com/.../index.m3u8`); when `encrypt==2`, base64 decode then `unescape` (MacCMS `player.js`)
 - Title from `vod_data.vod_name`, `<title>`, or meta keywords
 
 ### Categories (`get_categories`)
 
-Seed from nav type links: Home, 麻豆视频, 91制片厂, 天美影院, 蜜桃传媒, etc. (`/index.php/vod/type/id/1.html` …).
+Seed from nav type links: Home, éº»è±†è§†é¢‘, 91åˆ¶ç‰‡åŽ‚, å¤©ç¾Žå½±é™¢, èœœæ¡ƒä¼ åª’, etc. (`/index.php/vod/type/id/1.html` â€¦).
 
 ### Registration checklist for Tianmei
 
@@ -2654,7 +2654,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.94mt.cc/index.p
 - Home: `https://bindasmood.com/`
 - Sort filters: `?filter=latest`, `?filter=popular`, `?filter=most-viewed`, `?filter=longest`, `?filter=random`
 - Taxonomy indexes: `/categories/`, `/tags/`, `/actors/` (and `/category/{slug}/`, `/tag/{slug}/`, `/actor/{slug}/` for filtered lists)
-- Parse `article.thumb-block` → link `a[href]`; title from `span.title a`; thumb `img`; `span.duration`, `span.views`
+- Parse `article.thumb-block` â†’ link `a[href]`; title from `span.title a`; thumb `img`; `span.duration`, `span.views`
 - Pagination: WordPress `/page/{n}/` (e.g. `https://bindasmood.com/page/2/`); query preserved on filtered home URLs
 
 ### Metadata and streams (`scrape`)
@@ -2721,13 +2721,13 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://bindasmood.com/vale
 - Home: `https://dotmaal.com/`
 - Indexes: `/web-series/`, `/ott/`, `/models/`, `/tags/`
 - Taxonomy: `/category/{slug}/` (OTT/network), `/tag/{slug}/`, `/model/{slug}/`, `/web-series/{series-slug}/`
-- Parse `div.vc-wrap` → `a.vc-thumb` / `a.vc-title`; thumb `img`; `span.vc-duration`; `span.vc-badge` as `uploader_name`
+- Parse `div.vc-wrap` â†’ `a.vc-thumb` / `a.vc-title`; thumb `img`; `span.vc-duration`; `span.vc-badge` as `uploader_name`
 - Pagination: WordPress `/page/{n}/` on any list path (e.g. `https://dotmaal.com/page/2/`, `https://dotmaal.com/category/ullu/page/2/`)
 
 ### Metadata and streams (`scrape`)
 
 - Canonical episode URL: `https://dotmaal.com/{platform}/{episode-slug}/` (reject reserved first segments: `category`, `tag`, `model`, `web-series`, `page`, etc.)
-- Streams: `<video><source src="...">` on the episode page (signed MP4 on `video.maalcdn.com`); HTML-entity decode URLs (`&#038;` → `&`); regex fallback for `.mp4` / `.m3u8`
+- Streams: `<video><source src="...">` on the episode page (signed MP4 on `video.maalcdn.com`); HTML-entity decode URLs (`&#038;` â†’ `&`); regex fallback for `.mp4` / `.m3u8`
 - Title/thumb from `og:title`, `og:image`, `h1`, `video[poster]`
 
 ### Categories (`get_categories`)
@@ -2787,7 +2787,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://dotmaal.com/pull/ta
 - Home: `https://uncutmasti.com/`
 - Sort filters: `?filter=latest`, `?filter=popular`, `?filter=most-viewed`, `?filter=longest`, `?filter=random`
 - Taxonomy indexes: `/categories/`, `/tags/`, `/actors/` (and `/category/{slug}/`, `/tag/{slug}/`, `/actor/{slug}/` for filtered lists)
-- Parse `article.thumb-block` → link `a[href]`; title from `span.title a`; thumb `img`; `span.duration`, `span.views`
+- Parse `article.thumb-block` â†’ link `a[href]`; title from `span.title a`; thumb `img`; `span.duration`, `span.views`
 - Pagination: WordPress `/page/{n}/` (e.g. `https://uncutmasti.com/page/2/`); query preserved on filtered home URLs
 
 ### Metadata and streams (`scrape`)
@@ -2854,14 +2854,14 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://uncutmasti.com/mona
 - Primary feed: `https://zmaal.net/latest/`
 - Indexes: `/model/`, `/web-series/`, `/hot-web-series/`
 - Site search: `?s={query}` (e.g. `?s=Ullu`, `?s=Moodx`)
-- Parse `article.video` → `a.link[href]`; title from `aria-label`, `title`, or `span.rtitle`; thumb `img`
+- Parse `article.video` â†’ `a.link[href]`; title from `aria-label`, `title`, or `span.rtitle`; thumb `img`
 - Pagination: `/latest/page/{n}/` (e.g. `https://zmaal.net/latest/page/2/`); works on any list path with WordPress-style `/page/{n}/` suffix
 
 ### Metadata and streams (`scrape`)
 
 - Canonical post URL: `https://zmaal.net/{slug}/` (single hyphenated slug segment)
 - Reject reserved paths: `latest`, `model`, `web-series`, `hot-web-series`, `page`, `wp-content`, etc.
-- Streams: `<video><source src="...">` and regex `.mp4` / `.m3u8`; HTML-entity decode URLs (`&#038;` → `&`)
+- Streams: `<video><source src="...">` and regex `.mp4` / `.m3u8`; HTML-entity decode URLs (`&#038;` â†’ `&`)
 - Title/thumb from `og:title`, `og:image`, `h1`, `video[poster]`
 
 ### Categories (`get_categories`)
@@ -2921,13 +2921,13 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://zmaal.net/pastry-ep
 - Home: `https://ulluwebseries.one/`
 - Indexes: `/categories/`, `/series/`, `/models/`, `/audio-sex-story/`
 - OTT filters: `/series_category/{slug}/` (e.g. `/series_category/ullu/`, `/series_category/moodx/`)
-- Parse `div.pt-cv-content-item` → `a.pt-cv-href-thumbnail` / `h4.pt-cv-title a`; thumb `img.pt-cv-thumbnail`
+- Parse `div.pt-cv-content-item` â†’ `a.pt-cv-href-thumbnail` / `h4.pt-cv-title a`; thumb `img.pt-cv-thumbnail`
 - Pagination: WordPress `/page/{n}/` (e.g. `https://ulluwebseries.one/page/2/`)
 
 ### Metadata and streams (`scrape`)
 
 - Canonical watch URL: `https://ulluwebseries.one/hot-series/{slug}/`
-- Reject non-video paths (`/series/`, `/categories/`, `/models/`, etc.) — only `/hot-series/` posts are scraped
+- Reject non-video paths (`/series/`, `/categories/`, `/models/`, etc.) â€” only `/hot-series/` posts are scraped
 - Streams: `<video><source src="...">` and regex `.mp4` / `.m3u8` on `cdn.ulluwebseries.one`
 - Title/thumb from `og:title`, `og:image`, `h2`, `<title>`
 
@@ -2976,7 +2976,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://ulluwebseries.one/h
 
 ## DesiThotHub (desithothub.com) Implementation Notes
 
-[DesiThotHub](https://desithothub.com/) is a custom WordPress-style site for desi live/cam and MMS-style videos. Posts use a single root-level slug (`/{slug}/`). Listing uses `div.thumb` cards with `a.card`, `h2.card-title`, `img`, and `span.time-ago`. Playback uses a **server dropdown** (`button.srv-drop-item`) with one `div.video-unit` per host — only **embed** streams are returned (no direct `.mp4` extraction).
+[DesiThotHub](https://desithothub.com/) is a custom WordPress-style site for desi live/cam and MMS-style videos. Posts use a single root-level slug (`/{slug}/`). Listing uses `div.thumb` cards with `a.card`, `h2.card-title`, `img`, and `span.time-ago`. Playback uses a **server dropdown** (`button.srv-drop-item`) with one `div.video-unit` per host â€” only **embed** streams are returned (no direct `.mp4` extraction).
 
 ### Host aliases
 
@@ -2988,7 +2988,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://ulluwebseries.one/h
 - Home (newest): `https://desithothub.com/`
 - Feeds: `/popular/`, `/favourites/`
 - Taxonomy: `/categories/`, `/categories/{slug}/` (e.g. `/categories/tamil/`, `/categories/mallu/`)
-- Parse `div.thumb` → `a.card`; title `h2.card-title`; thumb `img`; `span.time-ago`
+- Parse `div.thumb` â†’ `a.card`; title `h2.card-title`; thumb `img`; `span.time-ago`
 - Pagination: WordPress `/page/{n}/` (e.g. `https://desithothub.com/page/2/`)
 
 ### Metadata and streams (`scrape`)
@@ -2997,8 +2997,8 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://ulluwebseries.one/h
 - Reject reserved paths: `categories`, `popular`, `newest`, `tags`, `favourites`, `page`, etc.
 - Streams: parse `button.srv-drop-item` labels paired with `div.video-unit` entries
   - Sendvid: `iframe.vid-max-iframe` `src` (e.g. `https://sendvid.com/embed/{id}`)
-  - Other hosts: `a.vid-maxwrap[href]` watch URLs converted to embed where possible (`streamtape.com/v/…` → `/e/…`, `lulustream.com/…` → `/e/…`, `vinovo.to/d/…` → `/embed/…`, etc.); GoFile/VikingFile/Upfiles use page URL with `format: embed`
-- All stream entries use `format: "embed"` only — do not regex-extract direct MP4 links from HTML
+  - Other hosts: `a.vid-maxwrap[href]` watch URLs converted to embed where possible (`streamtape.com/v/â€¦` â†’ `/e/â€¦`, `lulustream.com/â€¦` â†’ `/e/â€¦`, `vinovo.to/d/â€¦` â†’ `/embed/â€¦`, etc.); GoFile/VikingFile/Upfiles use page URL with `format: embed`
+- All stream entries use `format: "embed"` only â€” do not regex-extract direct MP4 links from HTML
 - Default stream prefers Sendvid embed
 - Title/thumb from `og:title`, `og:image`, `h1`/`h2`
 
@@ -3058,17 +3058,17 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://desithothub.com/tam
 
 - Home: `https://www.eporner.com/`
 - Feeds: `/recent/`, `/popular/`, `/top-rated/`, `/longest/`, `/4k/`, `/cats/`
-- Parse `div.mb` cards → `a[href*="/video-"]` or `/hd-porn/`; title from `.mbtit a`; thumb `img`; duration `.mbtim`; views `.mbvie`
-- Pagination: append page number to path (e.g. `/recent/2/`, home page 2 → `/2/`)
+- Parse `div.mb` cards â†’ `a[href*="/video-"]` or `/hd-porn/`; title from `.mbtit a`; thumb `img`; duration `.mbtim`; views `.mbvie`
+- Pagination: append page number to path (e.g. `/recent/2/`, home page 2 â†’ `/2/`)
 
 ### Metadata and streams (`scrape`)
 
 - Canonical watch URL: `https://www.eporner.com/video-{id}/{slug}/`
 - Embed player URL: `https://www.eporner.com/embed/{id}/` (iframe `src`, e.g. `https://www.eporner.com/embed/5avQdSA3oMK/`)
 - When scraping an embed URL, the response `url` stays on `/embed/{id}/`; direct MP4/HLS are resolved from the embed page or the linked full video page; an embed stream is always included
-- **Primary streams:** parse `hash` (32-char hex) from page → `GET /xhr/video/{id}?hash={calc_hash}&device=generic&domain=www.eporner.com&fallback=false` → `sources` dict (MP4 + HLS)
+- **Primary streams:** parse `hash` (32-char hex) from page â†’ `GET /xhr/video/{id}?hash={calc_hash}&device=generic&domain=www.eporner.com&fallback=false` â†’ `sources` dict (MP4 + HLS)
 - **calc_hash:** split hash into four 8-char hex chunks, each encoded to base-36 (same as yt-dlp `EpornerIE`)
-- **Fallback streams:** `GET /api/v2/video/search/?id={id}&per_page=1&thumbsize=big` → `all_qualities` MP4 URLs on `static.eporner.com`
+- **Fallback streams:** `GET /api/v2/video/search/?id={id}&per_page=1&thumbsize=big` â†’ `all_qualities` MP4 URLs on `static.eporner.com`
 - **HTML fallback:** `<video><source>` tags and `.mp4` / `.m3u8` regex
 - Fetch uses `curl_cffi` impersonation when available (helps with age gate / blocks), then shared `pool.fetch_html`
 
@@ -3212,7 +3212,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://motherless.xxx/EE97
 - HD: `/highdefinition/1.html` (not `/hd/`)
 - Tags: `/categories/{slug}-1.html` (not `/tags/{slug}/1.html`)
 - Random: `https://www.youjizz.com/random` (no numbered pages)
-- Parse `div.video-thumb[data-videoId]` → `.video-title a`, `span.time`, `.format-views`, `img[data-original]`
+- Parse `div.video-thumb[data-videoId]` â†’ `.video-title a`, `span.time`, `.format-views`, `img[data-original]`
 - Pagination: `/most-popular/2.html` for feeds; `/categories/milf-2.html` for tags (read `#urlPattern` from page 1 HTML when needed)
 
 ### Metadata and streams (`scrape`)
@@ -3221,7 +3221,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://motherless.xxx/EE97
 - Embed URL: `https://www.youjizz.com/videos/embed/{id}`
 - **Primary streams:** parse `dataEncodings = [{ "quality", "filename", "name" }, ...]` (balanced-bracket JSON parse)
 - Fallback: `<video><source src="...">` and `encodings = [...];` assignment
-- Normalize `//cdn…` filenames to `https://`
+- Normalize `//cdnâ€¦` filenames to `https://`
 - Metadata: `og:title`, `og:image`, `og:video:duration`, `meta keywords`, Runtime span, Uploaded By regex
 
 Send `Cookie: age_verified=1` on fetch to bypass the age gate when possible.
@@ -3281,12 +3281,12 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.youjizz.com/vid
 
 ### Listing and pagination (`list_videos`)
 
-- Home: `https://pornone.com/` (page 2+ → `/2/`, `/3/`, …)
-- Newest: `https://pornone.com/newest/` (page 2+ → `/newest/2/`)
-- Tags/categories at site root: `/milf/`, `/hd/`, `/teen/` (not `/category/milf/` — that 404s)
+- Home: `https://pornone.com/` (page 2+ â†’ `/2/`, `/3/`, â€¦)
+- Newest: `https://pornone.com/newest/` (page 2+ â†’ `/newest/2/`)
+- Tags/categories at site root: `/milf/`, `/hd/`, `/teen/` (not `/category/milf/` â€” that 404s)
 - Avoid `/popular/` (404 on this host)
-- Parse `<a href="/{cat}/{slug}/{id}/">` links; skip locale-prefixed duplicates (`/de/`, `/fr/`, …) and `/shorts/`
-- Optional enrichment from inline `related_videos = [{thumb, url, title, duration}, …]` JSON on watch pages
+- Parse `<a href="/{cat}/{slug}/{id}/">` links; skip locale-prefixed duplicates (`/de/`, `/fr/`, â€¦) and `/shorts/`
+- Optional enrichment from inline `related_videos = [{thumb, url, title, duration}, â€¦]` JSON on watch pages
 
 Send `Cookie: age_verified=1; cookies_accepted=1` and `Referer: https://pornone.com/` on fetch.
 
@@ -3353,17 +3353,17 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://pornone.com/foursom
 ### Listing and pagination (`list_videos`)
 
 - Home: `https://www.3movs.com/` (page 2+ uses `/latest-updates/{page}/`)
-- Latest: `https://www.3movs.com/latest-updates/` (page 2+ → `/latest-updates/2/`)
+- Latest: `https://www.3movs.com/latest-updates/` (page 2+ â†’ `/latest-updates/2/`)
 - Sort feeds: `/most-popular/`, `/top-rated/week/`, `/most-viewed/week/`, `/longest/`
-- Categories: `/categories/{slug}/` (page 2+ → `/categories/{slug}/2/`)
+- Categories: `/categories/{slug}/` (page 2+ â†’ `/categories/{slug}/2/`)
 - Parse `.thumbs .item.thumb` blocks: `a.wrap_image`, `img[data-src]`, `.time`, `.icon-eye` sibling span
 - Preview clips from `img[data-preview]` (short MP4 previews)
 
-Use `curl_cffi` (Chrome impersonation) as primary fetch — plain httpx/aiohttp may TLS-timeout on this host.
+Use `curl_cffi` (Chrome impersonation) as primary fetch â€” plain httpx/aiohttp may TLS-timeout on this host.
 
 ### Metadata and streams (`scrape`)
 
-- **Primary streams:** `flashvars.video_url` (HQ) and `flashvars.video_alt_url` (LQ) — both are `/get_file/...` URLs
+- **Primary streams:** `flashvars.video_url` (HQ) and `flashvars.video_alt_url` (LQ) â€” both are `/get_file/...` URLs
 - **Fallback:** download links (`360p - Free Download`), embed URL
 - Resolve `/get_file/` via HEAD/GET redirect to signed CDN (`*.mjedge.net` or similar)
 - Metadata: `og:title`, `og:image`, `ul.list_info` (duration/views/date), `flashvars.video_models`, `flashvars.video_tags`
@@ -3414,11 +3414,11 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.3movs.com/video
 
 ### Listing and pagination (`list_videos`)
 
-Uses the Tubecup JSON API — not HTML scraping:
+Uses the Tubecup JSON API â€” not HTML scraping:
 
-- **Latest:** `https://hotmovs.tube/latest-updates/` (page 2+ → `/latest-updates/2/`)
+- **Latest:** `https://hotmovs.tube/latest-updates/` (page 2+ â†’ `/latest-updates/2/`)
 - **Sort feeds:** `/most-popular/`, `/longest/`, `/top-rated/`, `/most-viewed/`
-- **Categories:** `/categories/{slug}/` (page 2+ → `/categories/{slug}/2/`)
+- **Categories:** `/categories/{slug}/` (page 2+ â†’ `/categories/{slug}/2/`)
 - **Search:** `/search/?s={query}`
 
 List endpoint:
@@ -3429,7 +3429,7 @@ GET /api/videos2.php?params={lifetime}/str/{sort}/{count}/{section}.{object_id}.
 
 Search adds `&s={query}` with `sort=relevance`. Response shape: `{ "videos": [ ... ], "total_count", "pages" }`.
 
-Use `curl_cffi` (Chrome impersonation) as primary fetch — plain httpx may be blocked or TLS-fail on this host.
+Use `curl_cffi` (Chrome impersonation) as primary fetch â€” plain httpx may be blocked or TLS-fail on this host.
 
 ### Metadata and streams (`scrape`)
 
@@ -3438,7 +3438,7 @@ Use `curl_cffi` (Chrome impersonation) as primary fetch — plain httpx may be b
    - `million_bucket = int(1e6 * (id // 1e6))`, `thousand_bucket = 1000 * (id // 1000)`
 2. **Stream files:** `GET /api/videofile.php?video_id={id}&lifetime=8640000`
    - Returns array of `{ format, video_url }` where `video_url` is custom-base64-encoded
-3. **Decode streams:** translate Cyrillic look-alike chars + `,`/`.`/`~` → standard base64, then decode to CDN URL (often `/get_file/...` on `*.ahcdn.com`)
+3. **Decode streams:** translate Cyrillic look-alike chars + `,`/`.`/`~` â†’ standard base64, then decode to CDN URL (often `/get_file/...` on `*.ahcdn.com`)
 4. **Resolve `/get_file/`:** follow redirect (no auto-redirect) to signed MP4/HLS URL
 5. **Embed fallback:** `https://{host}/embed/{id}` when direct streams fail
 
@@ -3495,15 +3495,15 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://hotmovs.tube/videos
 - `tn.shemalez.com` (thumbnails/CDN)
 - Any `*.shemalez.com` subdomain (handled via `can_handle()` suffix match)
 
-Stream CDN hosts resolve to `*.ahcdn.com` (e.g. `shemalez.ahcdn.com`) — already covered by the global `ahcdn.com` allowlist in `schemas.py` and `video_streaming.py`.
+Stream CDN hosts resolve to `*.ahcdn.com` (e.g. `shemalez.ahcdn.com`) â€” already covered by the global `ahcdn.com` allowlist in `schemas.py` and `video_streaming.py`.
 
 ### Listing and pagination (`list_videos`)
 
-Uses the Tubecup JSON API — not HTML scraping:
+Uses the Tubecup JSON API â€” not HTML scraping:
 
-- **Latest:** `https://shemalez.com/latest-updates/` (page 2+ → `/latest-updates/2/`)
+- **Latest:** `https://shemalez.com/latest-updates/` (page 2+ â†’ `/latest-updates/2/`)
 - **Sort feeds:** `/most-popular/`, `/longest/`, `/top-rated/`, `/most-viewed/`
-- **Categories:** `/categories/{slug}/` (page 2+ → `/categories/{slug}/2/`)
+- **Categories:** `/categories/{slug}/` (page 2+ â†’ `/categories/{slug}/2/`)
 - **Search:** `/search/?s={query}`
 
 List endpoint:
@@ -3514,7 +3514,7 @@ GET /api/videos2.php?params={lifetime}/str/{sort}/{count}/{section}.{object_id}.
 
 Search adds `&s={query}` with `sort=relevance`. Response shape: `{ "videos": [ ... ], "total_count", "pages" }`.
 
-Use `curl_cffi` (Chrome impersonation) as primary fetch — plain httpx/aiohttp may be blocked or TLS-fail on this host.
+Use `curl_cffi` (Chrome impersonation) as primary fetch â€” plain httpx/aiohttp may be blocked or TLS-fail on this host.
 
 ### Metadata and streams (`scrape`)
 
@@ -3523,11 +3523,11 @@ Use `curl_cffi` (Chrome impersonation) as primary fetch — plain httpx/aiohttp 
    - `million_bucket = int(1e6 * (id // 1e6))`, `thousand_bucket = 1000 * (id // 1000)`
 2. **Stream files:** `GET /api/videofile.php?video_id={id}&lifetime=8640000`
    - Returns array of `{ format, video_url }` where `video_url` is custom-base64-encoded
-3. **Decode streams:** translate Cyrillic look-alike chars + `,`/`.`/`~` → standard base64, then decode to CDN URL (often `/get_file/...` on `*.ahcdn.com`)
+3. **Decode streams:** translate Cyrillic look-alike chars + `,`/`.`/`~` â†’ standard base64, then decode to CDN URL (often `/get_file/...` on `*.ahcdn.com`)
 4. **Resolve `/get_file/`:** follow redirect (no auto-redirect) to signed MP4/HLS URL
 5. **Embed fallback:** `https://{host}/embed/{id}` when direct streams fail
 
-Embed URLs (`/embed/{id}`) are accepted by `scrape()` — the numeric id is extracted and full metadata/streams are resolved the same way as watch-page URLs.
+Embed URLs (`/embed/{id}`) are accepted by `scrape()` â€” the numeric id is extracted and full metadata/streams are resolved the same way as watch-page URLs.
 
 ### Preview clips
 
@@ -3550,7 +3550,7 @@ Package folder: `backend/app/scrapers/shemalez/`.
 Also update:
 
 - `backend/app/scrapers/__init__.py`
-- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` — source aliases: `shemalez`, `shemaleZ`)
+- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` â€” source aliases: `shemalez`, `shemaleZ`)
 - `backend/app/services/video_streaming.py` (scraper branch, supported-host text, quality map)
 - `backend/app/models/schemas.py` (scrape/list URL allowlists)
 - `backend/app/api/endpoints/explore.py` (`sourceId="shemalez"`)
@@ -3585,8 +3585,8 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://shemalez.com/videos
 
 ### Listing and pagination (`list_videos`)
 
-- Main feed: `https://www.porndig.com/video/` (page 2+ → `/videos/page/{n}/`)
-- Channels: `/channels/{id}/{slug}/` (page 2+ → `?page={n}`)
+- Main feed: `https://www.porndig.com/video/` (page 2+ â†’ `/videos/page/{n}/`)
+- Channels: `/channels/{id}/{slug}/` (page 2+ â†’ `?page={n}`)
 - Parse `.video_item_wrapper` blocks: `h2 a`, `img.js_video_preview`, `.bubble_duration`
 - Preview clips from `img[data-vid]` (short MP4 previews on `image-cdn.porndig.com`)
 
@@ -3596,8 +3596,8 @@ Send `Cookie: dsclcnst=2; discl_s_t=1` to bypass the age disclaimer gate. Use `c
 
 - **Player URL:** extract `videos.porndig.com/player/index/{a}/{b}/{c}` from watch-page iframe/embed textarea
 - **Streams:** fetch player page and parse `window.player_args.push({...})` JSON:
-  - HLS: `src[].type == application/x-mpegurl` → `master.m3u8`
-  - MP4: `src[].type == multi-progressive` → `srcSet[]` with `1080p`, `720p`, `540p`, `360p`
+  - HLS: `src[].type == application/x-mpegurl` â†’ `master.m3u8`
+  - MP4: `src[].type == multi-progressive` â†’ `srcSet[]` with `1080p`, `720p`, `540p`, `360p`
 - **Metadata:** JSON-LD `VideoObject` (`name`, `thumbnailUrl`, `duration`, `uploadDate`, `actor`, `keywords`), `.video_stats` for length/upload date
 
 ### Categories (`get_categories`)
@@ -3645,21 +3645,21 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.porndig.com/vid
 
 ### Listing and pagination (`list_videos`)
 
-- Main feed: `https://ok.xxx/` (page 2+ → `?page={n}`)
-- Sort feeds: `/popular/`, `/trending/` (page 2+ → `/{n}/` or `?page={n}`)
+- Main feed: `https://ok.xxx/` (page 2+ â†’ `?page={n}`)
+- Sort feeds: `/popular/`, `/trending/` (page 2+ â†’ `/{n}/` or `?page={n}`)
 - Tags: `/tags/{slug}/` (e.g. `/tags/anal/`)
-- Sites/channels: `/sites/{slug}/` (e.g. `/sites/brazzers/`) — not `/channels/{slug}/`
+- Sites/channels: `/sites/{slug}/` (e.g. `/sites/brazzers/`) â€” not `/channels/{slug}/`
 - Models: `/models/{slug}/`
-- Search: `/search/?q={query}` (page 2+ → `?q={query}&page={n}` or `/search/{n}/?q={query}`)
+- Search: `/search/?q={query}` (page 2+ â†’ `?q={query}&page={n}` or `/search/{n}/?q={query}`)
 - Parse `.item.thumb-bl` / `.item.thumb-bl-video` blocks: `a[href*='/video/']`, `img[data-original]`, `data-preview-custom`, `.video-meta` for duration/views
 
 Use `curl_cffi` (Chrome impersonation) as primary fetch; fall back to pooled `fetch_html`.
 
 ### Metadata and streams (`scrape`)
 
-- **Metadata:** JSON-LD `VideoObject` (`name`, `description`, `thumbnailUrl`, `duration` as ISO `PT…`, `uploadDate`, `author`, `actor`, `keywords`, `interactionStatistic.userInteractionCount` for views)
-- **Streams:** `<video><source>` tags with `/get_file/…` MP4 URLs (360p/480p/720p labels)
-- **Redirect resolution:** `/get_file/` URLs 302 to signed `cdn.privatehost.com` links — resolve with `Referer: https://ok.xxx/video/{id}/`
+- **Metadata:** JSON-LD `VideoObject` (`name`, `description`, `thumbnailUrl`, `duration` as ISO `PTâ€¦`, `uploadDate`, `author`, `actor`, `keywords`, `interactionStatistic.userInteractionCount` for views)
+- **Streams:** `<video><source>` tags with `/get_file/â€¦` MP4 URLs (360p/480p/720p labels)
+- **Redirect resolution:** `/get_file/` URLs 302 to signed `cdn.privatehost.com` links â€” resolve with `Referer: https://ok.xxx/video/{id}/`
 
 ### Categories (`get_categories`)
 
@@ -3725,7 +3725,7 @@ Note: `/search/?search=...` list pages require client-side/session state and are
 ### Metadata and streams (`scrape`)
 
 - **Metadata:** JSON-LD `VideoObject` + `h1` title + `.video-info` (duration, host, upload age) + tags section
-- **Player:** `embedUrl` → `https://pornhoarder.net/player.php?video={token}`
+- **Player:** `embedUrl` â†’ `https://pornhoarder.net/player.php?video={token}`
 - **Stream chain:**
   1. `POST` player with `play=` (click-to-play gate)
   2. Extract embed iframe (`playmogo.com/e/...` DoodStream wrapper)
@@ -4008,23 +4008,23 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://hstream.moe/hentai/
 
 ### Listing and pagination (`list_videos`)
 
-- Home / latest: `https://anibd.app/` → `GET https://eng.animeapps.top/api/singlefilter.php?page={n}&limit={limit}`
+- Home / latest: `https://anibd.app/` â†’ `GET https://eng.animeapps.top/api/singlefilter.php?page={n}&limit={limit}`
 - Filter page: `https://anibd.app/filter/?fo=22258&pg=2`
-  - `fo` → `postseasontypetagid`
-  - `ty` → `anitypestagid`
-  - `ge` → `postanigenrestagid`
-  - `ye` → `postyeartagid`
-  - `pg` → page (only when page arg is 1)
-- Search: `https://anibd.app/?s={query}` → `GET https://eng.animeapps.top/api/search3.php?keyword={query}&page={n}&limit={limit}`
+  - `fo` â†’ `postseasontypetagid`
+  - `ty` â†’ `anitypestagid`
+  - `ge` â†’ `postanigenrestagid`
+  - `ye` â†’ `postyeartagid`
+  - `pg` â†’ page (only when page arg is 1)
+- Search: `https://anibd.app/?s={query}` â†’ `GET https://eng.animeapps.top/api/search3.php?keyword={query}&page={n}&limit={limit}`
 
 List items map to `https://anibd.app/up/{postid}/` with title/thumbnail from API rows.
 
 ### Metadata and streams (`scrape`)
 
-1. `GET https://eng.animeapps.top/api/single.php?postid={id}` → metadata (`postname`, `anilist`, covers, genres, description)
-2. `GET https://epeng.animeapps.top/api2.php?epid={anilist}` → servers and episode slugs
+1. `GET https://eng.animeapps.top/api/single.php?postid={id}` â†’ metadata (`postname`, `anilist`, covers, genres, description)
+2. `GET https://epeng.animeapps.top/api2.php?epid={anilist}` â†’ servers and episode slugs
 3. Pick episode from URL `server`/`slug` query params, or first episode of first server
-4. `GET https://epeng.animeapps.top/apilink.php?data={episode.link}` → player embed URLs (`playeng.animeapps.top/.../play2.php`)
+4. `GET https://epeng.animeapps.top/apilink.php?data={episode.link}` â†’ player embed URLs (`playeng.animeapps.top/.../play2.php`)
 5. Fetch each embed page and parse `videoUrl: "/.../index.m3u8"` from inline player config
 6. Resolve to absolute HLS URL on `playeng.animeapps.top`
 
@@ -4088,10 +4088,10 @@ def can_handle(host: str) -> bool:
 
 ### Listing and pagination (`list_videos`)
 
-- Home: `https://www.1porn.tv/` → `#list_videos_most_recent_videos_items`
-- Latest: `https://www.1porn.tv/latest-updates/` → `#list_videos_latest_videos_list_items`
+- Home: `https://www.1porn.tv/` â†’ `#list_videos_most_recent_videos_items`
+- Latest: `https://www.1porn.tv/latest-updates/` â†’ `#list_videos_latest_videos_list_items`
 - Categories / top lists: `#list_videos_common_videos_list_items`
-- Search: `https://www.1porn.tv/search/{query}/` → `#custom_list_videos_videos_list_search_result_items`
+- Search: `https://www.1porn.tv/search/{query}/` â†’ `#custom_list_videos_videos_list_search_result_items`
 
 **Pagination:** append `/{page}/` to the list path (page 1 omits the page segment). Examples:
 
@@ -4100,12 +4100,12 @@ def can_handle(host: str) -> bool:
 
 Parse cards from `.item` blocks with `a[href*='/videos/']`, thumbnail in `img`, preview in `.img[data-preview]`, duration in `.duration`.
 
-Use `curl_cffi` (Chrome impersonation) with `Referer: https://www.1porn.tv/` — direct video-page fetches can return Cloudflare 503 without a warm session/referer.
+Use `curl_cffi` (Chrome impersonation) with `Referer: https://www.1porn.tv/` â€” direct video-page fetches can return Cloudflare 503 without a warm session/referer.
 
 ### Metadata and streams (`scrape`)
 
 - **Watch URL shape:** `https://www.1porn.tv/videos/{slug}/`
-- **Embed URL shape:** `https://www.1porn.tv/embed/{video_id}` — resolve to the canonical watch URL via inline `flashvars.video_url`
+- **Embed URL shape:** `https://www.1porn.tv/embed/{video_id}` â€” resolve to the canonical watch URL via inline `flashvars.video_url`
 - **Metadata:** JSON-LD `VideoObject` (`name`, `description`, `thumbnailUrl`, `uploadDate`, `duration` as ISO-8601, `embedUrl`, `interactionStatistic` for views), plus Open Graph fallbacks
 - **Streams:** progressive MP4 `<source>` tags inside `video.video-js`, typically signed:
   - `https://www.1porn.tv/get_file/{token}/{bucket}/{id}/{id}_2160m.mp4/`
@@ -4265,7 +4265,7 @@ List cards use `.ml-item.item` with `a[href*='/movies/']`, `img[data-original]`,
   - Requires a session cookie named `{token[13:37]}{episode_id}{token[40:64]}` with a random 6-char value
   - MD5 token: `md5(episode_id + cookie_value + "98126avrbi6m49vd7shxkn985")`
   - Response JSON contains JW Player `playlist[].sources[]` with signed HLS/MP4 URLs (often `cdn-aws-exp.cdnamz.me`)
-- **Embed fallback (servers 12–15):** `GET /ajax/load_embed/{episode_id}` → `{ "embed_url": "..." }`
+- **Embed fallback (servers 12â€“15):** `GET /ajax/load_embed/{episode_id}` â†’ `{ "embed_url": "..." }`
 
 Use `curl_cffi` (Chrome impersonation) with `Referer` set to the movie page.
 
@@ -4329,7 +4329,7 @@ List cards use `div.ml-item[data-movie-id]` with `a.ml-mask[href*='/movies/']`, 
 
 ### Watch page + streams
 
-- **Watch URL shape:** `https://en.javfun.me/movies/{slug}` (no trailing slash — trailing slash redirects to junk)
+- **Watch URL shape:** `https://en.javfun.me/movies/{slug}` (no trailing slash â€” trailing slash redirects to junk)
 - **Episode ID:** `a.btn-eps[episode-id]` or inline `var movie = { id: "..." }`
 - **Stream API:** `GET /ajax/get_sources/{episode_id}/{md5}?count=1&mobile=0`
   - MD5: `md5(episode_id + random6 + "9826avrbi6m49vd7shxkn9815")`
@@ -4432,8 +4432,8 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=pornhouse"
 ### Listing and pagination (`list_videos`)
 
 - Home: `https://hanime1.me/`
-- Search/browse: `https://hanime1.me/search?sort=最新上市`, `?sort=最新上傳`, `?sort=他們在看`
-- Genre filters: `https://hanime1.me/search?genre=裏番`, `?genre=3DCG`, etc.
+- Search/browse: `https://hanime1.me/search?sort=æœ€æ–°ä¸Šå¸‚`, `?sort=æœ€æ–°ä¸Šå‚³`, `?sort=ä»–å€‘åœ¨çœ‹`
+- Genre filters: `https://hanime1.me/search?genre=è£ç•ª`, `?genre=3DCG`, etc.
 - Text search: `https://hanime1.me/search?query={query}`
 - Parse `div.video-item-container` cards (`a.video-link`, `img.main-thumb`, `div.duration`, stats) or fallback `a[href*='watch?v=']`
 - Pagination: `?page=N` query parameter (page 1 omits `page`)
@@ -4715,7 +4715,7 @@ Pagination:
 - **Episode stream page:** `https://www.underhentai.net/watch/?id={id}&ep={ep}`
 - **List cards:** `article.data-block` with `.article-header h2 a`
 - **Streams:** parse episode cards (`.ep2-card`) for Raw/Subbed variants; for each variant add `{variant} Krakenfiles` and `{variant} Lulustream` embed URLs from the linked `/watch/?id={id}&ep={ep}` page inline JS. Variant labels: `Japanese raw`, `English sub`, `Spanish sub`, or `Sub`. MEGA/ouo download links are omitted. For direct `/watch/` URLs, resolve the parent post via `/?p={id}` redirect before labeling.
-- Do **not** resolve KrakenFiles embed pages to direct MP4 — keep embed URLs only.
+- Do **not** resolve KrakenFiles embed pages to direct MP4 â€” keep embed URLs only.
 
 Example stream labels:
 
@@ -4802,7 +4802,7 @@ def can_handle(host: str) -> bool:
 
 For bare home (`https://letsporn.com/`), page 2+ maps to `https://letsporn.com/popular/{page}/` because root `/2/` returns 404.
 
-Do **not** use `?page=` — LetsPorn ignores that query param and returns page 1 again.
+Do **not** use `?page=` â€” LetsPorn ignores that query param and returns page 1 again.
 
 Parse cards from anchors whose `href` matches `https://letsporn.com/{slug}-{id}/`. Thumbnails often come from `img.letsporn.com/contents/videos_screenshots/...`.
 
@@ -4882,7 +4882,7 @@ def can_handle(host: str) -> bool:
 - Categories index (paginated, 4 pages): `https://www.teamskeettube.com/categories/`
 - Pornstars: `https://www.teamskeettube.com/pornstars/`
 
-`categories.json` has 73 entries (Home, Latest, Random + 70 brand categories scraped from `/categories/` pages 1–4). The `freeuse` slug is an alias that redirects to home on-site; use `freeuse-bundle` (mapped automatically in `list_videos`).
+`categories.json` has 73 entries (Home, Latest, Random + 70 brand categories scraped from `/categories/` pages 1â€“4). The `freeuse` slug is an alias that redirects to home on-site; use `freeuse-bundle` (mapped automatically in `list_videos`).
 
 WordPress-style path pagination (not `?page=N`):
 
@@ -4894,7 +4894,7 @@ Query params such as `?filter=latest` are preserved; strip any existing `/page/N
 
 Parse cards from `article.thumb-block` / `article.loop-video` anchors matching `https://www.teamskeettube.com/video/{slug}/` (exclude `/video/category/` links). Category name comes from `category-{slug}` article classes.
 
-Use `curl_cffi` (Chrome impersonation) with `Referer: https://www.teamskeettube.com/` — plain `httpx` may get 406 Mod_Security on some URLs.
+Use `curl_cffi` (Chrome impersonation) with `Referer: https://www.teamskeettube.com/` â€” plain `httpx` may get 406 Mod_Security on some URLs.
 
 ### Scraping (`scrape`)
 
@@ -4967,7 +4967,7 @@ def can_handle(host: str) -> bool:
 - Page 2 home: `https://wvw.sosalkino.guru/2/`
 - Page 2 category: `https://wvw.sosalkino.guru/categories/anal/2/`
 
-Do **not** use `?page=` — Sosalkino ignores that query param.
+Do **not** use `?page=` â€” Sosalkino ignores that query param.
 
 Parse cards from `div.item > a.link[href*='/videos/']`. Thumbnails use lazy-loaded `data-src` / `data-webp`; preview clips are in `data-preview` on `.img-holder`.
 
@@ -5029,15 +5029,15 @@ curl "http://127.0.0.1:8000/api/v1/videos/info?url=https://wvw.sosalkino.guru/vi
 - `tn.tubepornclassic.com` (thumbnails/CDN)
 - Any `*.tubepornclassic.com` subdomain (`can_handle()` suffix match; `tn.` is normalized back to the main host for API calls)
 
-Stream CDN hosts resolve to `*.ahcdn.com` — already covered by the global `ahcdn.com` allowlist in `schemas.py` and `video_streaming.py`.
+Stream CDN hosts resolve to `*.ahcdn.com` â€” already covered by the global `ahcdn.com` allowlist in `schemas.py` and `video_streaming.py`.
 
 ### Listing and pagination (`list_videos`)
 
-Uses the Tubecup JSON API — not HTML scraping:
+Uses the Tubecup JSON API â€” not HTML scraping:
 
-- **Latest:** `https://tubepornclassic.com/latest-updates/` (page 2+ → `/latest-updates/2/`)
+- **Latest:** `https://tubepornclassic.com/latest-updates/` (page 2+ â†’ `/latest-updates/2/`)
 - **Sort feeds:** `/most-popular/`, `/longest/`, `/top-rated/`, `/most-viewed/`
-- **Categories:** `/categories/{slug}/` (page 2+ → `/categories/{slug}/2/`). Confirmed working slug: `vintage`
+- **Categories:** `/categories/{slug}/` (page 2+ â†’ `/categories/{slug}/2/`). Confirmed working slug: `vintage`
 - **Search:** `/search/?s={query}`
 
 List endpoint:
@@ -5057,11 +5057,11 @@ Use `curl_cffi` (Chrome impersonation) as primary fetch. Plain httpx may still w
    - `million_bucket = int(1e6 * (id // 1e6))`, `thousand_bucket = 1000 * (id // 1000)`
 2. **Stream files:** `GET /api/videofile.php?video_id={id}&lifetime=8640000`
    - Returns array of `{ format, video_url }` where `video_url` is custom-base64-encoded
-3. **Decode streams:** translate Cyrillic look-alike chars + `,`/`.`/`~` → standard base64, then decode to CDN URL (often `/get_file/...`)
+3. **Decode streams:** translate Cyrillic look-alike chars + `,`/`.`/`~` â†’ standard base64, then decode to CDN URL (often `/get_file/...`)
 4. **Resolve `/get_file/`:** follow redirect (no auto-redirect) to signed MP4/HLS URL
 5. **Embed fallback:** `https://{host}/embed/{id}` when direct streams fail
 
-Embed URLs (`/embed/{id}`) are accepted by `scrape()` — the numeric id is extracted and full metadata/streams are resolved the same way as watch-page URLs.
+Embed URLs (`/embed/{id}`) are accepted by `scrape()` â€” the numeric id is extracted and full metadata/streams are resolved the same way as watch-page URLs.
 
 ### Preview clips
 
@@ -5084,7 +5084,7 @@ Package folder: `backend/app/scrapers/tubepornclassic/`.
 Also update:
 
 - `backend/app/scrapers/__init__.py`
-- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` — source aliases: `tubepornclassic`, `tubepornclassic.com`)
+- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` â€” source aliases: `tubepornclassic`, `tubepornclassic.com`)
 - `backend/app/services/video_streaming.py` (scraper branch, supported-host text, quality map)
 - `backend/app/models/schemas.py` (scrape/list URL allowlists including `tn.tubepornclassic.com`)
 - `backend/app/api/endpoints/explore.py` (`sourceId="tubepornclassic"`)
@@ -5119,19 +5119,19 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://tubepornclassic.com
 - `www.xxxdan2.com`
 - Any `*.xxxdan.com` / `*.xxxdan2.com` subdomain (`can_handle()` suffix match)
 
-Stream/thumbnail CDN hosts resolve to `*.cdn3x.com` — allowlisted in `schemas.py` and `video_streaming.py`. Do **not** put `cdn3x.com` in `can_handle()`; that would treat CDN URLs as watch pages.
+Stream/thumbnail CDN hosts resolve to `*.cdn3x.com` â€” allowlisted in `schemas.py` and `video_streaming.py`. Do **not** put `cdn3x.com` in `can_handle()`; that would treat CDN URLs as watch pages.
 
 ### Listing and pagination (`list_videos`)
 
 Parse cards from `a.video-card[href]` (`data-vid`, `data-tid`, `.video-card__title`, `.video-card__duration`, thumb `img`).
 
-- **Home / Trending:** `https://xxxdan.com/` or `https://xxxdan.com/straight/trending` (page 2+ → `/straight/trending/{page}`)
-- **Popular:** `/straight/popular1` (page N → `/straight/popular{N}`)
-- **Recent:** `/newest` (page 2+ → `/newest/{page}`)
-- **Category:** `/channel/{slug}` (page 2+ → `/channel/{slug}/{page}`)
-- **Search:** `/search/{query}` or `/search?query={query}` (page 2+ → `/search/{query}/{page}`)
+- **Home / Trending:** `https://xxxdan.com/` or `https://xxxdan.com/straight/trending` (page 2+ â†’ `/straight/trending/{page}`)
+- **Popular:** `/straight/popular1` (page N â†’ `/straight/popular{N}`)
+- **Recent:** `/newest` (page 2+ â†’ `/newest/{page}`)
+- **Category:** `/channel/{slug}` (page 2+ â†’ `/channel/{slug}/{page}`)
+- **Search:** `/search/{query}` or `/search?query={query}` (page 2+ â†’ `/search/{query}/{page}`)
 
-Language prefixes (`/ja/`, `/fr/`, …) are stripped when building list URLs. Do **not** treat `/channel/{slug}` as a watch URL — `channel` is a reserved path.
+Language prefixes (`/ja/`, `/fr/`, â€¦) are stripped when building list URLs. Do **not** treat `/channel/{slug}` as a watch URL â€” `channel` is a reserved path.
 
 ### Metadata and streams (`scrape`)
 
@@ -5157,7 +5157,7 @@ Package folder: `backend/app/scrapers/xxxdan/`.
 Also update:
 
 - `backend/app/scrapers/__init__.py`
-- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` — source aliases: `xxxdan`, `xxxdan.com`, `www.xxxdan.com`)
+- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` â€” source aliases: `xxxdan`, `xxxdan.com`, `www.xxxdan.com`)
 - `backend/app/services/video_streaming.py` (scraper branch, supported-host text, quality map including `cdn3x.com`)
 - `backend/app/models/schemas.py` (scrape/list URL allowlists including `cdn3x.com`)
 - `backend/app/api/endpoints/explore.py` (`sourceId="xxxdan"`)
@@ -5205,12 +5205,12 @@ Parse cards from `a.js-gallery-link[href]` matching `/gallery/{numeric_id}/{slug
 
 Pagination is a query param on every listing route (verified `?page=2..N`):
 
-- **Popular:** `https://pornxxx.tube/` (page N → `/?page=N`)
-- **Newest:** `https://pornxxx.tube/new-vids/` (page N → `/new-vids/?page=N`)
-- **Category:** `https://pornxxx.tube/videos/{slug}/` (page N → `/videos/{slug}/?page=N`)
-- **Tag/Search:** `https://pornxxx.tube/tags/{query}/` (page N → `/tags/{query}/?page=N`)
+- **Popular:** `https://pornxxx.tube/` (page N â†’ `/?page=N`)
+- **Newest:** `https://pornxxx.tube/new-vids/` (page N â†’ `/new-vids/?page=N`)
+- **Category:** `https://pornxxx.tube/videos/{slug}/` (page N â†’ `/videos/{slug}/?page=N`)
+- **Tag/Search:** `https://pornxxx.tube/tags/{query}/` (page N â†’ `/tags/{query}/?page=N`)
 
-Skip the ad cards (`random-thumb` blocks) — they never match the `/gallery/` href pattern, so the `_normalize_video_href` filter drops them automatically.
+Skip the ad cards (`random-thumb` blocks) â€” they never match the `/gallery/` href pattern, so the `_normalize_video_href` filter drops them automatically.
 
 ### Metadata and streams (`scrape`)
 
@@ -5219,7 +5219,7 @@ Skip the ad cards (`random-thumb` blocks) — they never match the `/gallery/` h
 - **Uploader:** `.b-gallery-meta__item.channel-link .b-gallery-meta__text` (the "Uploaded by:" value).
 - **Tags:** all `/tags/{slug}/` anchor texts. **Category:** first `/videos/{slug}/` anchor text.
 - **Streams:** the page embeds a direct signed progressive MP4 in `<video id="video"><source src="https://vcdn02.pornxxx.tube/key=...,end=.../video18/.../{hash}_480.mp4" type="video/mp4">`. The `end=<unix>` token is time-limited but the scraper returns it fresh per request, so no redirect resolution is needed (no `get_file` dance).
-- Quality is parsed from the filename suffix (`_480.mp4` → `480p`), unknown → `source`. Inline scripts are also scanned (unescaped `\/`, `\u0026`) for `.mp4`/`.m3u8` fallbacks; `video.default` prefers the highest-scored MP4.
+- Quality is parsed from the filename suffix (`_480.mp4` â†’ `480p`), unknown â†’ `source`. Inline scripts are also scanned (unescaped `\/`, `\u0026`) for `.mp4`/`.m3u8` fallbacks; `video.default` prefers the highest-scored MP4.
 - **Related videos:** the `.js-related-list` section is parsed into `related_videos` (same shape as list items), enabling `hasRelatedVideos=True` in the explore source.
 
 ### Categories (`get_categories`)
@@ -5233,7 +5233,7 @@ Package folder: `backend/app/scrapers/pornxxx/`.
 Also update:
 
 - `backend/app/scrapers/__init__.py`
-- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` — source aliases: `pornxxx`, `pornxxx.tube`, `www.pornxxx.tube`)
+- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` â€” source aliases: `pornxxx`, `pornxxx.tube`, `www.pornxxx.tube`)
 - `backend/app/services/video_streaming.py` (scraper branch, supported-host text)
 - `backend/app/models/schemas.py` (scrape allowlist incl. CDN hosts; list base_url allowlist incl. `pornxxx.tube`)
 - `backend/app/api/endpoints/explore.py` (`sourceId="pornxxx"`, `hasRelatedVideos=True`)
@@ -5260,7 +5260,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://pornxxx.tube/galler
 
 [SxyPrn](https://sxyprn.com/) (SexyPorn) is a community/blog-style tube. Videos are "posts" at `/post/{hex_id}.html`; thumbnails/preview clips live on `b1/b2/b3.trafficdeposit.com`. Posts are user-made: the actual playable sources are usually **external players linked in the post text** (Vidara, LuluStream, DoodStream, SaveFiles), not a direct file.
 
-### Direct .vid link � known dead end (do NOT use)
+### Direct .vid link — known dead end (do NOT use)
 
 The page HTML carries `<span class='vidsnfo' data-vnfo='{"{id}":"/cdn/cN/.../....vid"}'>`. `main2.js` rebuilds a direct URL with (see `getvsrc`/`ssut51`/`boo`/`preda`):
 
@@ -5279,7 +5279,7 @@ This transform was implemented and verified byte-for-byte against `main2.js`, bu
 
 Do not put `trafficdeposit.com` (media CDN) or embed hosts in `can_handle()`; they are allowlisted in `schemas.py` only.
 
-### Stream extraction (`scrape`) � embeds from post text
+### Stream extraction (`scrape`) — embeds from post text
 
 Each post text contains external player links as `a.extlink` anchors. They are normalized to embed (player) form and returned as `format="embed"` streams labeled `Server 1`, `Server 2`, ...:
 
@@ -5294,7 +5294,7 @@ Each post text contains external player links as `a.extlink` anchors. They are n
 
 - `video.default` = first embed (`Server 1`); `has_video=True` only when at least one embed link exists.
 - Metadata: `og:title` (suffix ` on SexyPorn OG` / ` on the SexyPorn` stripped), `og:description`, `og:image` for thumbnail; duration from `meta[itemprop=duration]` (`PT11M2S` -> `11:02`), fallback to the `Video Info -> duration:` block; views from `.post_control_time` (`35267 views`); uploader from `.pes_author_div .a_name`; tags from `a.hash_link[label]` in the main post.
-- Deleted posts are soft-404 (HTTP 200 + "Post Not Found") — the scraper raises so callers return 502 instead of an empty result.
+- Deleted posts are soft-404 (HTTP 200 + "Post Not Found") â€” the scraper raises so callers return 502 instead of an empty result.
 - Related videos: other `.post_el_small` cards on the post page (same parser as listings).
 
 ### Listing and pagination (`list_videos`)
@@ -5323,7 +5323,7 @@ Package folder: `backend/app/scrapers/sxyprn/`.
 Also update:
 
 - `backend/app/scrapers/__init__.py`
-- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` — source aliases: `sxyprn`, `sxyprn.com`, `www.sxyprn.com`)
+- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` â€” source aliases: `sxyprn`, `sxyprn.com`, `www.sxyprn.com`)
 - `backend/app/services/video_streaming.py` (scraper branch, supported-host text, `available_qualities` host list + `per_stream_format_keys` so flat `Server N` / `Server N_format` fields are emitted)
 - `backend/app/models/schemas.py` (scrape allowlist incl. `trafficdeposit.com` + embed hosts; list base_url allowlist incl. `sxyprn.com`)
 - `backend/app/api/endpoints/explore.py` (`sourceId="sxyprn"`)
@@ -5350,66 +5350,3 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://sxyprn.com/post/6a9
 
 Expected stream result for `6a94662d957e8` (post embeds Vidara): `Server 1` -> `https://vidara.so/e/0Kf3bhXfpwEQX`. For `6a948fbfb23a5`: `Server 1` -> `https://luluvdo.com/e/8lvf2vq7kjvg`, `Server 2` -> `https://doodstream.co/e/fvar94xwdw8f`.
 
-## PornTrex Implementation Notes
-
-[PornTrex](https://www.porntrex.com/) is a KVS-engine tube. Video pages live at `/video/{id}/{slug}/`, listings at `/latest-updates/{n}/`, `/top-rated/{n}/`, `/most-popular/{n}/`, categories at `/categories/{slug}/`, search at `/search/{query}/{n}/`.
-
-### IMPORTANT: expired TLS certificate
-
-The site currently serves an **expired TLS certificate**. Every pool fetch must pass `ssl=False` (aiohttp per-request override; `fetch_html` forwards kwargs). Verify the site is even reachable before debugging parser issues.
-
-### Stream extraction (`scrape`) � KVS flashvars + same-session get_file resolve
-
-- Detail pages carry KVS `flashvars`: `video_url` / `video_alt_url` / `video_alt_url2` (`/get_file/<srv>/<token>/<path>.mp4/` URLs) plus `video_url_text` / `video_alt_url_text` quality labels (`480p`, `720p HD`, `1080p FHD`).
-- The `get_file` token is **cookie/session-bound** (fresh session -> 410). The 302 must be followed **in the same pooled aiohttp session** that fetched the page (use `pool.get_session()` + `Range: bytes=0-1`, `?rnd=<ms>` cache-bust). The final `pcdn.cdntrex.com/...mp4?expires=...&md5=...` URL is time-bound but portable, so the client plays direct.
-- Streams are sorted by quality rank, best is `video.default`; anything that still resolves to `/get_file/` after the redirect is dropped.
-- Metadata: `og:title` (suffix ` | PornTrex` stripped), `og:description`, `og:image`; JSON-LD `VideoObject` (ISO `PT12M34S` duration parsed); views from page text (`N views`); tags from `/search/` / `/tags/` links; related videos from sibling `/video/` cards.
-- Deleted videos are soft-404 (HTTP 200 + "this video was deleted ...") � the scraper raises so callers return 502.
-
-### Listing and pagination (`list_videos`)
-
-KVS tile: `a[href=".../video/{id}/{slug}"]` with `img[data-src]` (`ptx.cdntrex.com/...`), title from `img[alt]`/`title`, duration in `div.duration` or `div.durations` (`<i class="fa fa-clock-o">` icon variant, per the 2026-07 markup audit).
-
-- `base_url` unchanged = page 1; page N follows the KVS trailing numeric segment: `/latest-updates/{N}/`, `/categories/{slug}/{N}/`, `/search/{query}/{N}/`. Bare trailing-number paths (e.g. `/top-rated/1/`) are rewritten to `{N}/` as well.
-
-### Categories (`get_categories`)
-
-`categories.json` seeds Latest/Top Rated/Most Popular tabs plus 24 `/categories/{slug}/` routes captured from the live nav.
-
-### Registration checklist for PornTrex
-
-Package folder: `backend/app/scrapers/porntrex/`.
-
-Also update:
-
-- `backend/app/scrapers/__init__.py`
-- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` � source aliases: `porntrex`, `porntrex.com`, `www.porntrex.com`)
-- `backend/app/services/video_streaming.py` (scraper branch, supported-host text)
-- `backend/app/models/schemas.py` (scrape allowlist incl. `ptx.cdntrex.com`/`pcdn.cdntrex.com`; list base_url allowlist incl. `porntrex.com`)
-- `backend/app/api/endpoints/explore.py` (`sourceId="porntrex"`)
-
-### PornTrex verification examples
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
-  -H "Content-Type: application/json" \
-  -d "{\"url\":\"https://www.porntrex.com/video/3316913/cumswappingsis-della-cate-and-vivienne-vo2\"}"
-
-curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.porntrex.com/latest-updates/1/&page=1&limit=20"
-
-curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.porntrex.com/categories/milf/&page=2&limit=20"
-
-curl "http://127.0.0.1:8000/api/v1/categories?source=porntrex"
-
-curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.porntrex.com/video/3316913/cumswappingsis-della-cate-and-vivienne-vo2"
-```
-
-Expected `video.streams` for the sample video: `1080p FHD` / `720p HD` / `480p` resolved to `pcdn.cdntrex.com/...mp4?expires=...&md5=...` URLs (HTTP 206 `video/mp4`), default = 1080p.
-
-### PornTrex REVISION (curl_cffi + tile-window parser)
-
-Two fixes after the first pass, matching the goon-foss extractor (`app/extractors/tubes/porntrex.py` + `porntrex_browse.py`):
-
-1. **Transport: curl_cffi browser impersonation.** The shared aiohttp pool's Python TLS handshake times out intermittently against porntrex's expired-cert server. The scraper now prefers a module-level `curl_cffi.requests.AsyncSession(impersonate="chrome124", verify=False)` for page fetches **and** get_file resolution (same session = same cookie jar, which the session-bound token requires). Pool + `ssl=False` remains the fallback when curl_cffi is missing or the impersonated fetch fails.
-2. **Listing parser: regex tile-windows.** Each `/video/` anchor opens a window until the next anchor; `img[alt]` (title), `img[data-src]` (thumb) and the duration are pulled from that window. This handles both `class="duration">MM:SS<` and the 2026 markup variant `class="durations"><i class="fa fa-clock-o"></i> MM:SS` (BS4 `.duration`-only matching silently lost durations for ~95% of tiles). Duration regex supports `H:MM:SS`.
-3. Minor: `related_videos` now excludes the scraped URL itself; JSON-LD `VideoObject` title is HTML-unescaped before suffix stripping.

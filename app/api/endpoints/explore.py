@@ -1445,20 +1445,6 @@ EXPLORE_SOURCES = [
         pageSize=25,
         hasRelatedVideos=True,
     ),
-    ExploreSourceResponse(
-        baseUrl="https://www.porntrex.com/",
-        nickname="PornTrex",
-        favicon="https://www.porntrex.com/favicon.ico",
-        accentColor="#4CAF50",
-        category="porn",
-        isVerified=False,
-        hasCategories=True,
-        searchUrlTemplate="https://www.porntrex.com/search/{query}/",
-        sourceId="porntrex",
-        disable=True,
-        pageSize=42,
-        hasRelatedVideos=True,
-    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(
