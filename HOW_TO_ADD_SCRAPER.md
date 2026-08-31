@@ -5349,3 +5349,59 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://sxyprn.com/post/6a9
 ```
 
 Expected stream result for `6a94662d957e8` (post embeds Vidara): `Server 1` -> `https://vidara.so/e/0Kf3bhXfpwEQX`. For `6a948fbfb23a5`: `Server 1` -> `https://luluvdo.com/e/8lvf2vq7kjvg`, `Server 2` -> `https://doodstream.co/e/fvar94xwdw8f`.
+
+## PornTrex Implementation Notes
+
+[PornTrex](https://www.porntrex.com/) is a KVS-engine tube. Video pages live at `/video/{id}/{slug}/`, listings at `/latest-updates/{n}/`, `/top-rated/{n}/`, `/most-popular/{n}/`, categories at `/categories/{slug}/`, search at `/search/{query}/{n}/`.
+
+### IMPORTANT: expired TLS certificate
+
+The site currently serves an **expired TLS certificate**. Every pool fetch must pass `ssl=False` (aiohttp per-request override; `fetch_html` forwards kwargs). Verify the site is even reachable before debugging parser issues.
+
+### Stream extraction (`scrape`) — KVS flashvars + same-session get_file resolve
+
+- Detail pages carry KVS `flashvars`: `video_url` / `video_alt_url` / `video_alt_url2` (`/get_file/<srv>/<token>/<path>.mp4/` URLs) plus `video_url_text` / `video_alt_url_text` quality labels (`480p`, `720p HD`, `1080p FHD`).
+- The `get_file` token is **cookie/session-bound** (fresh session -> 410). The 302 must be followed **in the same pooled aiohttp session** that fetched the page (use `pool.get_session()` + `Range: bytes=0-1`, `?rnd=<ms>` cache-bust). The final `pcdn.cdntrex.com/...mp4?expires=...&md5=...` URL is time-bound but portable, so the client plays direct.
+- Streams are sorted by quality rank, best is `video.default`; anything that still resolves to `/get_file/` after the redirect is dropped.
+- Metadata: `og:title` (suffix ` | PornTrex` stripped), `og:description`, `og:image`; JSON-LD `VideoObject` (ISO `PT12M34S` duration parsed); views from page text (`N views`); tags from `/search/` / `/tags/` links; related videos from sibling `/video/` cards.
+- Deleted videos are soft-404 (HTTP 200 + "this video was deleted ...") — the scraper raises so callers return 502.
+
+### Listing and pagination (`list_videos`)
+
+KVS tile: `a[href=".../video/{id}/{slug}"]` with `img[data-src]` (`ptx.cdntrex.com/...`), title from `img[alt]`/`title`, duration in `div.duration` or `div.durations` (`<i class="fa fa-clock-o">` icon variant, per the 2026-07 markup audit).
+
+- `base_url` unchanged = page 1; page N follows the KVS trailing numeric segment: `/latest-updates/{N}/`, `/categories/{slug}/{N}/`, `/search/{query}/{N}/`. Bare trailing-number paths (e.g. `/top-rated/1/`) are rewritten to `{N}/` as well.
+
+### Categories (`get_categories`)
+
+`categories.json` seeds Latest/Top Rated/Most Popular tabs plus 24 `/categories/{slug}/` routes captured from the live nav.
+
+### Registration checklist for PornTrex
+
+Package folder: `backend/app/scrapers/porntrex/`.
+
+Also update:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` — source aliases: `porntrex`, `porntrex.com`, `www.porntrex.com`)
+- `backend/app/services/video_streaming.py` (scraper branch, supported-host text)
+- `backend/app/models/schemas.py` (scrape allowlist incl. `ptx.cdntrex.com`/`pcdn.cdntrex.com`; list base_url allowlist incl. `porntrex.com`)
+- `backend/app/api/endpoints/explore.py` (`sourceId="porntrex"`)
+
+### PornTrex verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.porntrex.com/video/3316913/cumswappingsis-della-cate-and-vivienne-vo2\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.porntrex.com/latest-updates/1/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.porntrex.com/categories/milf/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=porntrex"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.porntrex.com/video/3316913/cumswappingsis-della-cate-and-vivienne-vo2"
+```
+
+Expected `video.streams` for the sample video: `1080p FHD` / `720p HD` / `480p` resolved to `pcdn.cdntrex.com/...mp4?expires=...&md5=...` URLs (HTTP 206 `video/mp4`), default = 1080p.

@@ -300,6 +300,10 @@ class ScrapeRequest(BaseModel):
             "doodstream.co",
             "doodstream.com",
             "savefiles.com",
+            "porntrex.com",
+            "www.porntrex.com",
+            "ptx.cdntrex.com",
+            "pcdn.cdntrex.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
@@ -577,6 +581,8 @@ class ListRequest(BaseModel):
             "www.pornxxx.tube",
             "sxyprn.com",
             "www.sxyprn.com",
+            "porntrex.com",
+            "www.porntrex.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
