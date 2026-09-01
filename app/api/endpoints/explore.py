@@ -1471,6 +1471,20 @@ EXPLORE_SOURCES = [
         disable=False,
         pageSize=25,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://tube.perverzija.com/",
+        nickname="Perverzija",
+        favicon="https://tube.perverzija.com/wp-content/uploads/2018/12/cropped-perverzija-usne-32x32.jpg",
+        accentColor="#C2185B",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://tube.perverzija.com/?s={query}",
+        sourceId="perverzija",
+        disable=False,
+        pageSize=24,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

@@ -5454,3 +5454,98 @@ Because the full page URL is accepted as Referer, **no backend proxy is needed**
 - **Flutter app** uses the local scraper `app/lib/features/source/data/scrapers/youperv.dart` (`YouPervService.getDownloadLinks`) which extracts the MP4/HLS locally from the page HTML (`<video><source src>` first, inline regex fallback). BetterPlayer sends `Referer: <video page url>` via its `headers` map automatically, and `_startDownload` already passes the page URL as Referer, so both playback and downloads work without any proxy.
 - Wired in `source_video_details_page.dart`: playback branch (`sourceName == 'youperv' || baseUrl.contains('youperv.com')`) before the generic backend fallback, plus a matching download branch using the same local service.
 - Keep CDN filenames raw (they contain spaces); ExoPlayer/AVPlayer and `package:http` encode them at request time.
+
+## Perverzija (tube.perverzija.com) Implementation Notes
+
+[Perverzija](https://tube.perverzija.com/) is a WordPress tube site. Video posts use **root-level slugs** (`/{slug}/`, single segment). Watch pages embed a third-party **XtremeStream** player iframe; there are no direct MP4/HLS URLs in the page HTML.
+
+### Host aliases
+
+- `tube.perverzija.com`
+- `www.tube.perverzija.com`
+
+Do **not** match bare `perverzija.com` (different site).
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h == "tube.perverzija.com" or h.endswith(".tube.perverzija.com")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Cards: `div.video-item` → thumb link `a[href]` (root-level slug), title `.item-head h2 a` (`title` attr) or img `alt`, duration `span.rating-bar` (`mm:ss`), studio from `a[href*='/studio/']`
+- Accept only single-segment root URLs; skip reserved paths (`/page/`, `/tag/`, `/studio/`, `/vr/`, `/featured-scenes/`, `/full-movie/`, `/category/`, `/author/`, `wp-*`, legal pages)
+- Page 1 uses `base_url` unchanged; page *n* inserts `/page/{n}/` under the current path (WordPress pattern), preserving query params (e.g. `?s=`)
+- Search: `https://tube.perverzija.com/?s={query}`
+- Working list bases: `/`, `/tag/{slug}/`, `/studio/{slug}/`, `/vr/`, `/featured-scenes/`, `/full-movie/`, `/full-movie/erotic-movies/`
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. JSON-LD `VideoObject` (the page ships a **JSON array** from `saswp-schema-markup-output`: `headline`, `description`, `thumbnailUrl`, `duration` as ISO-8601 `PT25M26S`, `uploadDate`, `author.name`)
+  2. `og:title` (prefix `Watch ` and suffix ` | Perverzija.com` stripped), `og:description`, `og:image`
+  3. visible `h1` / page `<title>`
+- Views: `span.post-views-count`; tags from `a[href*='/tag/']`; studio from `a[href*='/studio/']`
+- **Streams: embed only.** The player iframe lives in `#player-embed iframe[src]` → `https://pervl{N}.xtremestream.xyz/player/index.php?data={32-hex-token}`. The same URL is also in JSON-LD `embedUrl` and the card `data-embed` attribute. Return it as `format="embed"` / `quality="embed"` (same pattern as teamskeettube).
+- The `data=` token is a static per-video id (identical in listing quick-view and JSON-LD).
+
+### Stream Referer requirements (why no backend HLS extraction)
+
+Both player endpoints are Referer-protected (Cloudflare):
+
+- `player/index.php?data=` fetched directly needs `Referer: https://tube.perverzija.com/` (without it: HTTP 200 with body "You can't access the video directly")
+- The real HLS lives at `{player-origin}/player/xs1.php?data={token}` (the player page sets `var m3u8_loader_url = '<origin>/player/xs1.php?data='` + `var video_id = '<token>'`); the master lists `&q=480` / `&q=720` media variants
+- **`xs1.php` requires `Referer:` of the player page URL itself** — the site referer (`https://tube.perverzija.com/`) returns **403**
+
+Because an HLS proxy would be required to serve this from the backend, the backend intentionally returns embed streams only and playback/downloads are extracted **locally in Flutter** (same pattern as YouPerv): `app/lib/features/source/data/scrapers/perverzija.dart` (`PerverzijaService`) fetches the page, extracts the player URL, derives the `xs1.php` master, parses variants, and BetterPlayer sends `Referer: <player page URL>` via its `headers` map. Fallback: WebView-embed playback of the video page itself (the iframe gets the correct referer from page context).
+
+### Registration checklist for Perverzija
+
+Besides creating `backend/app/scrapers/perverzija/`, all of these were updated:
+
+- `backend/app/scrapers/__init__.py` (import + `__all__`)
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=perverzija`, `tube.perverzija.com`)
+- `backend/app/services/video_streaming.py`
+  - import list + `elif perverzija.can_handle(host):` branch
+  - unsupported-host help text (`tube.perverzija.com`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`tube.perverzija.com`, `xtremestream.xyz`)
+  - list base URL allowlist (`tube.perverzija.com`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="perverzija"`, `baseUrl="https://tube.perverzija.com/"`, search template `https://tube.perverzija.com/?s={query}`, `hasRelatedVideos=True`)
+- `app/lib/features/source/data/scrapers/perverzija.dart` (local Flutter extraction)
+- `app/lib/features/source/ui/source_video_details_page.dart`
+  - playback branch (`sourceName == 'perverzija' || baseUrl.contains('tube.perverzija.com')`) with `_streamReferer` override
+  - download branch using `PerverzijaService.getDownloadLinks`
+  - `_hlsHeaders()` / `_startDownload()` headers prefer `_streamReferer` when set
+
+### Perverzija verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://tube.perverzija.com/zerotolerance-rachel-roxxx-rachel-roxxx-office-slut/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://tube.perverzija.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://tube.perverzija.com/tag/anal/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://tube.perverzija.com/?s=brazzers&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=perverzija"
+
+curl "http://127.0.0.1:8000/api/v1/videos/info?url=https://tube.perverzija.com/zerotolerance-rachel-roxxx-rachel-roxxx-office-slut/"
+```
+
+Notes from live testing (2026-09):
+
+- Home, tag, VR, search listing (pages 1/2), `scrape()` metadata, embed stream, related videos, and categories all verified working via the scraper module directly.
+- The search page reuses the same `div.video-item` cards; `?s=` query pagination via `/page/{n}/` works.
+- Duration "94:20" (an `hh:mm` card label) parses as `94:20`; JSON-LD `PT25M26S` becomes `25:26` on detail pages.

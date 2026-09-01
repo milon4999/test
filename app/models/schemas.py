@@ -303,6 +303,8 @@ class ScrapeRequest(BaseModel):
             "doodstream.co",
             "doodstream.com",
             "savefiles.com",
+            "tube.perverzija.com",
+            "xtremestream.xyz",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
@@ -583,6 +585,7 @@ class ListRequest(BaseModel):
             "latestpornvideo.com",
             "youperv.com",
             "www.latestpornvideo.com",
+            "tube.perverzija.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
