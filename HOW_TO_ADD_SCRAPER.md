@@ -5440,3 +5440,17 @@ Notes from live testing (2026-09):
 - Listing, categories, search (pages 1 and 2 via `search_start`), and direct-MP4 `scrape()` all verified working.
 - Deleted posts return **HTTP 410 Gone** (e.g. some URLs from older index pages); the pool raises and `/api/v1/videos` returns an empty page — clients should treat empty results as normal.
 - The CDN MP4 URL contains spaces (raw title); do not percent-encode before storing — HTTP clients handle it.
+
+### YouPerv CDN Referer requirement and local Flutter extraction
+
+The direct MP4 host `files.klubnichka-hd.com` **requires a Referer header**:
+
+- `GET` with `Range` and **no Referer** -> **403** (text/html block page).
+- With `Referer: https://youperv.com/` **or the full video page URL** -> **206** `video/mp4`.
+
+Because the full page URL is accepted as Referer, **no backend proxy is needed**:
+
+- **Backend** extraction (`scrape()` / `/api/v1/videos/stream`) already returns the raw CDN MP4; clients that send the video page URL as `Referer` can play it directly.
+- **Flutter app** uses the local scraper `app/lib/features/source/data/scrapers/youperv.dart` (`YouPervService.getDownloadLinks`) which extracts the MP4/HLS locally from the page HTML (`<video><source src>` first, inline regex fallback). BetterPlayer sends `Referer: <video page url>` via its `headers` map automatically, and `_startDownload` already passes the page URL as Referer, so both playback and downloads work without any proxy.
+- Wired in `source_video_details_page.dart`: playback branch (`sourceName == 'youperv' || baseUrl.contains('youperv.com')`) before the generic backend fallback, plus a matching download branch using the same local service.
+- Keep CDN filenames raw (they contain spaces); ExoPlayer/AVPlayer and `package:http` encode them at request time.
