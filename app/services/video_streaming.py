@@ -427,6 +427,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "hentaiser.app" in parsed_url.netloc.lower() or
         "hentaiser.com" in parsed_url.netloc.lower() or
         "hentaihaven.xxx" in parsed_url.netloc.lower() or
+        "hentaihaven.com" in parsed_url.netloc.lower() or
         "octopusmanifest.org" in parsed_url.netloc.lower() or
         "coverlanyvd.org" in parsed_url.netloc.lower() or
         "img.hentaihaven.xxx" in parsed_url.netloc.lower() or
@@ -608,6 +609,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "latestpornvideo.com" in host_l
             or "pimpbunny.com" in host_l
             or "hentaihaven.xxx" in host_l
+            or "hentaihaven.com" in host_l
             or "octopusmanifest.org" in host_l
             or "coverlanyvd.org" in host_l
             or "img.hentaihaven.xxx" in host_l
