@@ -1,4 +1,4 @@
-﻿# How to Add a New Scraper
+# How to Add a New Scraper
 
 This guide matches the current backend layout and registration flow.
 
@@ -5441,7 +5441,7 @@ Notes from live testing (2026-09):
 - Deleted posts return **HTTP 410 Gone** (e.g. some URLs from older index pages); the pool raises and `/api/v1/videos` returns an empty page — clients should treat empty results as normal.
 - The CDN MP4 URL contains spaces (raw title); do not percent-encode before storing — HTTP clients handle it.
 
-### YouPerv CDN Referer requirement and local Flutter extraction
+### YouPerv CDN Referer requirement
 
 The direct MP4 host `files.klubnichka-hd.com` **requires a Referer header**:
 
@@ -5451,8 +5451,7 @@ The direct MP4 host `files.klubnichka-hd.com` **requires a Referer header**:
 Because the full page URL is accepted as Referer, **no backend proxy is needed**:
 
 - **Backend** extraction (`scrape()` / `/api/v1/videos/stream`) already returns the raw CDN MP4; clients that send the video page URL as `Referer` can play it directly.
-- **Flutter app** uses the local scraper `app/lib/features/source/data/scrapers/youperv.dart` (`YouPervService.getDownloadLinks`) which extracts the MP4/HLS locally from the page HTML (`<video><source src>` first, inline regex fallback). BetterPlayer sends `Referer: <video page url>` via its `headers` map automatically, and `_startDownload` already passes the page URL as Referer, so both playback and downloads work without any proxy.
-- Wired in `source_video_details_page.dart`: playback branch (`sourceName == 'youperv' || baseUrl.contains('youperv.com')`) before the generic backend fallback, plus a matching download branch using the same local service.
+- **Flutter app** uses the generic backend flow (`ScraperApiService.fetchVideoStream` / `fetchDownloadLinks`) — BetterPlayer sends `Referer: <video page url>` via its `headers` map automatically, and `_startDownload` passes the page URL as Referer, so both playback and downloads work without any proxy or local scraper.
 - Keep CDN filenames raw (they contain spaces); ExoPlayer/AVPlayer and `package:http` encode them at request time.
 
 ## Perverzija (tube.perverzija.com) Implementation Notes
@@ -5492,7 +5491,7 @@ def can_handle(host: str) -> bool:
 - **Streams: embed only.** The player iframe lives in `#player-embed iframe[src]` → `https://pervl{N}.xtremestream.xyz/player/index.php?data={32-hex-token}`. The same URL is also in JSON-LD `embedUrl` and the card `data-embed` attribute. Return it as `format="embed"` / `quality="embed"` (same pattern as teamskeettube).
 - The `data=` token is a static per-video id (identical in listing quick-view and JSON-LD).
 
-### Stream Referer requirements (why no backend HLS extraction)
+### Stream Referer requirements (why playback is local Flutter HLS)
 
 Both player endpoints are Referer-protected (Cloudflare):
 
@@ -5500,7 +5499,12 @@ Both player endpoints are Referer-protected (Cloudflare):
 - The real HLS lives at `{player-origin}/player/xs1.php?data={token}` (the player page sets `var m3u8_loader_url = '<origin>/player/xs1.php?data='` + `var video_id = '<token>'`); the master lists `&q=480` / `&q=720` media variants
 - **`xs1.php` requires `Referer:` of the player page URL itself** — the site referer (`https://tube.perverzija.com/`) returns **403**
 
-Because an HLS proxy would be required to serve this from the backend, the backend intentionally returns embed streams only and playback/downloads are extracted **locally in Flutter** (same pattern as YouPerv): `app/lib/features/source/data/scrapers/perverzija.dart` (`PerverzijaService`) fetches the page, extracts the player URL, derives the `xs1.php` master, parses variants, and BetterPlayer sends `Referer: <player page URL>` via its `headers` map. Fallback: WebView-embed playback of the video page itself (the iframe gets the correct referer from page context).
+Because an HLS proxy would be required to serve this from the backend, the backend intentionally returns embed streams only and **the Flutter app extracts HLS locally** (approach from `goon-foss/goon` `app/extractors/tubes/perverzija.py`):
+
+- `app/lib/features/source/data/scrapers/perverzija.dart` (`PerverzijaService.fetchVideo`) fetches the video page, regex-extracts the XtremeStream iframe (`(?<host>...\.xtremestream\.[a-z]+)/player/index\.php\?data=(?<id>[0-9a-f]{16,64})`), and builds both playlist URLs: `https://{host}/player/xs1.php?data={id}&q=720` and `&q=480` (720 = preferred default `stream_url`).
+- A best-effort probe GET (Referer = player URL) verifies the primary playlist contains `#EXTM3U`; failure only flags `hls_unverified` and playback still returns the URLs.
+- `_videoFormat` is set to `hls`; BetterPlayer sends `Referer: <player page URL>` via its `headers` map (`_streamReferer` override in `_hlsHeaders` / `_initializePlayer` / `_startDownload`).
+- The manifest path does **not** end in `.m3u8`, so the `isHls` checks in the details page also honor `_videoFormat == 'hls'` (same trap as pornhat). Segments (`.html` camouflage on `*.xspcdn*.sa.com`) stream directly from CDN — BetterPlayer HLS handles them natively.
 
 ### Registration checklist for Perverzija
 
@@ -5520,11 +5524,11 @@ Besides creating `backend/app/scrapers/perverzija/`, all of these were updated:
   - list base URL allowlist (`tube.perverzija.com`)
 - `backend/app/api/endpoints/explore.py`
   - `ExploreSourceResponse` entry (`sourceId="perverzija"`, `baseUrl="https://tube.perverzija.com/"`, search template `https://tube.perverzija.com/?s={query}`, `hasRelatedVideos=True`)
-- `app/lib/features/source/data/scrapers/perverzija.dart` (local Flutter extraction)
+- `app/lib/features/source/data/scrapers/perverzija.dart` (local Flutter HLS extraction via `xs1.php?data={id}&q={720|480}`)
 - `app/lib/features/source/ui/source_video_details_page.dart`
-  - playback branch (`sourceName == 'perverzija' || baseUrl.contains('tube.perverzija.com')`) with `_streamReferer` override
-  - download branch using `PerverzijaService.getDownloadLinks`
-  - `_hlsHeaders()` / `_startDownload()` headers prefer `_streamReferer` when set
+  - playback branch (`sourceName == 'perverzija' || baseUrl.contains('tube.perverzija.com')`) using `PerverzijaService.fetchVideo` (Brazzpw-style local extraction)
+  - `_streamReferer` override in `_hlsHeaders()` / `_initializePlayer()` / `_startDownload()` (HLS needs the player page URL as Referer)
+  - `isHls` checks honor `_videoFormat == 'hls'` because the manifest path does not end in `.m3u8`
 
 ### Perverzija verification examples
 
@@ -5546,6 +5550,6 @@ curl "http://127.0.0.1:8000/api/v1/videos/info?url=https://tube.perverzija.com/z
 
 Notes from live testing (2026-09):
 
-- Home, tag, VR, search listing (pages 1/2), `scrape()` metadata, embed stream, related videos, and categories all verified working via the scraper module directly.
+- Home, tag, VR, search listing (pages 1/2), `scrape()` metadata, embed stream, related videos, and categories all verified working via the scraper module directly. Playback uses local Flutter HLS extraction (BetterPlayer with player-page Referer).
 - The search page reuses the same `div.video-item` cards; `?s=` query pagination via `/page/{n}/` works.
 - Duration "94:20" (an `hh:mm` card label) parses as `94:20`; JSON-LD `PT25M26S` becomes `25:26` on detail pages.
