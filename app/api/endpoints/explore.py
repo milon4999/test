@@ -1457,7 +1457,6 @@ EXPLORE_SOURCES = [
         sourceId="latestpornvideo",
         disable=False,
         pageSize=25,
-        hasRelatedVideos=True,
     ),
 ]
 
