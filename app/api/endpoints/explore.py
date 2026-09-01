@@ -1445,6 +1445,20 @@ EXPLORE_SOURCES = [
         pageSize=25,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://latestpornvideo.com/",
+        nickname="LatestPornVideo",
+        favicon="https://latestpornvideo.com/favicon.ico",
+        accentColor="#FF3565",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://latestpornvideo.com/?s={query}",
+        sourceId="latestpornvideo",
+        disable=False,
+        pageSize=25,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

@@ -289,6 +289,8 @@ class ScrapeRequest(BaseModel):
             "u3.pornxxx.tube",
             "sxyprn.com",
             "www.sxyprn.com",
+            "latestpornvideo.com",
+            "www.latestpornvideo.com",
             "trafficdeposit.com",
             "b1.trafficdeposit.com",
             "b2.trafficdeposit.com",
@@ -577,6 +579,8 @@ class ListRequest(BaseModel):
             "www.pornxxx.tube",
             "sxyprn.com",
             "www.sxyprn.com",
+            "latestpornvideo.com",
+            "www.latestpornvideo.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
