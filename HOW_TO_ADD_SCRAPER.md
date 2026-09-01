@@ -5350,3 +5350,93 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://sxyprn.com/post/6a9
 
 Expected stream result for `6a94662d957e8` (post embeds Vidara): `Server 1` -> `https://vidara.so/e/0Kf3bhXfpwEQX`. For `6a948fbfb23a5`: `Server 1` -> `https://luluvdo.com/e/8lvf2vq7kjvg`, `Server 2` -> `https://doodstream.co/e/fvar94xwdw8f`.
 
+
+## YouPerv Implementation Notes
+
+[YouPerv](https://youperv.com/) is a **DataLife Engine (DLE)** tube site (not WordPress). Canonical video pages use `/{category}/{numeric-id}-{slug}.html` (for example `/cumshot/1972058148-hijab-mylfs-....html`). Videos play via **FluidPlayer** with a single direct MP4 `<source>` on a CDN host (`files.klubnichka-hd.com`).
+
+### Host aliases
+
+- `youperv.com`
+- `www.youperv.com`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h == SITE_HOST or h.endswith(f".{SITE_HOST}")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Parse `div.item` cards: link `a.item-link` (fallback: first `a[href]`), thumb `img.xfieldimage.poster` (or first `img`), title `.item-title h2` / img `alt`, duration `.item-meta.meta-time`, pornstars from `/xfsearch/pornstar/` links.
+- Accept only URLs whose last path segment matches `^\d{2,}-.+\.html$`; skip `/tags/`, `/xfsearch/`, `/user/`, `/page/`, and static pages (`/2257.html`, `/top-porn-videos.html`, `/top-50-most-viewed-videos.html`).
+- Strip DLE locale prefixes (`/es/`, `/fr/`, ...) from captured hrefs; canonical form is `https://youperv.com/{category}/{id}-{slug}.html`.
+- Card titles end with ` ( DD.MM.YYYY )` — strip the suffix in `_clean_title`.
+- Thumbnails are site-relative (`/uploads/posts/...`) — resolve with `urljoin`.
+- Pagination: page 1 uses `base_url` unchanged; page *n* > 1 inserts `/page/{n}/` under the current path (`/` -> `/page/2/`, `/anal/` -> `/anal/page/2/`), replacing any existing `/page/{m}/` segment.
+- **DLE search:** the search form is POST, but GET works: `https://youperv.com/index.php?do=search&subaction=search&story={query}`. Search results paginate with the `search_start={n}` query param (NOT `/page/{n}/`), so `_build_list_page_url` branches on `do=search` / `search_start`.
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. JSON-LD `@graph` `Movie` node (`name` is the clean title, `datePublished` is ISO upload date)
+  2. `og:title` / `og:description` / `og:image`
+  3. `twitter:title` / `twitter:description` / `twitter:image`
+  4. `h1` (strip trailing `DD.MM.YYYY` and `HD`) / page `<title>` (split on ` » `)
+- Stream extraction: `video[src]` + `video > source[src]` (FluidPlayer block), then inline `.mp4` / `.m3u8` regex scan, then `iframe[src]` embed fallback (filter ad iframes: `magsrv.com`, `mbidadm.com`, `acscdn.com`, VAST tags, etc.).
+- Direct MP4 lives on `files.klubnichka-hd.com` with **spaces in the URL** — keep the URL raw (aiohttp/httpx encode it); quality label falls back to `source` (no per-resolution tiers).
+- Duration from `.fmeta .fm-item` (fa-clock-o row) or `mm:ss` regex; pornstars scoped to `.fmeta` only (Related Videos also contain xfsearch links); tags from `.full-tags a`; related videos reuse the card parser on `.items .item`.
+- Views are **not rendered on detail pages** (only on listing cards), so `views` may be `None` from `scrape()`.
+
+### Categories (`get_categories`)
+
+`categories.json` seeded from the nav: Most Viewed 30 Day (`/top-50-most-viewed-videos.html`), Top Rated 30 Day (`/top-porn-videos.html`), Tags (`/tags/`), plus the 33 category routes (`/anal/`, `/milf/`, ...). `/api/v1/categories?source=youperv` serves them.
+
+### Registration checklist for YouPerv
+
+Besides creating `backend/app/scrapers/youperv/`, all of these were updated:
+
+- `backend/app/scrapers/__init__.py` (import + `__all__`)
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=youperv`)
+- `backend/app/services/video_streaming.py`
+  - import list + `elif youperv.can_handle(host):` branch
+  - unsupported-host help text (`youperv.com`)
+  - `available_qualities` host list + `per_stream_format_keys` in `get_video_info` (`youperv.com`, `files.klubnichka-hd.com`, `klubnichka-hd.com`)
+  - matching `host_l` checks in `get_stream_url`
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`"youperv.com"`)
+  - list base URL allowlist (`"youperv.com"`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="youperv"`, `baseUrl="https://youperv.com/"`, search template uses the GET search route)
+
+### YouPerv verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://youperv.com/cumshot/1972058148-hijab-mylfs-brandi-swan-boudoir-photoshoot-your-husband-will-only-see-the-nudes-not-how-you-sucked-my-cock.html\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://youperv.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://youperv.com/anal/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://youperv.com/index.php?do=search&subaction=search&story=brazzers&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=youperv"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://youperv.com/cumshot/1972058148-hijab-mylfs-brandi-swan-boudoir-photoshoot-your-husband-will-only-see-the-nudes-not-how-you-sucked-my-cock.html"
+```
+
+Notes from live testing (2026-09):
+
+- Listing, categories, search (pages 1 and 2 via `search_start`), and direct-MP4 `scrape()` all verified working.
+- Deleted posts return **HTTP 410 Gone** (e.g. some URLs from older index pages); the pool raises and `/api/v1/videos` returns an empty page — clients should treat empty results as normal.
+- The CDN MP4 URL contains spaces (raw title); do not percent-encode before storing — HTTP clients handle it.

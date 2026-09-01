@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import httpx
 from contextlib import asynccontextmanager
@@ -33,7 +33,7 @@ from app.api.endpoints import hls, media, explore, thumbnails, one_xbet, ads, do
 from fastapi import APIRouter
 
 # Scrapers & Models
-from app.scrapers import masa49, xhamster, xnxx, xvideos, pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rule34video, haho, hanime, hanime1, hentaihaven, animeidhentai, hentaicity, hentaimama, hentaibros, henvids, muchohentai, underhentai, hentaiocean, hentaverse, hstream, anibd, rouvideo, cg51, oppai, xmoviesforyou, tnaflix, hornysimp, pimpbunny, hentaiser, bollywoodmaal, viralkand, blowjobspro, blackporn24, lesbianporn8, leslez, milfporn8, indianporn365, mmsbro, kamababa, desimms2, desiporn, thotsporn, leakedamateurporn, zeenite, uncutmaza, mydesimms, po85, cosxplay, memojav, hohoj, ggjav, porn87, goodav, kanav, missav, jable, tianmei, bindasmood, eporner, dotmaal, uncutmasti, zmaal, ulluwebseries, desithothub, motherless, youjizz, pornone, threemovs, porndig, txxx, hotmovs, shemalez, okxxx, pornhoarder, yesporn, justporn, porngo, oneporn, thepornbang, pornhd3x, javfun, pornhd4k, pornhouse, porn91, letsporn, teamskeettube, sosalkino, tubepornclassic, xxxdan, pornxxx, sxyprn, latestpornvideo
+from app.scrapers import masa49, xhamster, xnxx, xvideos, pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rule34video, haho, hanime, hanime1, hentaihaven, animeidhentai, hentaicity, hentaimama, hentaibros, henvids, muchohentai, underhentai, hentaiocean, hentaverse, hstream, anibd, rouvideo, cg51, oppai, xmoviesforyou, tnaflix, hornysimp, pimpbunny, hentaiser, bollywoodmaal, viralkand, blowjobspro, blackporn24, lesbianporn8, leslez, milfporn8, indianporn365, mmsbro, kamababa, desimms2, desiporn, thotsporn, leakedamateurporn, zeenite, uncutmaza, mydesimms, po85, cosxplay, memojav, hohoj, ggjav, porn87, goodav, kanav, missav, jable, tianmei, bindasmood, eporner, dotmaal, uncutmasti, zmaal, ulluwebseries, desithothub, motherless, youjizz, pornone, threemovs, porndig, txxx, hotmovs, shemalez, okxxx, pornhoarder, yesporn, justporn, porngo, oneporn, thepornbang, pornhd3x, javfun, pornhd4k, pornhouse, porn91, letsporn, teamskeettube, sosalkino, tubepornclassic, xxxdan, pornxxx, sxyprn, latestpornvideo, youperv
 from app.models.schemas import ScrapeResponse, VideoInfoResponse, ListItem, CategoryItem, ScrapeRequest, ListRequest
 
 logging.basicConfig(level=logging.INFO)
@@ -235,6 +235,7 @@ async def _scrape_dispatch(url: str, host: str) -> dict[str, Any]:
     if pornxxx.can_handle(host): return await pornxxx.scrape(url)
     if sxyprn.can_handle(host): return await sxyprn.scrape(url)
     if latestpornvideo.can_handle(host): return await latestpornvideo.scrape(url)
+    if youperv.can_handle(host): return await youperv.scrape(url)
     raise HTTPException(status_code=400, detail="Unsupported host")
 
 async def _list_dispatch(base_url: str, host: str, page: int, limit: int) -> list[dict[str, Any]]:
@@ -344,6 +345,7 @@ async def _list_dispatch(base_url: str, host: str, page: int, limit: int) -> lis
     if pornxxx.can_handle(host): return await pornxxx.list_videos(base_url=base_url, page=page, limit=limit)
     if sxyprn.can_handle(host): return await sxyprn.list_videos(base_url=base_url, page=page, limit=limit)
     if latestpornvideo.can_handle(host): return await latestpornvideo.list_videos(base_url=base_url, page=page, limit=limit)
+    if youperv.can_handle(host): return await youperv.list_videos(base_url=base_url, page=page, limit=limit)
     raise HTTPException(status_code=400, detail="Unsupported host")
 
 async def _crawl_dispatch(base_url: str, host: str, start_page: int, max_pages: int, per_page_limit: int, max_items: int) -> list[dict[str, Any]]:
@@ -372,7 +374,7 @@ async def create_scrape(request: Request, body: ScrapeRequestV1) -> ScrapeRespon
     cache_key = f"scrape:{str(body.url)}"
     cached_result = await cache.get(cache_key)
     if cached_result:
-        logging.info(f"⚡ Cache HIT for scrape {body.url}")
+        logging.info(f"âš¡ Cache HIT for scrape {body.url}")
         return ScrapeResponse(**cached_result)
     try:
         data = await _scrape_dispatch(str(body.url), body.url.host or "")
@@ -414,7 +416,7 @@ async def list_videos(request: Request, base_url: str, page: int = 1, limit: int
     cache_key = f"list:{base_url}:p{page}:l{limit}"
     cached_items = await cache.get(cache_key)
     if cached_items:
-        logging.info(f"⚡ Cache HIT for list {base_url} page {page}")
+        logging.info(f"âš¡ Cache HIT for list {base_url} page {page}")
         return [ListItem(**it) for it in cached_items]
 
     try:
@@ -591,6 +593,7 @@ async def get_categories(source: str) -> list[CategoryItem]:
         if s in ("pornxxx", "pornxxx.tube", "www.pornxxx.tube"): return [_category_item(c) for c in pornxxx.get_categories()]
         if s in ("sxyprn", "sxyprn.com", "www.sxyprn.com", "sexyprn"): return [_category_item(c) for c in sxyprn.get_categories()]
         if s in ("latestpornvideo", "latestpornvideo.com", "www.latestpornvideo.com"): return [_category_item(c) for c in latestpornvideo.get_categories()]
+        if s in ("youperv", "youperv.com", "www.youperv.com"): return [_category_item(c) for c in youperv.get_categories()]
         raise HTTPException(status_code=400, detail="Unknown source")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load categories: {str(e)}")

@@ -1458,6 +1458,19 @@ EXPLORE_SOURCES = [
         disable=False,
         pageSize=25,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://youperv.com/",
+        nickname="YouPerv",
+        favicon="https://youperv.com/templates/YouPerv/images/favicon.ico",
+        accentColor="#28B8ED",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://youperv.com/index.php?do=search&subaction=search&story={query}",
+        sourceId="youperv",
+        disable=False,
+        pageSize=25,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

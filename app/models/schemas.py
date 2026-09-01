@@ -1,4 +1,4 @@
-# Pydantic Schemas for Request/Response Validation
+﻿# Pydantic Schemas for Request/Response Validation
 
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
 from typing import Any, Optional
@@ -290,6 +290,7 @@ class ScrapeRequest(BaseModel):
             "sxyprn.com",
             "www.sxyprn.com",
             "latestpornvideo.com",
+            "youperv.com",
             "www.latestpornvideo.com",
             "trafficdeposit.com",
             "b1.trafficdeposit.com",
@@ -324,7 +325,7 @@ class ScrapeResponse(BaseModel):
 
 
 class VideoInfoResponse(ScrapeResponse):
-    """GET /api/v1/videos/info — includes stream metadata omitted from ScrapeResponse."""
+    """GET /api/v1/videos/info â€” includes stream metadata omitted from ScrapeResponse."""
 
     preview_url: Optional[str] = None
     related_videos: list[dict[str, Any]] = Field(default_factory=list)
@@ -580,6 +581,7 @@ class ListRequest(BaseModel):
             "sxyprn.com",
             "www.sxyprn.com",
             "latestpornvideo.com",
+            "youperv.com",
             "www.latestpornvideo.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
