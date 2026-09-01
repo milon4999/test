@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html as _htmllib
 import json
 import os
 import re
@@ -111,15 +112,22 @@ def _meta(soup: BeautifulSoup, *, prop: str | None = None, name: str | None = No
 def _clean_title(title: str | None) -> Optional[str]:
     if not title:
         return None
-    t = str(title).strip()
+    t = _htmllib.unescape(str(title)).strip()
     for suffix in (
         " &ndash; Hentaimama",
         " – Hentaimama",
         " - Hentaimama",
         " | Hentaimama",
+        "\ufffd Watch Online Free in HD",
+        " – Watch Online Free in HD",
+        " - Watch Online Free in HD",
+        " Watch Online Free in HD",
     ):
         if suffix in t:
             t = t.split(suffix, 1)[0].strip()
+    # Site DB has mojibake: U+FFFD where an apostrophe should be.
+    if "\ufffd" in t:
+        t = re.sub(r"\ufffd(?=\S)", "'", t).strip().rstrip("'-\ufffd ").strip()
     return t or None
 
 
@@ -289,7 +297,7 @@ async def _fetch_player_iframes(post_id: str, page_url: str) -> list[str]:
         if not isinstance(item, str):
             continue
         for match in _IFRAME_SRC_RE.finditer(item):
-            src = match.group(1).strip().replace("\\/", "/")
+            src = _htmllib.unescape(match.group(1)).strip().replace("\\/", "/")
             if src.startswith("//"):
                 src = f"https:{src}"
             elif src.startswith("/"):
@@ -302,7 +310,7 @@ async def _fetch_player_iframes(post_id: str, page_url: str) -> list[str]:
 def _streams_from_player_html(html: str, label: str) -> list[dict[str, str]]:
     streams: list[dict[str, str]] = []
     for match in _JW_FILE_RE.finditer(html):
-        url = match.group(1).strip().replace("\\/", "/")
+        url = _htmllib.unescape(match.group(1)).strip().replace("\\/", "/")
         if not url.startswith("http"):
             continue
         fmt = "hls" if ".m3u8" in url.lower() else "mp4"
@@ -586,13 +594,17 @@ def parse_video_page(
         _meta(soup, prop="og:image"),
         _best_image_url(soup.select_one("img")),
     )
-    if thumbnail and str(thumbnail).startswith("//"):
-        thumbnail = f"https:{thumbnail}"
+    if thumbnail:
+        thumbnail = _htmllib.unescape(str(thumbnail)).strip()
+        if thumbnail.startswith("//"):
+            thumbnail = f"https:{thumbnail}"
 
     description = _first_non_empty(
         _meta(soup, prop="og:description"),
         _meta(soup, name="description"),
     )
+    if description:
+        description = _htmllib.unescape(str(description)).strip() or None
 
     views: Optional[str] = None
     views_el = soup.select_one(".control .views strong, .views strong")
