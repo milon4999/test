@@ -5654,3 +5654,113 @@ Notes from live testing (2026-09):
 - Listing (latest-updates/category/search, pages 1+2), `scrape()` metadata, duration via thumbnails JS, `get_file` 302 resolution to `cdnawm.com` signed MP4, embed fallback when resolution fails (simulated), embed-URL input, related videos, categories, and `video_streaming.get_stream_url` flat quality fields all verified working via the scraper module directly.
 - `/get_file/` tokens expire; resolution happens per request, so returned CDN URLs are always fresh. If the site ever stops redirecting, the scraper degrades to embed-only streams instead of exposing dead links.
 - HEAD requests on `/get_file/` return 410 â€” always probe with GET + `Range` (see `_resolve_get_file_url`).
+
+## BlackPornTube Implementation Notes
+
+[BlackPorn.tube](https://blackporn.tube/) is **not** an HTML-rendered tube; it is a Vue SPA with a public JSON API (magma-style engine, KVS-adjacent). HTML scraping returns an empty JS shell, so this scraper is **API-first**: all listing and detail data comes from JSON endpoints, and stream URLs are decoded from a custom cipher.
+
+Use `blackporntube` as the module/folder name (source alias `blackporntube`).
+
+### Host aliases
+
+- `blackporn.tube`
+- `www.blackporn.tube`
+- `bptn.m3pd.com` (thumbnail CDN, allowlisted for proxying)
+- `ahcdn.blackporn.tube` (final redirect target of `/get_file/` links)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    return h == "blackporn.tube" or h.endswith(".blackporn.tube")
+```
+
+### JSON API surface (discovered from `app.js`)
+
+- **Listings:** `GET /api/json/videos2/86400/{gender}/{sort}/{count}/{section}.{object_id}.{page}.{type}.{duration}.{date}.json`
+  - `gender` = `str`; `type`/`duration`/`date` = `all`; section empty string for plain listings.
+  - `sort`: `latest-updates`, `longest`, `most-commented`, `most-popular`, `top-rated`.
+  - `section`/`object_id` pairs: `categories.{category_dir}` (category pages), `model.{model_dir}` (`/pornstar/{dir}/`), `channel.{dir}` (`/pornsite/{dir}/`); `search` handled separately.
+  - Section values like `all`/`video` return `invalid_params_section` -- the empty section is the plain listing.
+- **Search:** `GET /api/videos2.php?params=86400/str/relevance/{count}/search.0.{page}.all.all.all&s={query}`
+- **Video detail:** `GET /api/json/video/86400/{id//1000000}/{id//1000}/{id}.json`
+  - Bucket path segments are required (nginx 301-redirects the unbucketed form); follow redirects or build the bucketed URL directly.
+  - Response `video` object has `title`, `dir`, `duration` (`7:47` style), `post_date`, `statistics.viewed`, `user.username`, `thumb`/`thumbsrc`, plus `categories`/`tags`/`models` dicts keyed by numeric id.
+- **Streams:** `GET /api/videofile.php?video_id={id}&lifetime=8640000`
+  - Returns a list like `[{"format": "_sd.mp4", "is_default": 1, "video_url": "<encoded>"}]`.
+  - `video_url` is encoded with a custom base64 whose alphabet is `АВСDЕFGHIJKLМNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,~`
+    (the lookalikes `А` `В` `С` `Е` `М` are **Cyrillic** U+0410/U+0412/U+0421/U+0415/U+041C), with `~` (index 64) acting as `=` padding.
+  - Decoded value is a KVS-style path: `/get_file/1/{hash}/{bucket_m}/{bucket_k}/{id}_sd.mp4/?d=..&br=..&ti=..` on the site origin.
+  - A GET on that path 302-redirects to the signed CDN URL (`https://ahcdn.blackporn.tube/key=.../c1/videos/...`). Resolution happens per request, so returned links are always fresh; tokens expire quickly.
+- **Categories:** `GET /api/json/categories/14400/str.all.en.json` -- array of `{category_id, title, dir, total_videos}` (`total_videos` is a string).
+
+### Listing and pagination (`list_videos`)
+
+- Page 1 uses `base_url` unchanged; page *n* is passed as the `{page}` path segment of the API call (no `?page=` URLs).
+- Recognized `base_url` shapes:
+  - `https://blackporn.tube/`, `/latest-updates/` -> sort `latest-updates`
+  - `/most-popular/`, `/top-rated/`, `/most-commented/`, `/longest/`
+  - `/categories/{slug}/` -> section `categories`
+  - `/pornstar/{dir}/` -> section `model`
+  - `/pornsite/{dir}/` -> section `channel`
+  - `/search/1/?s={query}` (or `/search/{page}/?s=`) -> search endpoint
+- Items come pre-normalized from the API: `video_id`+`dir` build the canonical `/video/{id}/{dir}/` URL, `scr`/`thumb` is the thumbnail, `duration` is normalized to `mm:ss`/`hh:mm:ss`, views from `video_viewed`, uploader from `display_name`/`username`.
+- `count` (limit) is capped at 200 by the API; invalid sorts silently fall back to `latest-updates`.
+
+### Metadata and streams (`scrape`)
+
+- Input must be a canonical `/video/{numeric_id}/{slug}/` URL (non-matching paths raise `ValueError` so the dispatcher can 502 cleanly).
+- Metadata is fetched from the bucketed `/api/json/video/...` endpoint; tags flatten `categories` + `tags` + `models` titles (deduped).
+- Streams call `/api/videofile.php`, decode each `video_url`, and only keep paths starting with `/get_file/`. `format` is `mp4`; `quality` derives from the `_xx` suffix of the `format` field (`sd`, `hd`, `720p`, ...; default `source`).
+- If no direct stream resolves (e.g. members-only), fall back to the native embed `https://blackporn.tube/embed/{id}` so `has_video` stays truthful.
+- `video.default` = first resolved stream (API already returns the best tier first with `is_default: 1`).
+- `GET /api/v1/videos/stream` returns flat `sd` / `sd_format` fields (host checks added for `blackporn.tube` / `bptn.m3pd.com` / `ahcdn.blackporn.tube`).
+
+### Categories (`get_categories`)
+
+`categories.json` seeds sort tabs (Latest Updates, Most Popular, Top Rated, Most Commented, Longest) plus top categories (Ebony, HD, Big Cock, Big Ass, Big Tits, Amateur, Interracial, Deepthroat, MILF, ...) with `/categories/{dir}/` URLs; `/api/v1/categories?source=blackporntube` serves them.
+
+### Registration checklist for BlackPornTube
+
+Besides creating `backend/app/scrapers/blackporntube/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+  - import + `__all__` entry (`blackporntube`)
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch` branch
+  - `_list_dispatch` branch
+  - `/api/v1/categories` source mapping (`source=blackporntube`, `blackporn.tube`, `blackpornt`)
+- `backend/app/services/video_streaming.py`
+  - import list + `elif blackporntube.can_handle(host):` branch
+  - unsupported-host help text (`blackporn.tube`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`blackporn.tube`, `bptn.m3pd.com`, `ahcdn.blackporn.tube`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`blackporn.tube`, `bptn.m3pd.com`, `ahcdn.blackporn.tube`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="blackporntube"`, `baseUrl="https://blackporn.tube/"`, `searchUrlTemplate="https://blackporn.tube/search/1/?s={query}"`, `pageSize=48`)
+
+### BlackPornTube verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://blackporn.tube/video/10474939/surprising-bikini-grind-fuck-awake-kenzie-green-dr-grey-and-brandi-foxx/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://blackporn.tube/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://blackporn.tube/categories/ebony/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=blackporntube"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://blackporn.tube/video/10474939/surprising-bikini-grind-fuck-awake-kenzie-green-dr-grey-and-brandi-foxx/"
+```
+
+Notes from live testing (2026-09):
+
+- Listing (home/sorts/categories/search, pages 1+2), `scrape()` metadata, base164 stream decode, and the `/get_file/` 302 to `ahcdn.blackporn.tube` were all verified end-to-end via the FastAPI TestClient.
+- The API is generous to plain `User-Agent` + `Referer: https://blackporn.tube/` requests (no Cloudflare challenge observed); nothing else is required.
+- Detail API requires bucketed id paths (`{id//1000000}/{id//1000}`) and the videofile `lifetime` must be the numeric `8640000` (the JS uses `864e4`).
+- ~65k videos and 175 categories were exposed by the API at test time; `total_count` and `pages` come back on every listing.
