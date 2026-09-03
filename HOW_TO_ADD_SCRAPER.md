@@ -5764,3 +5764,102 @@ Notes from live testing (2026-09):
 - The API is generous to plain `User-Agent` + `Referer: https://blackporn.tube/` requests (no Cloudflare challenge observed); nothing else is required.
 - Detail API requires bucketed id paths (`{id//1000000}/{id//1000}`) and the videofile `lifetime` must be the numeric `8640000` (the JS uses `864e4`).
 - ~65k videos and 175 categories were exposed by the API at test time; `total_count` and `pages` come back on every listing.
+
+## SxyLand Implementation Notes
+
+[SxyLand](https://sxyland.com/) is a WordPress **retrotube**-theme tube site. Canonical video pages use root-level slugs (e.g. `https://sxyland.com/tiny4k-kimmy-kimm-10-positions-in-10-mins/`). Video posts embed a third-party player via `<iframe>` inside `.responsive-player` (player host `nowplay.to`); direct `.mp4`/`.m3u8` URLs are rarely present in the page HTML.
+
+### Host aliases
+
+- `sxyland.com`
+- `www.sxyland.com`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("sxyland.com", "www.sxyland.com") or h.endswith(".sxyland.com")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Listing pages use `.thumb-block` article cards (`article.thumb-block`, also `.thumb-block.video-preview-item`); the title lives in `header.entry-header` inside the card anchor, duration in `span.duration`, views in `span.views`.
+- Keep only same-domain post URLs matching `/{slug}/` (single segment) and skip utility paths: `/categories/`, `/tags/`, `/actors/`, `/category/`, `/tag/`, `/actor/`, `/author/`, `/page/`, `/wp-content/`, `/wp-json/`.
+- Page 1 should use `base_url` unchanged.
+- For page > 1, WordPress path pagination is used: `https://sxyland.com/page/2/` (also under category paths, e.g. `/categories/...` pages are index pages; real archives are `/category/{slug}/`).
+- Sort/filter tabs are query params on the home URL and combine with path pagination: `?filter=latest`, `?filter=most-viewed`, `?filter=longest`, `?filter=popular`, `?filter=random` (existing query params are preserved when appending `/page/{n}/`).
+- Search: `https://sxyland.com/?s={query}` (WordPress query search).
+
+Useful list base URLs:
+
+- `https://sxyland.com/`
+- `https://sxyland.com/?filter=most-viewed`
+- `https://sxyland.com/category/amateur/`
+- `https://sxyland.com/tag/brazzers/`
+- `https://sxyland.com/actor/{name}/`
+- `https://sxyland.com/?s=<query>`
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image`
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. `itemprop="duration"` (ISO 8601, e.g. `P0DT1H18M37S` — convert to `H:MM:SS`/`MM:SS`), `itemprop="thumbnailUrl"`, `itemprop="uploadDate"`
+  4. visible `h1.entry-title` / page `<title>`
+- Views: `#video-views span` (numeric). Uploader: `#video-author a`. Tags/actors: category/tag anchors inside `article .tags-list`, actor links in `#video-actors a` (do **not** scrape the sitewide studio tag cloud at the top of the page — restrict tag collection to the article block).
+- Streams: the player is an `<iframe>` inside `.responsive-player` (falls back to `.video-player`), typically `https://nowplay.to/{id}`. Collect iframe embeds (filter ad iframes: `acscdn.com`, `spitefulmom.com`, `googlesyndication`, ...) and expose each as `format="embed"` with `quality="Server 1"`, `"Server 2"`, ...
+- Fallback order for streams:
+  1. iframe embeds in `.responsive-player` / `.video-player`
+  2. inline script `.mp4` / `.m3u8` URLs (unescape `\\/` -> `/`, `\\u0026` -> `&`; skip `/wp-content/` assets)
+  3. `meta[itemprop="embedURL"]`
+- Set `video.default` to the first embed URL and `video.has_video=True`.
+
+### Categories (`get_categories`)
+
+`categories.json` is seeded from the public nav and the Categories index (`/categories/`, paginated at `/categories/page/2/`): sort/filter views (Latest, Most Viewed, Longest, Top Rated, Random), the category archive slugs (`/category/{slug}/`), and the popular studio tags from the header (`/tag/brazzers/`, `/tag/blackeed/`, etc.). Schema matches the other scraper folders so `/api/v1/categories?source=sxyland` returns valid `CategoryItem` entries.
+
+### Registration checklist for SxyLand
+
+Besides creating `backend/app/scrapers/sxyland/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=sxyland` or `source=sxyland.com`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif sxyland.can_handle(host)`)
+  - unsupported-host help text (`sxyland.com`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`sxyland.com`, plus player host `nowplay.to`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`sxyland.com`)
+  - list base URL allowlist (same host)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="sxyland"`, `baseUrl="https://sxyland.com/"`, `searchUrlTemplate="https://sxyland.com/?s={query}"`, `accentColor="#FFA500"`)
+
+### SxyLand verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://sxyland.com/tiny4k-kimmy-kimm-10-positions-in-10-mins/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://sxyland.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://sxyland.com/?filter=most-viewed&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=sxyland"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://sxyland.com/tiny4k-kimmy-kimm-10-positions-in-10-mins/"
+```
+
+Notes from live testing (2026-09):
+
+- Home listing, filtered listing (`?filter=most-viewed`), page-2 path pagination, and category slugs were verified against the live site.
+- `scrape()` returns `nowplay.to` embed as `Server 1` with `has_video=True`; duration parses from the ISO `itemprop="duration"` value; views/uploader/tags/related videos all populate.
+- The site is plain WordPress/retrotube HTML with no Cloudflare challenge for the pooled `aiohttp` fetcher (desktop `User-Agent` + `Referer` headers are sufficient).
