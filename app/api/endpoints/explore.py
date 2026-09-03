@@ -1485,6 +1485,20 @@ EXPLORE_SOURCES = [
         pageSize=24,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://www.bigwank.com/",
+        nickname="BigWank",
+        favicon="https://www.bigwank.com/favicon-32x32.png",
+        accentColor="#E91E63",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://www.bigwank.com/search/{query}/",
+        sourceId="bigwank",
+        disable=False,
+        pageSize=60,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

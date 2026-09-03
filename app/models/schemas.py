@@ -305,6 +305,11 @@ class ScrapeRequest(BaseModel):
             "savefiles.com",
             "tube.perverzija.com",
             "xtremestream.xyz",
+            "bigwank.com",
+            "www.bigwank.com",
+            "img.bigwank.com",
+            "cast.bigwank.com",
+            "cdnawm.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
@@ -586,6 +591,10 @@ class ListRequest(BaseModel):
             "youperv.com",
             "www.latestpornvideo.com",
             "tube.perverzija.com",
+            "bigwank.com",
+            "www.bigwank.com",
+            "img.bigwank.com",
+            "cast.bigwank.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v

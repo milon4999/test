@@ -5553,3 +5553,104 @@ Notes from live testing (2026-09):
 - Home, tag, VR, search listing (pages 1/2), `scrape()` metadata, embed stream, related videos, and categories all verified working via the scraper module directly. Playback uses local Flutter HLS extraction (BetterPlayer with player-page Referer).
 - The search page reuses the same `div.video-item` cards; `?s=` query pagination via `/page/{n}/` works.
 - Duration "94:20" (an `hh:mm` card label) parses as `94:20`; JSON-LD `PT25M26S` becomes `25:26` on detail pages.
+
+## BigWank (bigwank.com) Implementation Notes
+
+[BigWank](https://www.bigwank.com/) is a KVS-style tube (PornPapa network). Watch URLs use a numeric ID plus 32-hex hash: `https://www.bigwank.com/videos/{id}/{hash}/` (e.g. `/videos/93380259/57780e1e4767ca34dd7c10aa791208c9/`). Embed player: `https://www.bigwank.com/embed/{id}`. Thumbnails live on `img.bigwank.com`; preview clips on `cast.bigwank.com`; resolved MP4s on `cdnawm.com`.
+
+### Host aliases
+
+- `bigwank.com`
+- `www.bigwank.com`
+- `img.bigwank.com` / `cast.bigwank.com` (media hosts, allowlisted only)
+- `cdnawm.com` (resolved signed MP4 CDN, allowlisted only — not in `can_handle()`)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    if h in SITE_ALIASES:
+        return True
+    return h.endswith(".bigwank.com")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Home: `https://www.bigwank.com/` (bare home has no `/{n}/` feed; page 2+ maps to `/most-popular/{n}/`)
+- Feeds: `/latest-updates/`, `/most-popular/`, `/top-rated/` (page 2+ â†’ `/{feed}/{n}/`)
+- Categories: `/categories/{slug}/` (page 2+ â†’ `/categories/{slug}/{n}/`)
+- Models: `/models/{slug}/`
+- Search: `/search/{query}/` (page 2+ â†’ `/search/{query}/{n}/`)
+- **Pagination:** append `/{n}/` path segment (page 1 omits it). Do **not** use `?page=`.
+- Parse cards from `div.thumb.item` blocks: link `a.thumb__top[href]`, thumb `img[src]` (`img.bigwank.com/...medium@2x/1.jpg`), title from `img[alt]` / `.thumb__title`, duration `.thumb__duration`, views from `.thumb__text` (`18K views`), uploader from `a.thumb-models__link` (skip "Suggest Pornstar" placeholders), preview from `.thumb__img[data-preview]` (`cast.bigwank.com/preview/{id}.mp4`).
+
+Use `curl_cffi` (Chrome impersonation) as primary fetch; fall back to shared `pool.fetch_html`.
+
+### Metadata and streams (`scrape`)
+
+- Accepts both watch URLs and `/embed/{id}` URLs; embed URLs resolve to the canonical watch page via hash lookup in embed HTML.
+- Metadata: `og:title`, `h1`, `og:image` / `video[poster]` (both point at `contents/videos_screenshots/.../preview_480m.mp4.jpg`), `meta[name=keywords]` (tags), views from `.video-info__text` (`4,124,948 views`), uploader from the "Added by:" row (fallback: first `/models/` link).
+- **Duration:** watch pages expose it only inside the videojs thumbnails config â€” `var everyX = Math.floor({seconds} / 100)`. Parse that value and format as `m:ss` / `h:mm:ss`.
+- **Streams:**
+  1. `<video><source src=".../get_file/{token}/{dir}/{id}/{id}_480m.mp4/">` (label like `480m` in filename) plus the "Download:" row's `/get_file/` link. Deduplicate per quality label.
+  2. **Resolve each `/get_file/` URL**: the site rejects **HEAD** (410) â€” use **GET with `Range: bytes=0-0`** and `Referer: <watch page URL>`; the 302 `Location` is the signed `cdnawm.com/key=...,end=.../.../{file}_480m.mp4` URL (tokens are short-lived).
+  3. **Fallback rule:** if any `/get_file/` resolution fails or errors, drop that MP4 stream entirely and return **only** `https://www.bigwank.com/embed/{id}` as `format: "embed"` so playback continues in WebView.
+  4. `video.default` prefers the resolved MP4; embed otherwise. `hls` is always `None` (progressive MP4 only).
+- Related videos: `#list_videos_related_videos_items` cards reuse the same `div.thumb.item` parser (`.thumb.item` blocks on the watch page).
+
+### Categories (`get_categories`)
+
+`categories.json` has 75 entries: Home, Latest Updates, Most Popular, Top Rated, plus ~70 curated `/categories/{slug}/` feeds from the public categories index (Amateur, Anal, Asian, Big Ass, Big Tits, Blowjob, Ebony, Hardcore, Interracial, Latina, Lesbian, MILF, Teen, Threesome, Toys, ...).
+
+### Registration checklist for BigWank
+
+Package folder: `backend/app/scrapers/bigwank/`.
+
+Also update:
+
+- `backend/app/scrapers/__init__.py` (import + `__all__`)
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=bigwank`, `bigwank.com`, `www.bigwank.com`)
+- `backend/app/services/video_streaming.py`
+  - import list + `elif bigwank.can_handle(host):` branch
+  - unsupported-host help text (`bigwank.com`)
+  - `available_qualities` host list (`bigwank.com`, `cdnawm.com`) + `per_stream_format_keys` so flat `480p` / `embed` quality fields are emitted
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`bigwank.com`, `img.bigwank.com`, `cast.bigwank.com`, `cdnawm.com`)
+  - list base URL allowlist (`bigwank.com`, `img.bigwank.com`, `cast.bigwank.com`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="bigwank"`, `baseUrl="https://www.bigwank.com/"`, `pageSize=60`, `hasRelatedVideos=True`, search template `https://www.bigwank.com/search/{query}/`)
+
+### BigWank verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.bigwank.com/videos/93380259/57780e1e4767ca34dd7c10aa791208c9/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.bigwank.com/latest-updates/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.bigwank.com/categories/anal/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=bigwank"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.bigwank.com/videos/93380259/57780e1e4767ca34dd7c10aa791208c9/"
+
+curl "http://127.0.0.1:8000/api/v1/videos/info?url=https://www.bigwank.com/videos/93380259/57780e1e4767ca34dd7c10aa791208c9/"
+
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.bigwank.com/embed/93380259\"}"
+```
+
+Notes from live testing (2026-09):
+
+- Listing (latest-updates/category/search, pages 1+2), `scrape()` metadata, duration via thumbnails JS, `get_file` 302 resolution to `cdnawm.com` signed MP4, embed fallback when resolution fails (simulated), embed-URL input, related videos, categories, and `video_streaming.get_stream_url` flat quality fields all verified working via the scraper module directly.
+- `/get_file/` tokens expire; resolution happens per request, so returned CDN URLs are always fresh. If the site ever stops redirecting, the scraper degrades to embed-only streams instead of exposing dead links.
+- HEAD requests on `/get_file/` return 410 â€” always probe with GET + `Range` (see `_resolve_get_file_url`).
