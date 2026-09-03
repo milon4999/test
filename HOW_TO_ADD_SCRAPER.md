@@ -5962,3 +5962,104 @@ Notes from live testing (2026-09):
 - Listing page 1 and page 2 (`?page=2`, sort `?o=tr` preserved), `scrape()` metadata (title/views/uploader/tags/description), the `nowplay.to` embed (`Server 1`, `has_video=True`), related videos (18 items), and `ListItem`/`ScrapeResponse` schema validation were all verified against the live site.
 - Views normalize correctly (`12.3K views` -> `12300`).
 - Plain `User-Agent` + `Referer: https://camcaps.tv/` requests are sufficient (no Cloudflare challenge); thumbnails may be absolute or relative and use several bucket folders, handled automatically.
+
+## KoreanPornMovie Implementation Notes
+
+[KoreanPornMovie](https://koreanpornmovie.com/) is a WordPress **retrotube**-theme tube site (same family as SxyLand) for Korean adult cinema. Canonical video pages use root-level slugs (e.g. `https://koreanpornmovie.com/married-couple-sex-sexual-chemistry-is-the-best-2026/`). Unlike SxyLand, it exposes **direct MP4** URLs via `meta[itemprop="contentUrl"]` on a CDN host (`koreanporn.stream`) plus a base64-encoded **clean-tube-player** iframe (`player-x.php?q=...`).
+
+### Host aliases
+
+- `koreanpornmovie.com`
+- `www.koreanpornmovie.com`
+- `koreanporn.stream` (MP4 CDN, allowlisted in `video_streaming.py`/`schemas.py` for passthrough)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("koreanpornmovie.com", "www.koreanpornmovie.com") or h.endswith(".koreanpornmovie.com")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Listing pages use `article.thumb-block` cards (`article.thumb-block`, also `.thumb-block.video-preview-item`); title in `header.entry-header` inside the card anchor, duration in `span.duration`.
+- Keep only same-domain post URLs matching `/{slug}/` (single segment) and skip utility paths: `/tags/`, `/actors/`, `/category/`, `/tag/`, `/actor/`, `/author/`, `/page/`, `/wp-content/`, `/wp-json/`, legal pages (`/dmca/`, `/privacy-policy/`, `/2557-statement/`, `/contact-us/`, `/our-partner/`).
+- Page 1 should use `base_url` unchanged.
+- For page > 1, WordPress path pagination is used: `https://koreanpornmovie.com/page/2/` (56 pages at test time; also under category paths like `/category/korean/page/2/`).
+- Sort/filter tabs are query params on the home URL and combine with path pagination: `?filter=latest`, `?filter=popular` (existing query params are preserved when appending `/page/{n}/`).
+- Search: `https://koreanpornmovie.com/?s={query}` (WordPress query search, exposed by Yoast `SearchAction`).
+
+Useful list base URLs:
+
+- `https://koreanpornmovie.com/`
+- `https://koreanpornmovie.com/?filter=latest`
+- `https://koreanpornmovie.com/category/korean/`
+- `https://koreanpornmovie.com/tag/{slug}/`
+- `https://koreanpornmovie.com/actor/{name}/`
+- `https://koreanpornmovie.com/?s=<query>`
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image` (Yoast SEO present)
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. `itemprop="duration"` (ISO 8601, e.g. `P0DT1H0M36S` â€” convert to `H:MM:SS`), `itemprop="thumbnailUrl"` (640x360 variant), `itemprop="uploadDate"`
+  4. visible `h1.entry-title` / page `<title>`
+- Uploader: `#video-author a` (`KPORN`). Tags/actors: category/tag anchors inside `article .tags-list`, actor links in `#video-actors a` (restrict to the article block; the nav has no tag cloud but future-proofing applies).
+- Views are not shown on detail pages â€” `scrape()` returns `views: None`.
+- **Stream extraction order** (this site gives direct MP4, prefer it over embeds):
+  1. `meta[itemprop="contentUrl"]` ending in `.mp4` (direct `koreanporn.stream/{Title}.mp4`, percent-encoded) â€” expose as `format="mp4"`, `quality="source"`, and set `video.default` to it
+  2. **clean-tube-player decode**: the iframe `src` is `.../plugins/clean-tube-player/public/player-x.php?q={base64}`; decode `q` (base64 â†’ percent-decode â†’ HTML) and read `<video><source src>` from the payload â€” same MP4/HLS URLs
+  3. inline script `.mp4` / `.m3u8` scan (unescape `\\/` -> `/`, `\\u0026` -> `&`; skip `/wp-content/`, `_preview`, `trailer` assets)
+  4. the `player-x.php` iframe URL itself as `format="embed"` fallback
+- Set `video.has_video=True` when any stream exists.
+
+### Categories (`get_categories`)
+
+`categories.json` is seeded from the public nav and homepage: Home, Latest (`?filter=latest`), Popular (`?filter=popular`), the `Korean` category archive (`/category/korean/`), the Tags index (`/tags/`), and the Actors index (`/actors/`). Schema matches the other scraper folders so `/api/v1/categories?source=koreanpornmovie` returns valid `CategoryItem` entries.
+
+### Registration checklist for KoreanPornMovie
+
+Besides creating `backend/app/scrapers/koreanpornmovie/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=koreanpornmovie`, `source=koreanporn`, or `source=kpm`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif koreanpornmovie.can_handle(host)`)
+  - unsupported-host help text (`koreanpornmovie.com`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`koreanpornmovie.com`, `koreanporn.stream`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`koreanpornmovie.com`, `koreanporn.stream`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="koreanpornmovie"`, `baseUrl="https://koreanpornmovie.com/"`, `searchUrlTemplate="https://koreanpornmovie.com/?s={query}"`, `accentColor="#DB0159"`)
+
+### KoreanPornMovie verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://koreanpornmovie.com/married-couple-sex-sexual-chemistry-is-the-best-2026/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://koreanpornmovie.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://koreanpornmovie.com/category/korean/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=koreanpornmovie"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://koreanpornmovie.com/married-couple-sex-sexual-chemistry-is-the-best-2026/"
+```
+
+Notes from live testing (2026-09):
+
+- Home listing, page-2 path pagination (`/page/2/` â€” note: cached page returned page-1 items at test time, treat as best-effort), `scrape()` metadata (title, ISO duration -> `1:00:36`, uploader `KPORN`, `uploadDate`, tags+actors, 21 related), and the direct `koreanporn.stream` MP4 (`has_video=True`, `quality="source"`) were all verified.
+- The `player-x.php?q=` base64 payload decodes to a `<video><source src="https://koreanporn.stream/....mp4">` matching `itemprop="contentUrl"`; both paths yield the same playable URL.
+- The site ships an obfuscated `eval(atob(...))` script (ad anti-analysis) â€” irrelevant for server-side scraping; plain `User-Agent` + `Referer` requests are sufficient (no Cloudflare challenge).
