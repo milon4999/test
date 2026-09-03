@@ -5863,3 +5863,102 @@ Notes from live testing (2026-09):
 - Home listing, filtered listing (`?filter=most-viewed`), page-2 path pagination, and category slugs were verified against the live site.
 - `scrape()` returns `nowplay.to` embed as `Server 1` with `has_video=True`; duration parses from the ISO `itemprop="duration"` value; views/uploader/tags/related videos all populate.
 - The site is plain WordPress/retrotube HTML with no Cloudflare challenge for the pooled `aiohttp` fetcher (desktop `User-Agent` + `Referer` headers are sufficient).
+
+## CamCaps Implementation Notes
+
+[CamCaps](https://camcaps.tv/) is an AVS-script-style tube site. Canonical video pages use `/video/{numeric_id}/{slug}` (no trailing slash). Video posts embed a third-party player via `<iframe>` inside `.video-embedded` (player host `nowplay.to` â€” same player family as SxyLand); direct `.mp4`/`.m3u8` URLs are not present in the page HTML, so streams are embed-only.
+
+### Host aliases
+
+- `camcaps.tv`
+- `www.camacaps.tv`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("camcaps.tv", "www.camacaps.tv") or h.endswith(".camcaps.tv")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Listing pages use `article.thumb` cards (inner `.inner`); title in `h3` inside the card anchor, thumbnail in `img[src]`, duration in `span.dur-icon`, views in `span.views-icon`.
+- Keep only same-domain URLs matching `/video/{id}/{slug}` and skip nav/search/user links.
+- Thumbnails mix absolute and relative paths and use several bucket formats (`/media/videos/tmb11/{id}/1.jpg`, older `/tmb1/`, `/tmb/`); resolve relative to the site root and use `src` as-is.
+- Page 1 should use `base_url` unchanged.
+- For page > 1, append/replace the `page` query param: `https://camcaps.tv/videos?page=2` (works for home, section, and search URLs alike).
+- Sort tabs are query params on `/videos`: `?type=featured`, `?o=tr` (Top Rated), `?o=mv`, `?o=lg`; preserve them when adding `page`.
+- Search: `https://camcaps.tv/search/videos/{query}` (also POST form to `/search/videos`).
+
+Useful list base URLs:
+
+- `https://camcaps.tv/`
+- `https://camcaps.tv/videos`
+- `https://camcaps.tv/videos?o=tr`
+- `https://camcaps.tv/search/videos/onlyfans`
+- `https://camcaps.tv/videos/0dayporn`
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. visible `h1` (og: tags are absent; `meta[name=description]` mirrors the title)
+  2. `article.about p` for the description
+  3. views from `.info span.views-icon` (`12.3K views` / `1,182` / `102` â€” normalize `K`/`M` suffixes to a digit string)
+  4. uploader from `.video-links .group a[href*="/user/"]`
+- Tags: anchors under `.video-links` pointing at `/search/videos/{tag}` (skip `/user/` links). The duration is NOT shown on the detail page (only on cards), so `scrape()` returns `duration: None`.
+- Streams: the player is a single `<iframe>` inside `.video-embedded` (falls back to `.player`), typically `https://nowplay.to/emb{...}`. Expose it as `format="embed"` with `quality="Server 1"`, set `video.default` to it and `video.has_video=True`.
+- Fallback order for streams:
+  1. iframe embeds in `.video-embedded` / `.player`
+  2. inline script `.mp4` / `.m3u8` URLs (skip `/media/videos/tmb` thumbnail assets)
+- Filter ad iframes: `xhadapt.php`, `magsrv.com`, `nappyonsetstiffness.com`, `acscdn.com`, `googlesyndication`.
+- The site ships obfuscated anti-devtools JS (debugger traps, key blocking) â€” irrelevant for server-side scraping.
+
+### Categories (`get_categories`)
+
+`categories.json` is seeded from the nav and homepage: sort views (New, Featured, Top Rated, Most Viewed, Longest), the studio/network search tags from the header (OnlyFans, ManyVids, Fansly, LoyalFans, Chaturbate, StripChat, MFC, BongaCams, Clips4Sale, ...), the `0dayporn` HD section, and generic tag searches. Schema matches the other scraper folders so `/api/v1/categories?source=camcaps` returns valid `CategoryItem` entries.
+
+### Registration checklist for CamCaps
+
+Besides creating `backend/app/scrapers/camcaps/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=camcaps` or `source=camcapstv`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif camcaps.can_handle(host)`)
+  - unsupported-host help text (`camcaps.tv`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`camcaps.tv`; player host `nowplay.to` is already covered by SxyLand)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`camcaps.tv`)
+  - list base URL allowlist (same host)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="camcaps"`, `baseUrl="https://camcaps.tv/"`, `searchUrlTemplate="https://camcaps.tv/search/videos/{query}"`, `accentColor="#7B1FA2"`)
+
+### CamCaps verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://camcaps.tv/video/362276/kimmy-kimm-10-positions-in-10-mins-tiny4k\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://camcaps.tv/videos&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://camcaps.tv/search/videos/onlyfans&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=camcaps"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://camcaps.tv/video/362276/kimmy-kimm-10-positions-in-10-mins-tiny4k"
+```
+
+Notes from live testing (2026-09):
+
+- Listing page 1 and page 2 (`?page=2`, sort `?o=tr` preserved), `scrape()` metadata (title/views/uploader/tags/description), the `nowplay.to` embed (`Server 1`, `has_video=True`), related videos (18 items), and `ListItem`/`ScrapeResponse` schema validation were all verified against the live site.
+- Views normalize correctly (`12.3K views` -> `12300`).
+- Plain `User-Agent` + `Referer: https://camcaps.tv/` requests are sufficient (no Cloudflare challenge); thumbnails may be absolute or relative and use several bucket folders, handled automatically.
