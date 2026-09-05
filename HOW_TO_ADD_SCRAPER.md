@@ -6274,3 +6274,117 @@ Notes from live testing (2026-09):
 - Home listing (page 1), category listing (page 2 via `/anal/2`), `scrape()` metadata (title, duration `10:28` from seconds, views `218.8k` (original site format), uploader `antoine98`, category chips, 4 related) and the embed stream (`https://www.superporn.com/embed/2724`, `has_video=True`) were all verified.
 - Sort variants (`/anal?order=popular`) keep their query when paginating (`/anal/2?order=popular`).
 - The site is behind Cloudflare but serves plain HTML to the pooled `aiohttp` fetcher with a desktop `User-Agent` + `Referer` (no challenge at test time).
+
+
+## Siska Implementation Notes
+
+[Siska](https://siska.tv/) is a plain-PHP tube site (Pure CSS grid, no CMS). Canonical video pages use query-string URLs: `https://siska.tv/video.php?videoID={numeric_id}`. Each video embeds **2-3 third-party player iframes** inside `.playerplace .videoholder` (tested hosts: `playmogo.com`, `luluvid.com`, `playmate.to`) — streams are embed-only. **The site's TLS certificate has expired**, so its `fetch_page` passes a verification-disabled `ssl` context to the pooled fetcher.
+
+### Host aliases
+
+- `siska.tv`, `www.siska.tv`
+- `siska.video` (thumbnail CDN, not a page host)
+- Player hosts allowlisted for passthrough: `playmogo.com`, `luluvid.com`, `playmate.to`
+
+Example:
+
+```python
+import ssl
+
+_SSL_CTX = ssl.create_default_context()
+_SSL_CTX.check_hostname = False
+_SSL_CTX.verify_mode = ssl.CERT_NONE
+
+async def fetch_page(url: str, *, referer: str | None = None) -> str:
+    headers = {...}
+    # The site's TLS certificate has expired; fetch with verification disabled.
+    return await pool_fetch_html(url, headers=headers, ssl=_SSL_CTX)
+
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("siska.tv", "www.siska.tv") or h.endswith(".siska.tv")
+```
+
+### Streams (`scrape`) — embed-only
+
+- Collect all `iframe[src]` inside `.playerplace` / `.videoholder`, upgrade `//` to `https://`, filter ad iframes (`xads`, `pemsrv`, `tsyndicate`, `magsrv`, ...).
+- Return one stream per iframe with a friendly quality label derived from the host: `Playmogo`, `Luluvid`, `Playmate` (or `Server {n}` fallback); `format="embed"`.
+- `video.default` = the first iframe URL, `video.has_video=True` when any exist.
+- There are no direct MP4/HLS URLs anywhere on the page (no `og:video`, no inline sources).
+
+### Listing and pagination (`list_videos`)
+
+- Listing cards: `div.thumb .rel` containers; post link `a.video-thumb[href*="videoID="]`, title from the anchor's `title` attribute (fallback: `img[alt]`, then the sibling `h3.title_desc`), thumbnail `img[data-src]` (lazy, `siska.video/category/{Cat}/{id}.jpg`; keep `data-src` as-is, ignore the `onError` fallback), duration `span.th_video_duration` in the site's spaced `34 : 12` format.
+- There are no view counts anywhere — `views: None` in list items and `scrape()`.
+- Page 1 should use `base_url` unchanged.
+- Pagination: `?page=N` query param on any list URL — `https://siska.tv/best_xvideos.php?page=2`, `/search.php?s={query}&page=2`, `/chanells.php?site={studio}&page=2` (12,626 pages on the main listing at test time).
+- Search: `https://siska.tv/search.php?s={query}` (also the actress-link URL format `search.php?s={Actress+Name}` — actress names double as tags).
+
+Useful list base URLs:
+
+- `https://siska.tv/` (home has two card sections; parser handles both)
+- `https://siska.tv/best_xvideos.php` (all videos)
+- `https://siska.tv/category.php?c={Category}` (e.g. `Anal`, `MILF`, `Home-made-video`)
+- `https://siska.tv/chanells.php?site={studio}` (e.g. `Vixen.com`)
+- `https://siska.tv/search.php?s=<query>`
+
+### Metadata (`scrape`)
+
+- Title: `og:title` (absent on some pages) → `h1[itemprop="name"]` (strip the trailing ` | siska.tv` / `» WATCH FREE VIDEO HD` suffixes)
+- Duration: `meta[itemprop="duration"]` in the spaced format; also visible in `.video-info p` (`Duration:`). The minutes segment **can exceed 59** (`134 : 22` = 2:14:22) — normalize by computing total seconds, not by parsing `H:MM:SS` fields.
+- Thumbnail: `meta[itemprop="thumbnailUrl"]` (`siska.video/category/...jpg`)
+- Upload date: `meta[itemprop="datePublished"]` (`2026-09-04 21:37:01+00:00`, returned verbatim)
+- Tags/actresses: `.video-info a[href*="search.php?s="]` and `a[rel="tag"]` (actress names + studio + category)
+- Uploader: the studio link `.video-info a[href*="chanells.php"]` (e.g. `Vixen.com`)
+- Description: `.video-description h3` text
+- Related: same card structure inside `.yarpp-related` (9 items; more via AJAX `prim.php?ajax=true&page={n}&videoID={id}` — not needed)
+
+### Categories (`get_categories`)
+
+`categories.json` is seeded from the category index (`/category.php`): Home, All Videos, and 19 popular category slugs (`Anal`, `Asian`, `Beautiful-tits`, `Big-Cock`, `Gangbang`, `GroupSex`, `Home-made-video`, `MILF`, `Teens`, `Toys`, `Wife`, ...). Schema matches the other scraper folders so `/api/v1/categories?source=siska` returns valid `CategoryItem` entries.
+
+### Registration checklist for Siska
+
+Besides creating `backend/app/scrapers/siska/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=siska`, `source=siskatv`, or `source=siska.tv`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif siska.can_handle(host)`)
+  - unsupported-host help text (`siska.tv`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`siska.tv`, plus player hosts `playmogo.com`, `luluvid.com`, `playmate.to`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`siska.tv`, `www.siska.tv`, `playmogo.com`, `luluvid.com`, `playmate.to`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="siska"`, `baseUrl="https://siska.tv/"`, `searchUrlTemplate="https://siska.tv/search.php?s={query}"`, `accentColor="#00ADEE"`)
+
+### Siska verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://siska.tv/video.php?videoID=232760\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://siska.tv/best_xvideos.php&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://siska.tv/category.php?c=Anal&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=siska"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://siska.tv/video.php?videoID=232760"
+```
+
+Notes from live testing (2026-09):
+
+- The site's TLS certificate is **expired** — `aiohttp` fails with `SSLCertVerificationError` unless `ssl` verification is disabled; the scraper passes a module-level `_SSL_CTX` per request through the pool's `**kwargs` (verified: HTTP 200 without it).
+- Home listing (page 1, both sections), all-videos listing (page 2 via `?page=2`), `scrape()` metadata (title, duration `34:12`, upload date `2026-09-04 21:37:01+00:00`, studio `Vixen.com`, actress tags, 8 related), and all 3 embed streams (`Playmogo`/`Luluvid`/`Playmate`, `has_video=True`) were verified.
+- Spaced durations normalize correctly including the `134 : 22` → `2:14:22` over-59-minutes case.
+- Plain desktop `User-Agent` + `Referer` requests are sufficient once SSL verification is off (no Cloudflare challenge at test time).
