@@ -6167,3 +6167,110 @@ Notes from live testing (2026-09):
 - `scrape()` returns exactly one embed stream `https://xiaoshenke.net/video/{id}/{mask}` (`Server 1`, `has_video=True`); the deterministic `/vid/` MP4 construction was removed because those URLs do not play outside the player.
 - The watch-page thumbnail is reconstructed from the listing thumb host: `https://imgs.xiaoshenke.net/thumb/{reversed_id}.jpg`.
 - The site sits behind Cloudflare but serves plain HTML to the pooled `aiohttp` fetcher with a desktop `User-Agent` + `Referer` (no challenge at test time).
+
+
+## SuperPorn Implementation Notes
+
+[SuperPorn](https://www.superporn.com/) is a Laravel/TechPump tube site (part of the servitubes network). Canonical video pages use `/video/{slug}`. The video-js player carries a direct MP4 `<source>` on `cdnst.superporn.com`, but its `?secure=` token is request-bound and short-lived, so the scraper returns the **stable same-host embed** (`https://www.superporn.com/embed/{videoId}`) instead — same approach chosen for FullPorner after their direct URLs proved unplayable.
+
+### Host aliases
+
+- `superporn.com`, `www.superporn.com`
+- `img.superporn.com` (thumbs/previews), `cdnst.superporn.com` (direct MP4 CDN) — allowlisted in `video_streaming.py`/`schemas.py` for passthrough
+- API endpoints exist at `api.superporn.com` (`/video/{id}/related`, `/videos/home`, `/search-ajax`) but are not required; everything is server-rendered
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("superporn.com", "www.superporn.com") or h.endswith(".superporn.com")
+```
+
+### Streams (`scrape`) — embed preferred
+
+- The stable embed is `https://www.superporn.com/embed/{videoId}` (from the `#code-embed` share input, the `.votos-thumbs[data-video-id]` attribute, or `video[data-stats-video-id]`; also exposed in JSON-LD as `embedUrl`).
+- Return one stream: `format="embed"`, `quality="Server 1"`, `video.default` = embed URL, `video.has_video=True`.
+- The player's direct source (`https://cdnst.superporn.com/videos/{folder}/{id}/mp4/{hash}.mp4?secure={token}`) is only a last-resort fallback (embed resolution failure) — the token expires and is bound to the requesting client, so it does not survive handoff.
+- Thumbnail: `og:image` = `img.superporn.com/videos/{folder}/{id}/previews/...jpg` (present on watch pages).
+
+### Listing and pagination (`list_videos`)
+
+- Listing pages use `.thumb-video` cards: post link `a.thumb-duracion[href*="/video/"]`, title `h3 a.thumb-video__description`, thumbnail `img[data-src]` (`img{,5,7}.superporn.com/videos/{folder}/{id}/thumbs/...`), duration `span.duracion`, views `.thumb-video-views` (abbreviated `218.8k` — normalize K/M suffixes), uploader `a.info-uploader` (series name or `/user/{name}`).
+- Some listing cards may link to localized variants (`/es/video/{slug-es}`) — normalize to the canonical `/video/{slug}` only when the slug matches; better to keep the URL as returned after host normalization (both play identically).
+- Page 1 should use `base_url` unchanged.
+- Pagination:
+  - home and search: query param — `https://www.superporn.com/?page=2`, `/search?q={query}&page={n}`
+  - category/pornstar/series sections: numeric path segment — `/anal/2`, `/pornstar/{slug}/2`, `/series/{slug}/2`
+  - order filters combine with both: `/anal?order=trending`, `/anal?order=popular` (preserve existing query params when adding the page segment)
+- Sort tabs on sections: `?order=trending`, `?order=popular`.
+- Search: `https://www.superporn.com/search?q={query}`.
+
+Useful list base URLs:
+
+- `https://www.superporn.com/`
+- `https://www.superporn.com/{category-slug}` (35 categories in the nav dropdown, e.g. `/anal`, `/milf`, `/lesbian`; full list at `/categories`)
+- `https://www.superporn.com/series/{slug}`
+- `https://www.superporn.com/pornstar/{slug}`
+- `https://www.superporn.com/search?q=<query>`
+
+### Metadata (`scrape`)
+
+- Title: `og:title` (also `h1` in `.data-video__title`; `<title>` has a ` - SuperPorn` suffix to strip)
+- Description: `og:description` (strip the trailing ` - SuperPorn`)
+- Thumbnail: `og:image` / `twitter:image` (previews URL)
+- Duration: `video[data-video-duration]` in **seconds** (e.g. `628` → `10:28`)
+- Views: `#n-views` abbreviated text (`218.8k` → `218800`)
+- Uploader: `.view-more-less a.info-uploader[href*="/user/"]` (e.g. `antoine98`); series name appears separately
+- Tags/categories: `ul.catlist a.chip-link` (relative hrefs like `/public`)
+- Upload date: only relative text (`· 9 hours ago ·` in `.subido`) — `scrape()` returns `upload_date: None`
+- Related: same `.thumb-video` cards inside `.wrapper--related-videos` (8 per page; more via AJAX `api.superporn.com/video/{id}/related` — not needed)
+
+### Categories (`get_categories`)
+
+`categories.json` is seeded from the nav dropdown: Home + 24 popular categories (`lesbian`, `ebony`, `big-ass`, `hentai`, `milf`, `latina`, `japanese`, `anal`, `threesome`, `creampie`, `teen`, `big-tits`, `interracial`, ...). Schema matches the other scraper folders so `/api/v1/categories?source=superporn` returns valid `CategoryItem` entries.
+
+### Registration checklist for SuperPorn
+
+Besides creating `backend/app/scrapers/superporn/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=superporn` or `source=superporn.com`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif superporn.can_handle(host)`)
+  - unsupported-host help text (`superporn.com`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`superporn.com`, `img.superporn.com`, `cdnst.superporn.com`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`superporn.com`, `www.superporn.com`, `img.superporn.com`, `cdnst.superporn.com`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="superporn"`, `baseUrl="https://www.superporn.com/"`, `searchUrlTemplate="https://www.superporn.com/search?q={query}"`, `accentColor="#05FF00"`)
+
+### SuperPorn verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.superporn.com/video/engulfing-her-friend-s-huge-cock\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.superporn.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.superporn.com/anal&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=superporn"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.superporn.com/video/engulfing-her-friend-s-huge-cock"
+```
+
+Notes from live testing (2026-09):
+
+- Home listing (page 1), category listing (page 2 via `/anal/2`), `scrape()` metadata (title, duration `10:28` from seconds, views `218.8k` → `218800`, uploader `antoine98`, category chips, 4 related) and the embed stream (`https://www.superporn.com/embed/2724`, `has_video=True`) were all verified.
+- Sort variants (`/anal?order=popular`) keep their query when paginating (`/anal/2?order=popular`).
+- The site is behind Cloudflare but serves plain HTML to the pooled `aiohttp` fetcher with a desktop `User-Agent` + `Referer` (no challenge at test time).
