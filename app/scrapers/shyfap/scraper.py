@@ -20,15 +20,8 @@ _VIDEO_PAGE_RE = re.compile(
     r"^https?://(?:www\.)?shyfap\.net/video/(?P<slug>[^/?#]+)/?$",
     re.IGNORECASE,
 )
-_FLASHVAR_RE = re.compile(r"(\w+)\s*:\s*'([^']*)'")
 _DURATION_RE = re.compile(r"^(?:\d{1,2}:)?\d{1,2}:\d{2}$")
 _PREVIEW_MP4_RE = re.compile(r"/images/video/(\d+)\.mp4")
-_KVS_QUALITIES = (
-    ("video_alt_url3", "video_alt_url3_text"),
-    ("video_alt_url2", "video_alt_url2_text"),
-    ("video_alt_url", "video_alt_url_text"),
-    ("video_url", "video_url_text"),
-)
 
 
 def can_handle(host: str) -> bool:
@@ -159,36 +152,28 @@ def _best_image_url(img: Any) -> Optional[str]:
     return None
 
 
-def _streams_from_flashvars(soup: BeautifulSoup) -> dict[str, Any]:
+def _streams_for_page(soup: BeautifulSoup) -> dict[str, Any]:
     """
-    Parse the kt_player flashvars object. Direct MP4s follow
-    https://www.shyfap.net/get_stream/{video_id}-{quality}.mp4 with the
-    license embedded server-side (no client-side token needed).
+    ShyFap's kt_player flashvars expose direct `get_stream/{id}-{quality}.mp4`
+    URLs, but those are IP/license-locked and fail outside the player, so the
+    stable same-host embed `https://www.shyfap.net/embed/{video_id}` is
+    returned instead.
     """
-    script = soup.find("script", string=lambda s: s and "flashvars" in s and "video_url" in s)
-    if not script:
-        return {"streams": [], "hls": None, "default": None, "has_video": False}
+    embed_url = _meta(soup, prop="og:video")
+    if not embed_url or "/embed/" not in embed_url:
+        video_id = _meta(soup, prop="ya:ovs:id")
+        if video_id and video_id.isdigit():
+            embed_url = f"{BASE_SITE.rstrip('/')}/embed/{video_id}"
 
-    text = script.get_text()
-    vars_: dict[str, str] = dict(_FLASHVAR_RE.findall(text))
+    if embed_url and embed_url.startswith("http"):
+        return {
+            "streams": [{"url": embed_url, "quality": "Server 1", "format": "embed"}],
+            "hls": None,
+            "default": embed_url,
+            "has_video": True,
+        }
 
-    streams: list[dict[str, str]] = []
-    default: Optional[str] = None
-    for url_key, text_key in _KVS_QUALITIES:
-        url = (vars_.get(url_key) or "").strip()
-        label = (vars_.get(text_key) or "").strip()
-        if not url or not url.startswith("http"):
-            continue
-        streams.append({"url": url, "quality": label or "source", "format": "mp4"})
-        if default is None:
-            default = url
-
-    return {
-        "streams": streams,
-        "hls": None,
-        "default": default,
-        "has_video": bool(streams),
-    }
+    return {"streams": [], "hls": None, "default": None, "has_video": False}
 
 
 def _parse_list_items(soup: BeautifulSoup, *, limit: int) -> list[dict[str, Any]]:
@@ -381,7 +366,7 @@ async def scrape(url: str) -> dict[str, Any]:
 
     html = await fetch_page(canon, referer=BASE_SITE)
     soup = BeautifulSoup(html, "lxml")
-    video_data = _streams_from_flashvars(soup)
+    video_data = _streams_for_page(soup)
     return parse_video_page(html, canon, video=video_data)
 
 
