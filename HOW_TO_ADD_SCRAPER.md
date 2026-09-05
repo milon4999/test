@@ -6310,7 +6310,7 @@ def can_handle(host: str) -> bool:
 ### Streams (`scrape`) — embed-only
 
 - Collect all `iframe[src]` inside `.playerplace` / `.videoholder`, upgrade `//` to `https://`, filter ad iframes (`xads`, `pemsrv`, `tsyndicate`, `magsrv`, ...).
-- Return one stream per iframe with a friendly quality label derived from the host: `Playmogo`, `Luluvid`, `Playmate` (or `Server {n}` fallback); `format="embed"`.
+- Return **one stream per iframe — all servers** (`Playmogo`, `Luluvid`, `Playmate`; `Server {n}` fallback), `format="embed"`. The site's default (first) player frequently errors, so every server must be listed so the client can switch.
 - `video.default` = the first iframe URL, `video.has_video=True` when any exist.
 - There are no direct MP4/HLS URLs anywhere on the page (no `og:video`, no inline sources).
 

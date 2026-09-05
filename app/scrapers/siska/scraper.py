@@ -163,10 +163,13 @@ _EMBED_HOSTS = ("playmogo.com", "luluvid.com", "playmate.to")
 
 
 def _embed_streams(soup: BeautifulSoup) -> dict[str, Any]:
-    """Collect player iframes from .videoholder (multiple servers per video)."""
+    """
+    Collect ALL player iframes from .playerplace / .videoholder — the site
+    lists 2-3 servers (playmogo.com, luluvid.com, playmate.to) per video and
+    the default one often errors, so every server is returned.
+    """
     embed_urls: list[str] = []
-    container = soup.select_one(".playerplace, .videoholder")
-    for iframe in (container.select("iframe[src]") if container else soup.select("iframe[src]")):
+    for iframe in soup.select(".playerplace iframe[src], .videoholder iframe[src]"):
         src = (iframe.get("src") or "").strip()
         if not src:
             continue
