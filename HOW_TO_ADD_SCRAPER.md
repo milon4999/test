@@ -6066,13 +6066,13 @@ Notes from live testing (2026-09):
 
 ## FullPorner Implementation Notes
 
-[FullPorner](https://fullporner.com/) is a Bootstrap/osahan-style tube site (no WordPress). Canonical video pages use `/watch/{hex_id}` (no slug, no trailing slash). The site embeds a FluidPlayer iframe on `xiaoshenke.net` whose page encodes **deterministic direct MP4 URLs** â€” the exact stream URLs can be reconstructed client-side without extra requests, making this scraper embed-first but direct-MP4-capable.
+[FullPorner](https://fullporner.com/) is a Bootstrap/osahan-style tube site (no WordPress). Canonical video pages use `/watch/{hex_id}` (no slug, no trailing slash). The site embeds a FluidPlayer iframe on `xiaoshenke.net`. **Streams are embed-only** — the player encodes direct MP4 URLs at `xiaoshenke.net/vid/{reversed_id}/{quality}`, but those do **not** play outside the player (tested 2026-09), so the scraper returns only the player iframe.
 
 ### Host aliases
 
 - `fullporner.com`
 - `www.fullporner.com`
-- `xiaoshenke.net` (player + MP4 CDN: `xiaoshenke.net/vid/...`, thumbs `imgs.xiaoshenke.net`, static assets `static.xiaoshenke.net` â€” allowlisted in `video_streaming.py`/`schemas.py` for passthrough)
+- `xiaoshenke.net` (player + CDN: `imgs.xiaoshenke.net` thumbs, `static.xiaoshenke.net` assets — allowlisted in `video_streaming.py`/`schemas.py` for passthrough)
 
 Example:
 
@@ -6084,25 +6084,13 @@ def can_handle(host: str) -> bool:
     return h in ("fullporner.com", "www.fullporner.com") or h.endswith(".fullporner.com")
 ```
 
-### Stream algorithm (`scrape`)
+### Streams (`scrape`) — embed only
 
-The watch page embeds `<iframe src="//xiaoshenke.net/video/{id}/{mask}">`. The player page (`player.min.js` inline boot) reveals the construction:
-
-- `reversed_id = id[::-1]` (the hex id reversed)
-- quality `mask` is the iframe's last path segment, a bitmask: bit `1` -> 360p, `2` -> 480p, `4` -> 720p, `8` -> 1080p
-- MP4 URL per quality: `https://xiaoshenke.net/vid/{reversed_id}/{quality}` (no file extension; served as `video/mp4`)
-- backup variant: append `/b` (used by the player on load error)
-- poster: `https://xiaoshenke.net/vid/{reversed_id}/720/i` (also a good thumbnail for the watch page, which itself lacks og:image)
-
-So for iframe `//xiaoshenke.net/video/756edac0ba9a6/4` (mask 4 = 720p only), the stream is `https://xiaoshenke.net/vid/6a9ab0cade657/720` â€” a mask of `15` yields 1080p/720p/480p/360p in descending order.
-
-Stream extraction order:
-
-1. Deterministic MP4 construction from the `.single-video iframe[src]` (mask -> qualities)
-2. Inline-script `.mp4` / `.m3u8` scan (filter ad hosts `tsyndicate`, `magsrv`)
-3. The player iframe itself as `format="embed"` fallback (`Server 1`)
-
-Set `video.default` to the highest decoded quality and `video.has_video=True`.
+- The watch page embeds `<iframe src="//xiaoshenke.net/video/{id}/{mask}">` inside `.single-video` (e.g. `https://xiaoshenke.net/video/10c8d2bff1096/4`).
+- Return exactly one stream: `format="embed"`, `quality="Server 1"`, `url` = the iframe URL normalized to `https://...` (upgrade the `//` protocol-relative form).
+- `video.default` = the embed URL, `video.has_video=True`.
+- Do **not** reconstruct `xiaoshenke.net/vid/{reversed_id}/{quality}` MP4s — they fail to play outside the site's player context.
+- Thumbnail: the watch page has no og:image; reconstruct the listing-style thumb `https://imgs.xiaoshenke.net/thumb/{reversed_id}.jpg` (the listing thumb filename is the reversed iframe id, e.g. iframe id `756edac0ba9a6` → thumb `6a9ab0cade657.jpg`).
 
 ### Listing and pagination (`list_videos`)
 
@@ -6128,8 +6116,8 @@ Useful list base URLs:
 - Upload date: `.video-info span.create` Unix timestamp -> ISO-8601 UTC
 - Tags: `.tag-link a[href*="/category/"]` (strip leading `#`)
 - Pornstar (uploader): `.single-video-info-content a.fullname`
-- Thumbnail: reconstructed player poster `https://xiaoshenke.net/vid/{reversed_id}/720/i` (the watch page has no og:image)
-- Views: not exposed â€” `scrape()` returns `views: None`
+- Thumbnail: `https://imgs.xiaoshenke.net/thumb/{reversed_id}.jpg` (reversed iframe id; watch page has no og:image)
+- Views: not exposed — `scrape()` returns `views: None`
 - Related: `.video-card` grid on the watch page (24 items)
 
 ### Categories (`get_categories`)
@@ -6175,6 +6163,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://fullporner.com/watc
 
 Notes from live testing (2026-09):
 
-- Home listing (page 1), category listing (page 2, `/category/anal/2`), `scrape()` metadata (title, duration `01:41:24`, pornstar `jasmine spice`, ISO upload date, 15 tags, 24 related), and the reconstructed direct MP4 (`has_video=True`, `720p` from mask `4`) were all verified.
-- The embed mask decode is deterministic â€” no extra HTTP request to the player is needed for streams; the poster URL doubles as the watch-page thumbnail.
+- Home listing (page 1), category listing (page 2, `/category/anal/2`), and `scrape()` metadata (title, duration `01:41:24`, pornstar `jasmine spice`, ISO upload date, 15 tags, 24 related) were all verified.
+- `scrape()` returns exactly one embed stream `https://xiaoshenke.net/video/{id}/{mask}` (`Server 1`, `has_video=True`); the deterministic `/vid/` MP4 construction was removed because those URLs do not play outside the player.
+- The watch-page thumbnail is reconstructed from the listing thumb host: `https://imgs.xiaoshenke.net/thumb/{reversed_id}.jpg`.
 - The site sits behind Cloudflare but serves plain HTML to the pooled `aiohttp` fetcher with a desktop `User-Agent` + `Referer` (no challenge at test time).

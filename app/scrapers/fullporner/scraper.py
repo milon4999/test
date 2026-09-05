@@ -23,17 +23,6 @@ _EMBED_IFRAME_RE = re.compile(
     r"^(?:https?:)?//(?P<host>[^/]+)/video/(?P<vid>[a-z0-9]+)/(?P<mask>\d+)/?$",
     re.IGNORECASE,
 )
-_MP4_RE = re.compile(
-    r"https?://[^\s\"'<>\\]+\.mp4(?:\?[^\s\"'<>\\]*)?",
-    re.IGNORECASE,
-)
-_M3U8_RE = re.compile(
-    r"https?://[^\s\"'<>\\]+\.m3u8(?:\?[^\s\"'<>\\]*)?",
-    re.IGNORECASE,
-)
-
-# Player quality bitmask: bit 1 -> 360, bit 2 -> 480, bit 4 -> 720, bit 8 -> 1080
-_QUALITY_BITS = ((8, 1080), (4, 720), (2, 480), (1, 360))
 
 
 def can_handle(host: str) -> bool:
@@ -146,91 +135,10 @@ def _best_image_url(img: Any) -> Optional[str]:
     return None
 
 
-def _streams_from_embed_iframe(iframe_src: str) -> dict[str, Any]:
-    """
-    Deterministic stream construction from the player page algorithm:
-
-        id      = iframe_id[::-1]                      (reversed hex id)
-        prefix  = https://{embed_host}/vid
-        media   = {prefix}/{id}/{quality}              (video/mp4, no extension)
-        backup  = media + '/b'
-
-    The iframe URL last segment is a quality bitmask: bit 1 -> 360,
-    bit 2 -> 480, bit 4 -> 720, bit 8 -> 1080.
-    """
-    m = _EMBED_IFRAME_RE.match(iframe_src)
-    if not m:
-        return {"streams": [], "hls": None, "default": None, "has_video": False}
-
-    embed_host = m.group("host").lower()
-    reversed_id = m.group("vid")[::-1]
-    try:
-        mask = int(m.group("mask"))
-    except ValueError:
-        return {"streams": [], "hls": None, "default": None, "has_video": False}
-
-    streams: list[dict[str, str]] = []
-    default: Optional[str] = None
-    for bit, quality in _QUALITY_BITS:
-        if mask & bit:
-            url = f"https://{embed_host}/vid/{reversed_id}/{quality}"
-            streams.append({"url": url, "quality": f"{quality}p", "format": "mp4"})
-            if default is None:
-                default = url
-
-    return {
-        "streams": streams,
-        "hls": None,
-        "default": default,
-        "has_video": bool(streams),
-    }
-
-
-def _streams_from_html(html: str) -> dict[str, Any]:
-    html_norm = html.replace("\\/", "/").replace("\\u0026", "&")
-    streams: list[dict[str, str]] = []
-    seen: set[str] = set()
-    mp4_url: Optional[str] = None
-    hls_url: Optional[str] = None
-
-    for pat, fmt in ((_M3U8_RE, "hls"), (_MP4_RE, "mp4")):
-        for raw in pat.findall(html_norm):
-            url = raw.strip().rstrip("/")
-            if not url.startswith("http") or url in seen:
-                continue
-            if "tsyndicate" in url.lower() or "magsrv" in url.lower():
-                continue
-            seen.add(url)
-            entry = {"url": url, "quality": "source" if fmt == "mp4" else "adaptive", "format": fmt}
-            streams.append(entry)
-            if fmt == "mp4" and not mp4_url:
-                mp4_url = url
-            if fmt == "hls" and not hls_url:
-                hls_url = url
-
-    default = mp4_url or hls_url or (streams[0]["url"] if streams else None)
-    return {
-        "streams": streams,
-        "hls": hls_url,
-        "default": default,
-        "has_video": bool(streams),
-    }
-
-
 def _streams_for_page(html: str, soup: BeautifulSoup) -> dict[str, Any]:
-    # 1) Deterministic MP4 construction from the embed iframe (player.min.js algorithm)
+    """FullPorner's direct MP4s do not play outside the player, so only the
+    player iframe is returned as an embed stream."""
     iframe = soup.select_one(".single-video iframe[src]")
-    if iframe and iframe.get("src"):
-        streams = _streams_from_embed_iframe(str(iframe.get("src")).strip())
-        if streams.get("has_video"):
-            return streams
-
-    # 2) Fallback: any direct MP4/HLS in the page HTML
-    video_data = _streams_from_html(html)
-    if video_data.get("has_video"):
-        return video_data
-
-    # 3) Last resort: expose the player iframe as an embed stream
     if iframe and iframe.get("src"):
         src = str(iframe.get("src")).strip()
         if src.startswith("//"):
@@ -247,12 +155,12 @@ def _streams_for_page(html: str, soup: BeautifulSoup) -> dict[str, Any]:
 
 
 def _poster_from_iframe(iframe_src: str) -> Optional[str]:
-    """Poster used by the player: https://{embed_host}/vid/{reversed_id}/720/i."""
+    """Listing-style thumbnail: https://imgs.xiaoshenke.net/thumb/{reversed_id}.jpg."""
     m = _EMBED_IFRAME_RE.match(iframe_src)
     if not m:
         return None
     reversed_id = m.group("vid")[::-1]
-    return f"https://{m.group('host')}/vid/{reversed_id}/720/i"
+    return f"https://imgs.xiaoshenke.net/thumb/{reversed_id}.jpg"
 
 
 def _parse_list_items(soup: BeautifulSoup, *, limit: int) -> list[dict[str, Any]]:
