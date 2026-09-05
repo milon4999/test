@@ -6198,7 +6198,7 @@ def can_handle(host: str) -> bool:
 
 ### Listing and pagination (`list_videos`)
 
-- Listing pages use `.thumb-video` cards: post link `a.thumb-duracion[href*="/video/"]`, title `h3 a.thumb-video__description`, thumbnail `img[data-src]` (`img{,5,7}.superporn.com/videos/{folder}/{id}/thumbs/...`), duration `span.duracion`, views `.thumb-video-views` (abbreviated `218.8k` — normalize K/M suffixes), uploader `a.info-uploader` (series name or `/user/{name}`).
+- Listing pages use `.thumb-video` cards: post link `a.thumb-duracion[href*="/video/"]`, title `h3 a.thumb-video__description`, thumbnail `img[data-src]` (`img{,5,7}.superporn.com/videos/{folder}/{id}/thumbs/...`), duration `span.duracion`, views `.thumb-video-views` returned verbatim as the site renders it (`218.8k`, `7.8k`; no conversion), uploader `a.info-uploader` (series name or `/user/{name}`).
 - Some listing cards may link to localized variants (`/es/video/{slug-es}`) — normalize to the canonical `/video/{slug}` only when the slug matches; better to keep the URL as returned after host normalization (both play identically).
 - Page 1 should use `base_url` unchanged.
 - Pagination:
@@ -6222,7 +6222,7 @@ Useful list base URLs:
 - Description: `og:description` (strip the trailing ` - SuperPorn`)
 - Thumbnail: `og:image` / `twitter:image` (previews URL)
 - Duration: `video[data-video-duration]` in **seconds** (e.g. `628` → `10:28`)
-- Views: `#n-views` abbreviated text (`218.8k` → `218800`)
+- Views: `#n-views` kept exactly as the site renders it (e.g. `218.8k`) — no K/M expansion, the raw abbreviated string is returned as-is
 - Uploader: `.view-more-less a.info-uploader[href*="/user/"]` (e.g. `antoine98`); series name appears separately
 - Tags/categories: `ul.catlist a.chip-link` (relative hrefs like `/public`)
 - Upload date: only relative text (`· 9 hours ago ·` in `.subido`) — `scrape()` returns `upload_date: None`
@@ -6271,6 +6271,6 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.superporn.com/v
 
 Notes from live testing (2026-09):
 
-- Home listing (page 1), category listing (page 2 via `/anal/2`), `scrape()` metadata (title, duration `10:28` from seconds, views `218.8k` → `218800`, uploader `antoine98`, category chips, 4 related) and the embed stream (`https://www.superporn.com/embed/2724`, `has_video=True`) were all verified.
+- Home listing (page 1), category listing (page 2 via `/anal/2`), `scrape()` metadata (title, duration `10:28` from seconds, views `218.8k` (original site format), uploader `antoine98`, category chips, 4 related) and the embed stream (`https://www.superporn.com/embed/2724`, `has_video=True`) were all verified.
 - Sort variants (`/anal?order=popular`) keep their query when paginating (`/anal/2?order=popular`).
 - The site is behind Cloudflare but serves plain HTML to the pooled `aiohttp` fetcher with a desktop `User-Agent` + `Referer` (no challenge at test time).
