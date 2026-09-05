@@ -6063,3 +6063,118 @@ Notes from live testing (2026-09):
 - Home listing, page-2 path pagination (`/page/2/` â€” note: cached page returned page-1 items at test time, treat as best-effort), `scrape()` metadata (title, ISO duration -> `1:00:36`, uploader `KPORN`, `uploadDate`, tags+actors, 21 related), and the direct `koreanporn.stream` MP4 (`has_video=True`, `quality="source"`) were all verified.
 - The `player-x.php?q=` base64 payload decodes to a `<video><source src="https://koreanporn.stream/....mp4">` matching `itemprop="contentUrl"`; both paths yield the same playable URL.
 - The site ships an obfuscated `eval(atob(...))` script (ad anti-analysis) â€” irrelevant for server-side scraping; plain `User-Agent` + `Referer` requests are sufficient (no Cloudflare challenge).
+
+## FullPorner Implementation Notes
+
+[FullPorner](https://fullporner.com/) is a Bootstrap/osahan-style tube site (no WordPress). Canonical video pages use `/watch/{hex_id}` (no slug, no trailing slash). The site embeds a FluidPlayer iframe on `xiaoshenke.net` whose page encodes **deterministic direct MP4 URLs** â€” the exact stream URLs can be reconstructed client-side without extra requests, making this scraper embed-first but direct-MP4-capable.
+
+### Host aliases
+
+- `fullporner.com`
+- `www.fullporner.com`
+- `xiaoshenke.net` (player + MP4 CDN: `xiaoshenke.net/vid/...`, thumbs `imgs.xiaoshenke.net`, static assets `static.xiaoshenke.net` â€” allowlisted in `video_streaming.py`/`schemas.py` for passthrough)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("fullporner.com", "www.fullporner.com") or h.endswith(".fullporner.com")
+```
+
+### Stream algorithm (`scrape`)
+
+The watch page embeds `<iframe src="//xiaoshenke.net/video/{id}/{mask}">`. The player page (`player.min.js` inline boot) reveals the construction:
+
+- `reversed_id = id[::-1]` (the hex id reversed)
+- quality `mask` is the iframe's last path segment, a bitmask: bit `1` -> 360p, `2` -> 480p, `4` -> 720p, `8` -> 1080p
+- MP4 URL per quality: `https://xiaoshenke.net/vid/{reversed_id}/{quality}` (no file extension; served as `video/mp4`)
+- backup variant: append `/b` (used by the player on load error)
+- poster: `https://xiaoshenke.net/vid/{reversed_id}/720/i` (also a good thumbnail for the watch page, which itself lacks og:image)
+
+So for iframe `//xiaoshenke.net/video/756edac0ba9a6/4` (mask 4 = 720p only), the stream is `https://xiaoshenke.net/vid/6a9ab0cade657/720` â€” a mask of `15` yields 1080p/720p/480p/360p in descending order.
+
+Stream extraction order:
+
+1. Deterministic MP4 construction from the `.single-video iframe[src]` (mask -> qualities)
+2. Inline-script `.mp4` / `.m3u8` scan (filter ad hosts `tsyndicate`, `magsrv`)
+3. The player iframe itself as `format="embed"` fallback (`Server 1`)
+
+Set `video.default` to the highest decoded quality and `video.has_video=True`.
+
+### Listing and pagination (`list_videos`)
+
+- Listing pages use `.video-card` blocks: link `/watch/{id}` in `.video-card-image a` and `.video-title a`, thumbnail `img[data-src]` (lazy, `imgs.xiaoshenke.net/thumb/...`), duration in `.video-card-image .time`, upload Unix timestamp in `.video-view span.create` (convert to ISO-8601 UTC).
+- Page 1 should use `base_url` unchanged.
+- Pagination is path-segment based:
+  - home: `https://fullporner.com/home/{n}`
+  - categories/pornstars: `https://fullporner.com/category/{slug}/{n}` (replace an existing trailing numeric segment)
+  - search: `https://fullporner.com/search?q={query}&page={n}` (query param)
+- Search: `https://fullporner.com/search?q={query}`.
+
+Useful list base URLs:
+
+- `https://fullporner.com/`
+- `https://fullporner.com/category/{slug}` (24 popular ones seeded in `categories.json`; 85 exist under `/category`)
+- `https://fullporner.com/pornstar/{slug}`
+- `https://fullporner.com/search?q=<query>`
+
+### Metadata (`scrape`)
+
+- Title: `.single-video-title h2` (page `<title>` has a `- fullporner.com | FullPorner.com` suffix to strip; `meta[name=description]` mirrors the title)
+- Duration: `.video-info` div matching `mm:ss`/`hh:mm:ss` regex
+- Upload date: `.video-info span.create` Unix timestamp -> ISO-8601 UTC
+- Tags: `.tag-link a[href*="/category/"]` (strip leading `#`)
+- Pornstar (uploader): `.single-video-info-content a.fullname`
+- Thumbnail: reconstructed player poster `https://xiaoshenke.net/vid/{reversed_id}/720/i` (the watch page has no og:image)
+- Views: not exposed â€” `scrape()` returns `views: None`
+- Related: `.video-card` grid on the watch page (24 items)
+
+### Categories (`get_categories`)
+
+`categories.json` is seeded from the sidebar category chips (Home + 23 popular categories such as `anal`, `big-ass`, `milf`, `creampie`, `hardcore`, `pov`, ...). Schema matches the other scraper folders so `/api/v1/categories?source=fullporner` returns valid `CategoryItem` entries.
+
+### Registration checklist for FullPorner
+
+Besides creating `backend/app/scrapers/fullporner/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=fullporner`, `source=fullporner.com`, or `source=fp`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif fullporner.can_handle(host)`)
+  - unsupported-host help text (`fullporner.com`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`fullporner.com`, `xiaoshenke.net`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`fullporner.com`, `xiaoshenke.net`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="fullporner"`, `baseUrl="https://fullporner.com/"`, `searchUrlTemplate="https://fullporner.com/search?q={query}"`, `accentColor="#E91E63"`)
+
+### FullPorner verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://fullporner.com/watch/6a9ab659d365af67ede04ef3\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://fullporner.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://fullporner.com/category/anal&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=fullporner"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://fullporner.com/watch/6a9ab659d365af67ede04ef3"
+```
+
+Notes from live testing (2026-09):
+
+- Home listing (page 1), category listing (page 2, `/category/anal/2`), `scrape()` metadata (title, duration `01:41:24`, pornstar `jasmine spice`, ISO upload date, 15 tags, 24 related), and the reconstructed direct MP4 (`has_video=True`, `720p` from mask `4`) were all verified.
+- The embed mask decode is deterministic â€” no extra HTTP request to the player is needed for streams; the poster URL doubles as the watch-page thumbnail.
+- The site sits behind Cloudflare but serves plain HTML to the pooled `aiohttp` fetcher with a desktop `User-Agent` + `Referer` (no challenge at test time).
