@@ -6388,3 +6388,126 @@ Notes from live testing (2026-09):
 - Home listing (page 1, both sections), all-videos listing (page 2 via `?page=2`), `scrape()` metadata (title, duration `34:12`, upload date `2026-09-04 21:37:01+00:00`, studio `Vixen.com`, actress tags, 8 related), and all 3 embed streams (`Playmogo`/`Luluvid`/`Playmate`, `has_video=True`) were verified.
 - Spaced durations normalize correctly including the `134 : 22` → `2:14:22` over-59-minutes case.
 - Plain desktop `User-Agent` + `Referer` requests are sufficient once SSL verification is off (no Cloudflare challenge at test time).
+
+
+## ShyFap Implementation Notes
+
+[ShyFap](https://www.shyfap.net/) is a **KVS (Kernel Video Sharing) tube site** using kt_player. Canonical video pages use `/video/{slug}/` (e.g. `/video/watching-you_2_v2/`; the slug has no numeric ID — the ID lives in the `ya:ovs:id` meta). Unlike most KVS deployments, its flashvars expose **plain direct MP4 URLs** with no `{htp}` placeholders and no client-side token assembly: `https://www.shyfap.net/get_stream/{video_id}-{quality}.mp4`.
+
+### Host aliases
+
+- `shyfap.net`, `www.shyfap.net`
+- Streams, thumbs, and embeds all live on `www.shyfap.net` itself (`/get_stream/...`, `/images/thumb/...`, `/embed/{id}`)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("shyfap.net", "www.shyfap.net") or h.endswith(".shyfap.net")
+```
+
+### Streams (`scrape`) — direct MP4, 4 qualities
+
+The player page contains a `var flashvars = {...}` JS object. Parse it with a simple regex (`(\w+)\s*:\s*'([^']*)'`) and pair these keys (highest first):
+
+| URL key | label key | example |
+|---|---|---|
+| `video_alt_url3` | `video_alt_url3_text` | `get_stream/6515-2160.mp4` → `2160p` |
+| `video_alt_url2` | `video_alt_url2_text` | `get_stream/6515-1080.mp4` → `1080p` |
+| `video_alt_url` | `video_alt_url_text` | `get_stream/6515-720.mp4` → `720p` |
+| `video_url` | `video_url_text` | `get_stream/6515-480.mp4` → `480p` |
+
+- Return each as `format="mp4"` with the label from the matching `_text` key (fallback `"source"`), `quality` sorted 2160p → 480p.
+- `video.default` = the highest quality URL (first in the ordered list), `video.has_video=True` when any exist.
+- `license_code` / `lrc` / `rnd` flashvars exist but are **not needed** — the `/get_stream/` URLs are directly fetchable (the license check is enforced server-side per IP; since the backend fetches the page and proxies the stream from the same IP, playback works).
+- Ignore the `generate_mp4(...)` base64 ciphertext block — it is an alternative KVS path not required here.
+- The embed fallback exists at `/embed/{video_id}` (`og:video`) if flashvars parsing ever fails.
+
+### Listing and pagination (`list_videos`)
+
+- Listing pages use `.catalog_item` cards: post link `a.media-card[href*="/video/"]`, title `.media-card_title` (fallback `img[alt]`), thumbnail `img.lazy-load[data-original]` (the `src` is a 1x1 base64 placeholder — always read `data-original`).
+- Duration/views live in `.stats_item` rows distinguished **only by their SVG icon**: `use[xlink:href="#i-clock"]` → duration (`28:41`), `#i-view` → views (raw digit string, e.g. `120699` — keep verbatim), `#i-like` → rating (`80%`, ignored). Read the icon with `.get("xlink:href")` **or** `.get("href")` — BeautifulSoup exposes both.
+- Pagination is a **numeric path segment**, and the trailing `_{N}` in section URLs is the LIST ID, not the page:
+  - home: `/` → `/videos_1/{page}/` (331 pages)
+  - sections: `/most-watched-videos_1/` → `/most-watched-videos_1/2/` (append the page; NEVER rewrite the `_{listId}` suffix)
+  - pornstar/tag/studio pages: `/pornstar/{slug}_p1/` → `/pornstar/{slug}_p1/2/`; if the URL already ends in a pure-numeric segment, replace it
+  - search: `/search/?q={query}` paginates via `?page=N` (query param, not path)
+- Sort tabs are separate section URLs (no query params): `/most-watched-videos_1/`, `/top-videos_1/`, `/longest-videos_1/`.
+- Search: `https://www.shyfap.net/search/?q={query}` (GET form with `q`).
+
+Useful list base URLs:
+
+- `https://www.shyfap.net/` (new videos)
+- `https://www.shyfap.net/most-watched-videos_1/`
+- `https://www.shyfap.net/top-videos_1/`
+- `https://www.shyfap.net/longest-videos_1/`
+- `https://www.shyfap.net/pornstar/{slug}_p1/`
+- `https://www.shyfap.net/studio/{slug}_s1/`
+- `https://www.shyfap.net/tag/{slug}_t1/`
+- `https://www.shyfap.net/search/?q=<query>`
+
+### Metadata (`scrape`)
+
+The site exposes full `og:`/`ya:ovs:` meta tags:
+
+- Title: `og:title` (fallback `h1.title`)
+- Description: `og:description`
+- Thumbnail: `og:image` (`/images/thumb/{slug}.jpg`)
+- Duration: `video:duration` in **seconds** (e.g. `1721` → `28:41`)
+- Views: `ya:ovs:views_total` raw digits, returned verbatim
+- Upload date: `ya:ovs:upload_date` ISO-8601 with offset (`2026-03-29T09:39:01+03:00` → normalized to `+0300` suffix form)
+- Tags: `.datalist` rows — `Tags:` row links (19 per video; fallback: `video:tag` meta, comma-separated)
+- Uploader (channel): the `Channel` datalist row (e.g. `NF Busty`)
+- Models: the `Models` datalist row (e.g. `Kiara Lord`, currently not returned separately — channel is used for `uploader_name`)
+- Related: `.catalog_item` cards under `Related Videos` (12 per page, same structure as listings)
+
+### Categories (`get_categories`)
+
+`categories.json` seeds the four sort tabs (New Videos, Most Watched, Top Rated, Longest). The site's full taxonomies are separate pages (`/categories_1/`, `/tags_1/`, `/pornstars_1/`, `/studios_1/`) but those list taxonomy items rather than videos, so they are not included as browse entries. Schema matches the other scraper folders so `/api/v1/categories?source=shyfap` returns valid `CategoryItem` entries.
+
+### Registration checklist for ShyFap
+
+Besides creating `backend/app/scrapers/shyfap/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=shyfap` or `source=shyfap.net`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif shyfap.can_handle(host)`)
+  - unsupported-host help text (`shyfap.net`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`shyfap.net`, `www.shyfap.net`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`shyfap.net`, `www.shyfap.net`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="shyfap"`, `baseUrl="https://www.shyfap.net/"`, `searchUrlTemplate="https://www.shyfap.net/search/?q={query}"`, `accentColor="#EC0040"`)
+
+### ShyFap verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.shyfap.net/video/watching-you_2_v2/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.shyfap.net/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.shyfap.net/most-watched-videos_1/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=shyfap"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.shyfap.net/video/watching-you_2_v2/"
+```
+
+Notes from live testing (2026-09):
+
+- Home listing (page 1 + page 2 via `/videos_1/2/`), most-watched page 2 (`/most-watched-videos_1/2/`), pornstar page 2, and `scrape()` metadata (title, duration `28:41` from 1721s, views `120755` verbatim, uploader `NF Busty`, upload date `2026-03-29T09:39:01+0300`, 19 tags, 12 related) were all verified.
+- All four direct streams extracted from flashvars: `2160p`/`1080p`/`720p`/`480p` at `get_stream/6515-{quality}.mp4`, `default` = 2160p, `has_video=True`.
+- Pagination gotcha: the first implementation rewrote the section LIST ID (`/most-watched-videos_1/` → `/most-watched-videos_2/`, wrong). The page is a separate path segment — append/replace the trailing numeric segment only.
+- The site ships a `disable-devtool` CDN script (anti-devtools) — irrelevant for server-side scraping; plain `User-Agent` + `Referer` requests are sufficient (no Cloudflare challenge at test time).

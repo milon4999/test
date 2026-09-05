@@ -1,0 +1,6 @@
+[
+  { "id": "home", "name": "New Videos", "url": "https://www.shyfap.net/" },
+  { "id": "most-watched", "name": "Most Watched", "url": "https://www.shyfap.net/most-watched-videos_1/" },
+  { "id": "top-rated", "name": "Top Rated", "url": "https://www.shyfap.net/top-videos_1/" },
+  { "id": "longest", "name": "Longest", "url": "https://www.shyfap.net/longest-videos_1/" }
+]
