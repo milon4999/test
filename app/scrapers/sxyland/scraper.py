@@ -124,10 +124,11 @@ def _clean_title(title: str | None) -> Optional[str]:
 
 
 def _normalize_views(text: str | None) -> Optional[str]:
+    """Keep the view count exactly as the site renders it (no digit stripping)."""
     if not text:
         return None
-    digits = re.sub(r"[^\d]", "", str(text))
-    return digits or None
+    t = str(text).strip()
+    return t or None
 
 
 def _format_duration_iso(iso: str | None) -> Optional[str]:

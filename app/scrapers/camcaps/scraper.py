@@ -26,7 +26,6 @@ _M3U8_RE = re.compile(
     r"https?://[^\s\"'<>]+\.m3u8(?:\?[^\s\"'<>]*)?",
     re.IGNORECASE,
 )
-_VIEWS_RE = re.compile(r"([\d.,]+)\s*([KkMm]?)")
 
 
 def can_handle(host: str) -> bool:
@@ -86,25 +85,11 @@ def _clean_title(title: str | None) -> Optional[str]:
 
 
 def _normalize_views(text: str | None) -> Optional[str]:
-    """Parse `12.3K views` / `1,182 views` / `102` into a plain digit string."""
+    """Keep the view count exactly as the site renders it (e.g. `12.3K views`)."""
     if not text:
         return None
-    m = _VIEWS_RE.search(str(text))
-    if not m:
-        return None
-    num = m.group(1).replace(",", "")
-    try:
-        value = float(num)
-    except ValueError:
-        return None
-    suffix = (m.group(2) or "").lower()
-    if suffix == "k":
-        value *= 1_000
-    elif suffix == "m":
-        value *= 1_000_000
-    if value <= 0:
-        return None
-    return str(int(value))
+    t = str(text).strip()
+    return t or None
 
 
 def _absolute_url(href: str) -> Optional[str]:

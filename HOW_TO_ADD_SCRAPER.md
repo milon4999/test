@@ -5786,7 +5786,7 @@ def can_handle(host: str) -> bool:
 
 ### Listing and pagination (`list_videos`)
 
-- Listing pages use `.thumb-block` article cards (`article.thumb-block`, also `.thumb-block.video-preview-item`); the title lives in `header.entry-header` inside the card anchor, duration in `span.duration`, views in `span.views`.
+- Listing pages use `.thumb-block` article cards (`article.thumb-block`, also `.thumb-block.video-preview-item`); the title lives in `header.entry-header` inside the card anchor, duration in `span.duration`, views in `span.views` (kept verbatim as the site renders them).
 - Keep only same-domain post URLs matching `/{slug}/` (single segment) and skip utility paths: `/categories/`, `/tags/`, `/actors/`, `/category/`, `/tag/`, `/actor/`, `/author/`, `/page/`, `/wp-content/`, `/wp-json/`.
 - Page 1 should use `base_url` unchanged.
 - For page > 1, WordPress path pagination is used: `https://sxyland.com/page/2/` (also under category paths, e.g. `/categories/...` pages are index pages; real archives are `/category/{slug}/`).
@@ -5906,7 +5906,7 @@ Useful list base URLs:
 - Metadata fallback order:
   1. visible `h1` (og: tags are absent; `meta[name=description]` mirrors the title)
   2. `article.about p` for the description
-  3. views from `.info span.views-icon` (`12.3K views` / `1,182` / `102` â€” normalize `K`/`M` suffixes to a digit string)
+  3. views from `.info span.views-icon` kept exactly as the site renders it (e.g. `12.3K views`) — no K/M expansion, the raw string is returned as-is
   4. uploader from `.video-links .group a[href*="/user/"]`
 - Tags: anchors under `.video-links` pointing at `/search/videos/{tag}` (skip `/user/` links). The duration is NOT shown on the detail page (only on cards), so `scrape()` returns `duration: None`.
 - Streams: the player is a single `<iframe>` inside `.video-embedded` (falls back to `.player`), typically `https://nowplay.to/emb{...}`. Expose it as `format="embed"` with `quality="Server 1"`, set `video.default` to it and `video.has_video=True`.
@@ -5960,7 +5960,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://camcaps.tv/video/36
 Notes from live testing (2026-09):
 
 - Listing page 1 and page 2 (`?page=2`, sort `?o=tr` preserved), `scrape()` metadata (title/views/uploader/tags/description), the `nowplay.to` embed (`Server 1`, `has_video=True`), related videos (18 items), and `ListItem`/`ScrapeResponse` schema validation were all verified against the live site.
-- Views normalize correctly (`12.3K views` -> `12300`).
+- Views are returned verbatim in the site's original format (`12.3K views`) — no K/M expansion.
 - Plain `User-Agent` + `Referer: https://camcaps.tv/` requests are sufficient (no Cloudflare challenge); thumbnails may be absolute or relative and use several bucket folders, handled automatically.
 
 ## KoreanPornMovie Implementation Notes
