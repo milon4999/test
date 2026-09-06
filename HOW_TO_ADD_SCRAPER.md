@@ -6276,6 +6276,24 @@ Notes from live testing (2026-09):
 - The site is behind Cloudflare but serves plain HTML to the pooled `aiohttp` fetcher with a desktop `User-Agent` + `Referer` (no challenge at test time).
 
 
+## Sosalkino Domain Migration Notes (2026-09 fix)
+
+The Sosalkino scraper (`backend/app/scrapers/sosalkino/`) broke when the site migrated domains: `sosalkino.guru`/`sosalkino.ooo` → **`sosalkino.city`** (canonical pages on `r1.sosalkino.city`, the KVS media/`get_file` host is also `r1.`; the resolved CDN is `video.u000009.eu.awmcdn.net`). The old `.guru` host still serves listing HTML through curl_cffi, but every extracted video link pointed at `.city`, which the scraper's host filters rejected → 0 listings.
+
+### Fixes applied
+
+- Host aliases: added `sosalkino.city`, `www.sosalkino.city`, `r1.sosalkino.city` (+ wildcard `.sosalkino.city`) to `SITE_ALIASES`, `can_handle`, and `_is_sosalkino_host`; the link/embed/get_file regexes now match `(?:guru|ooo|city)`.
+- Redirect form: the site redirects video pages to `/view_video.php?dir={slug}` — `_normalize_video_href` maps that back to the canonical `/videos/{slug}/`.
+- `BASE_SITE`/`categories.json`/explore `baseUrl`/`searchUrlTemplate` moved to `sosalkino.city`.
+- `schemas.py` scrape+list allowlists and `video_streaming.py` `available_qualities`/`per_stream_format_keys` host lists gained the `.city` hosts (the resolved CDN URLs are IP-signed and played via the app's stream passthrough).
+- The flashvars structure is unchanged (KVS: `video_url` 1080p + `video_alt_url` 720p + `video_alt_url2` 360p, `get_file/.../?v-acctoken=` URLs resolved by the existing curl_cffi redirect handler to `awmcdn.net`).
+
+### Verification (2026-09)
+
+- Listing: 5+ cards with Russian titles, durations, screenshots on `r1.sosalkino.city`.
+- `scrape()`: title/duration `41:06`/views `56711`/uploader `Agatha Vega`, streams resolved to `video.u000009.eu.awmcdn.net` MP4s at 1080p/720p/360p, playback check `206 video/mp4` with valid `ftypisom` magic.
+- `can_handle` accepts `sosalkino.city`, `r1.sosalkino.city`, and legacy `.guru`.
+
 ## Siska Implementation Notes
 
 [Siska](https://siska.tv/) is a plain-PHP tube site (Pure CSS grid, no CMS). Canonical video pages use query-string URLs: `https://siska.tv/video.php?videoID={numeric_id}`. Each video embeds **2-3 third-party player iframes** inside `.playerplace .videoholder` (tested hosts: `playmogo.com`, `luluvid.com`, `playmate.to`) — streams are embed-only. **The site's TLS certificate has expired**, so its `fetch_page` passes a verification-disabled `ssl` context to the pooled fetcher.

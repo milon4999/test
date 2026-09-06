@@ -634,6 +634,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "letsporn.com" in parsed_url.netloc.lower() or
         "img.letsporn.com" in parsed_url.netloc.lower() or
         "sosalkino.guru" in parsed_url.netloc.lower() or
+        "sosalkino.city" in parsed_url.netloc.lower() or
         "sxyprn.com" in parsed_url.netloc.lower() or
         "latestpornvideo.com" in parsed_url.netloc.lower() or
         "youperv.com" in parsed_url.netloc.lower() or
@@ -841,6 +842,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "letsporn.com" in host_l
             or "img.letsporn.com" in host_l
             or "sosalkino.guru" in host_l
+            or "sosalkino.city" in host_l
             or "sxyprn.com" in host_l
             or "latestpornvideo.com" in host_l
             or "youperv.com" in host_l

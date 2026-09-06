@@ -10,8 +10,8 @@ from bs4 import BeautifulSoup
 
 from app.core.pool import fetch_html as pool_fetch_html
 
-BASE_SITE = "https://wvw.sosalkino.guru/"
-SITE_HOST = "wvw.sosalkino.guru"
+BASE_SITE = "https://sosalkino.city/"
+SITE_HOST = "sosalkino.city"
 SITE_ALIASES = frozenset(
     {
         "sosalkino.guru",
@@ -19,8 +19,16 @@ SITE_ALIASES = frozenset(
         "wvw.sosalkino.guru",
         "sosalkino.ooo",
         "www.sosalkino.ooo",
+        "sosalkino.city",
+        "www.sosalkino.city",
+        "r1.sosalkino.city",
     }
 )
+
+# NOTE (2026-09): the site migrated from sosalkino.guru/ooo to sosalkino.city.
+# The old .guru hosts still serve listing pages (via curl_cffi), but video
+# links now point at r1.sosalkino.city and canonical video pages live on
+# r1.sosalkino.city (/videos/{slug}/, redirecting to /view_video.php?dir={slug}).
 
 _DEFAULT_HEADERS = {
     "User-Agent": (
@@ -33,11 +41,11 @@ _DEFAULT_HEADERS = {
 }
 
 _VIDEO_HREF_RE = re.compile(
-    r"sosalkino\.(?:guru|ooo)/videos/(?P<slug>[^/?#]+)/?",
+    r"sosalkino\.(?:guru|ooo|city)/videos/(?P<slug>[^/?#]+)/?",
     re.IGNORECASE,
 )
 _EMBED_HREF_RE = re.compile(
-    r"sosalkino\.(?:guru|ooo)/embed/(?P<id>\d+)/?",
+    r"sosalkino\.(?:guru|ooo|city)/embed/(?P<id>\d+)/?",
     re.IGNORECASE,
 )
 _FLASHVARS_BLOCK_RE = re.compile(r"var\s+flashvars\s*=\s*\{(.+?)\};", re.DOTALL)
@@ -48,7 +56,7 @@ _FLASHVARS_PAIR_RE = re.compile(
     re.IGNORECASE,
 )
 _GET_FILE_RE = re.compile(
-    r"https?://[^\s\"'<>]*sosalkino\.(?:guru|ooo)[^\s\"'<>]*/get_file/[^\s\"'<>]+",
+    r"https?://[^\s\"'<>]*sosalkino\.(?:guru|ooo|city)[^\s\"'<>]*/get_file/[^\s\"'<>]+",
     re.IGNORECASE,
 )
 _VIEWS_RE = re.compile(r"([\d\s]+)\s*просмотр", re.IGNORECASE)
@@ -98,7 +106,11 @@ def can_handle(host: str) -> bool:
         h = h[4:]
     if h in SITE_ALIASES:
         return True
-    return h.endswith(".sosalkino.guru") or h.endswith(".sosalkino.ooo")
+    return (
+        h.endswith(".sosalkino.guru")
+        or h.endswith(".sosalkino.ooo")
+        or h.endswith(".sosalkino.city")
+    )
 
 
 def get_categories() -> list[dict]:
@@ -169,7 +181,11 @@ def _path_parts(path: str) -> list[str]:
 
 def _is_sosalkino_host(host: str) -> bool:
     h = (host or "").lower()
-    return "sosalkino.guru" in h or "sosalkino.ooo" in h
+    return (
+        "sosalkino.guru" in h
+        or "sosalkino.ooo" in h
+        or "sosalkino.city" in h
+    )
 
 
 def _extract_video_id(url: str) -> Optional[str]:
@@ -190,6 +206,17 @@ def _normalize_video_href(href: str) -> Optional[str]:
 
     parsed = urlparse(href.split("#", 1)[0])
     if not _is_sosalkino_host(parsed.netloc or ""):
+        return None
+
+    # Redirect target form: /view_video.php?dir={slug} -> /videos/{slug}/
+    if parsed.path.endswith("view_video.php"):
+        qs = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        dir_slug = (qs.get("dir") or "").strip("/")
+        if dir_slug and "/" not in dir_slug:
+            host = (parsed.netloc or SITE_HOST).lower()
+            if host.startswith("www."):
+                host = host[4:]
+            return urlunparse(("https", host, f"/videos/{dir_slug}/", "", "", ""))
         return None
 
     parts = _path_parts(parsed.path)
