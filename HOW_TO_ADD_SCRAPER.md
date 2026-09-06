@@ -6413,10 +6413,9 @@ def can_handle(host: str) -> bool:
 
 ### Streams (`scrape`) — embed only
 
-- The watch page's `og:video` meta carries the stable embed: `https://www.shyfap.net/embed/{video_id}` (fallback: build it from the `ya:ovs:id` meta).
-- Return exactly one stream: `format="embed"`, `quality="Server 1"`, `video.default` = the embed URL, `video.has_video=True`.
-- Do **not** return the flashvars `video_url`/`video_alt_url*` entries — the `get_stream/{id}-{quality}.mp4` URLs are license/IP-bound to the page request and do not play when handed to a client or fetched later (same failure mode as FullPorner's `/vid/` URLs and SuperPorn's `?secure=` token).
-- The `license_code`/`lrc`/`rnd` flashvars and the `generate_mp4(...)` base64 block are not needed.
+- Backend returns the stable same-host embed `https://www.shyfap.net/embed/{video_id}` (from `og:video`, fallback `ya:ovs:id`) as a single `format="embed"` stream — see the IP-bound failure note below.
+- **Why `get_stream/{id}-{quality}.mp4` fails**: the flashvars MP4s are decoys. The real flow is the page's `generate_mp4('token', 'password', 'okVideoId', 'videoId')` call: the base64 token decrypts (PBKDF2-HMAC-SHA512(password, salt, iterations, 32B key) → AES-256-CBC) into an **OK.ru `session_key`**; the player then calls `api.ok.ru/fb.do?...method=video.get&session_key=...&vids={okVideoId}`, which returns direct `ok6-12.vkuser.net/?expires=...&srcIp=...` MP4 URLs for 2160p/1440p/1080p/720p/480p/360p/240p. Those URLs are **signed for the requesting IP and expire** — a backend-resolved URL never plays on a client device (same failure mode as FullPorner's `/vid/` URLs and SuperPorn's `?secure=` token).
+- **Flutter local scraper status: REMOVED** — a local port (`app/lib/features/source/data/scrapers/shyfap.dart`) was built and verified (PBKDF2-SHA512 via pointycastle + AES-CBC produced a valid session key and playable `vkuser.net` URLs in testing), but it did not work reliably in the production app and was removed. ShyFap falls back to the backend embed flow; a WebView-based player would be the remaining option if direct playback is ever needed again.
 
 ### Listing and pagination (`list_videos`)
 
