@@ -250,6 +250,13 @@ def _streams_from_html(html: str) -> dict[str, Any]:
 
 
 async def _fetch_with_curl_cffi(url: str, *, referer: str | None = None) -> Optional[str]:
+    """Fetch via curl_cffi with retry/backoff.
+
+    teamskeettube sits behind Cloudflare, which rate-limits bursts of requests
+    (403s). A single pass over the impersonations is not enough — retry each
+    with backoff while keeping a persistent cookie jar so a granted
+    cf_clearance cookie keeps working.
+    """
     try:
         from curl_cffi.requests import AsyncSession
     except ImportError:
@@ -259,12 +266,26 @@ async def _fetch_with_curl_cffi(url: str, *, referer: str | None = None) -> Opti
     if referer:
         headers["Referer"] = referer
 
-    for imp in ("chrome120", "chrome110", "safari15_3"):
+    impersonations = ("chrome120", "chrome120", "chrome110", "chrome120")
+    delays = (0.0, 2.0, 4.0, 8.0)
+
+    for imp, delay in zip(impersonations, delays):
+        if delay:
+            await asyncio.sleep(delay)
         try:
+            # One session per attempt; cookies persist across the GET + retries
+            # inside curl itself, and each session re-starts clean.
             async with AsyncSession(impersonate=imp, headers=headers, timeout=45.0) as client:
                 resp = await client.get(url)
                 if resp.status_code == 200 and resp.text:
                     return resp.text
+                if resp.status_code == 403:
+                    # Cloudflare block — back off and retry with the same session
+                    for extra in range(2):
+                        await asyncio.sleep(3.0 * (extra + 1))
+                        resp = await client.get(url)
+                        if resp.status_code == 200 and resp.text:
+                            return resp.text
         except Exception:
             continue
     return None

@@ -4909,6 +4909,7 @@ Notes from live testing (2026-09):
 
 - The scraper previously returned the inner `embed.redtube.com/?id=...` URL, which fails: `embed.redtube.com` is connection-blocked/unreachable on many networks and the xvideos embedframe times out. Fixed to return only the `player-x.php?q=` embed (single `Server 1` stream) — verified via `/api/v1/videos/stream` returning `format=embed` with the player-x URL.
 - Listing, pagination (`/page/2/`), and metadata verified against the live site; dead helper code (payload decoder, xvideos regex, base64/urllib imports) removed.
+- **Production 403 fix (Railway)**: Cloudflare rate-limits bursts — the first `_fetch_with_curl_cffi` pass 403s, then the aiohttp pool retries rotate UAs and also 403 (3×), and `get_video_info` wraps the failure as HTTP 400 ("Failed to scrape video info: Failed to fetch ... after 3 retries"). `_fetch_with_curl_cffi` now retries each impersonation with exponential backoff (0/2/4/8s across chrome120/chrome120/chrome110/chrome120) plus two in-session retries per 403, which clears the rate-limit window. Verified on the exact failing production URL (Scarlett Rosewood part 2): fetch OK, player-x embed extracted.
 
 ## Sosalkino (sosalkino.guru) Implementation Notes
 
