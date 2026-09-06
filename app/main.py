@@ -247,6 +247,7 @@ async def _scrape_dispatch(url: str, host: str) -> dict[str, Any]:
     if siska.can_handle(host): return await siska.scrape(url)
     if shyfap.can_handle(host): return await shyfap.scrape(url)
     if hdporn92.can_handle(host): return await hdporn92.scrape(url)
+    if porndos.can_handle(host): return await porndos.scrape(url)
     raise HTTPException(status_code=400, detail="Unsupported host")
 
 async def _list_dispatch(base_url: str, host: str, page: int, limit: int) -> list[dict[str, Any]]:
@@ -368,7 +369,7 @@ async def _list_dispatch(base_url: str, host: str, page: int, limit: int) -> lis
     if siska.can_handle(host): return await siska.list_videos(base_url=base_url, page=page, limit=limit)
     if shyfap.can_handle(host): return await shyfap.list_videos(base_url=base_url, page=page, limit=limit)
     if hdporn92.can_handle(host): return await hdporn92.list_videos(base_url=base_url, page=page, limit=limit)
-    if shyfap.can_handle(host): return await shyfap.list_videos(base_url=base_url, page=page, limit=limit)
+    if porndos.can_handle(host): return await porndos.list_videos(base_url=base_url, page=page, limit=limit)
     raise HTTPException(status_code=400, detail="Unsupported host")
 
 async def _crawl_dispatch(base_url: str, host: str, start_page: int, max_pages: int, per_page_limit: int, max_items: int) -> list[dict[str, Any]]:
@@ -628,6 +629,7 @@ async def get_categories(source: str) -> list[CategoryItem]:
         if s in ("siska", "siskatv", "siska.tv"): return [_category_item(c) for c in siska.get_categories()]
         if s in ("shyfap", "shyfap.net"): return [_category_item(c) for c in shyfap.get_categories()]
         if s in ("hdporn92", "hdporn92.com"): return [_category_item(c) for c in hdporn92.get_categories()]
+        if s in ("porndos", "porndos.com"): return [_category_item(c) for c in porndos.get_categories()]
         raise HTTPException(status_code=400, detail="Unknown source")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load categories: {str(e)}")

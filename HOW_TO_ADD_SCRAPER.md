@@ -6660,3 +6660,90 @@ Notes from live testing (2026-09):
 - Home listing (page 1), page-2 path pagination, category pagination, `scrape()` metadata (title, verbatim views, ISO upload date, channel+actor tags, og:description, 10 related), and the `morencius.com` embed (`Server 1`, `has_video=True`) were all verified.
 - `itemprop="embedUrl"` is present but empty on embed-only posts — the iframe in `.responsive-player` is the real source.
 - Plain `User-Agent` + `Referer` requests are sufficient (no Cloudflare challenge at test time).
+
+
+## PornDos Implementation Notes
+
+[PornDos](https://www.porndos.com/) is a KVS (kt_player 5.2.0) tube site with a custom "dos" theme. Canonical video pages use `/video/{slug}_v{N}/` (e.g. `/video/sexy-ukrainian-woman-gets-cunnilingus-from-her-friend_v1/` — note the `_v{numeric_id}` suffix). **Direct MP4s work**: flashvars expose `/get_stream/{id}-{quality}.mp4` (360p/480p/720p) which 302-redirect to IP-signed OK.ru `vkuser.net` URLs — verified serving `206 video/mp4` with valid MP4 magic.
+
+### Host aliases
+
+- `porndos.com`, `www.porndos.com`
+- `vkuser.net` (OK.ru stream redirect target, allowlisted for passthrough)
+
+### Bot protection — curl_cffi required
+
+Plain aiohttp receives **empty 200 bodies** from porndos (bot protection). `fetch_page` uses `curl_cffi` impersonation (`chrome120`, fallback `chrome116`) with the aiohttp pool as last resort. This mirrors the sosalkino approach.
+
+### Streams (`scrape`) — direct MP4
+
+- Parse `var flashvars = {...}` with `([A-Za-z0-9_]+)\s*:\s*'([^']*)'` and pair the `_KVS_QUALITIES` keys **highest-first**: `video_alt_url2` (720p) → `video_alt_url` (480p) → `video_url` (360p).
+- Return each as `format="mp4"` with its `_text` label; `video.default` = the highest quality.
+- `license_code`/`lrc`/`lrcv`/`rnd` flashvars exist but are NOT needed for the stream URL (unlike shyfap's OK.ru flow) — the redirect to `vkuser.net` handles signing per request.
+- Fallback: `og:video` meta carries `https://www.porndos.com/embed/{id}/` — use as embed if flashvars parsing fails.
+
+### Listing and pagination (`list_videos`)
+
+- Cards: `.thumb .item` blocks — link `a[href*="/video/"]`, title in the card's `<p>` (fallback `img[alt]`), thumbnail lazy `img[data-src]` (`/images/thumb/{id}.webp`), duration in `.meta span.right` (`19:43`), views in the `.meta span` containing `fa-eye` (raw digits, verbatim).
+- Page 1 should use `base_url` unchanged.
+- Pagination is a numeric path segment on the section URL: `/videos_60/{page}/` (confirmed by the `.pages` markup: `videos_60/2/`, `videos_60/3/`). If the URL already ends in a pure-numeric segment, replace it; otherwise append. Home falls back to `/videos_60/{page}/`.
+- Section URLs: `/videos_60/` (all), `/most-viewed_63/`, `/top-rated_39/`, `/pornstars_35/`, `/categories_73/`, `/studios_80/`; category pages `/category/{slug}_c{N}/`.
+- Search: `https://www.porndos.com/search/{query}/1/` (numeric page suffix like sections; POST form `search_query` exists but the GET search path works).
+
+### Metadata (`scrape`)
+
+- Title: `og:title` (fallback `h1`), no suffix stripping needed
+- Thumbnail: `og:image` (`/images/thumb/{id}.webp`)
+- Views: `.full-meta span` with `fa-eye`, raw digits verbatim
+- Tags: `video_categories` flashvar (comma list) merged with `.full-links a[href*='/category/']` links
+- Description: `og:description`
+- Duration/upload_date: not exposed in HTML (flashvars has neither) — `None`
+- Related: same `.thumb .item` cards on the watch page (12)
+
+### Categories (`get_categories`)
+
+`categories.json` seeds five sections: Videos, Most Viewed, Top Rated, Pornstars, Categories. Schema matches the other scraper folders so `/api/v1/categories?source=porndos` returns valid `CategoryItem` entries.
+
+### Registration checklist for PornDos
+
+Besides creating `backend/app/scrapers/porndos/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=porndos` or `source=porndos.com`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif porndos.can_handle(host)`)
+  - unsupported-host help text (`porndos.com`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`porndos.com`, `vkuser.net`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`porndos.com`, `www.porndos.com`, `vkuser.net`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="porndos"`, `baseUrl="https://www.porndos.com/"`, `searchUrlTemplate="https://www.porndos.com/search/{query}/1/"`, `accentColor="#D11315"`)
+
+### PornDos verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.porndos.com/video/sexy-ukrainian-woman-gets-cunnilingus-from-her-friend_v1/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.porndos.com/videos_60/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.porndos.com/category/close-up_c10/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=porndos"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.porndos.com/video/sexy-ukrainian-woman-gets-cunnilingus-from-her-friend_v1/"
+```
+
+Notes from live testing (2026-09):
+
+- aiohttp returns empty 200 bodies — curl_cffi impersonation is mandatory (this broke the first probe attempts).
+- Listing page 1 + page 2 (`videos_60/2/`, 24 cards each), search (`/search/sex/1/`, 32 cards), `scrape()` metadata (title, duration `19:43`, views `319` verbatim, 4 tags, 12 related), and all three direct MP4 qualities were verified.
+- Stream ordering verified: `_KVS_QUALITIES` iterates highest-first so `default` = 720p.
+- `get_stream` 302-redirects to `ok6-5.vkuser.net` with an SSL certificate that fails plain aiohttp verification — the app's player follows redirects natively (native TLS stack tolerates it), and `vkuser.net` is allowlisted for stream passthrough.

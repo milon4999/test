@@ -296,10 +296,12 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
         scraper_module = shyfap
     elif hdporn92.can_handle(host):
         scraper_module = hdporn92
+    elif porndos.can_handle(host):
+        scraper_module = porndos
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported host: {host}. Supported: xnxx, xhamster, xvideos, masa49 (.org/.com/.cam), pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, urshort.live (embed), pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rou.video, 51cg/chigua, oppai.stream, xmoviesforyou.com, tnaflix.com, hornysimp.com, pimpbunny.com, hentaiser.app, bollywoodmaal.com, viralkand.com, blowjobs.pro, blackporn24.com, blackporn.tube, lesbianporn8.net, milfporn8.net, indianporn365.xyz, mmsbro.com, thekamababa.com, desimms2.site, desiporn.one, thotsporn.com, leakedamateurporn.xyz, zeenite.com, uncutmazaa.com (uncutmaza.com/.cc rewrite), mydesi2.dev, mydesimms.watch, 85po.com, cosxplay.com, memojav.com, hohoj.tv, ggjav.com, porn87.com, goodav17.com, kanav.ad, missav.ai, jable.tv, 94mt.cc, bindasmood.com, eporner.com, dotmaal.com, uncutmasti.com, zmaal.net, ulluwebseries.one, desithothub.com, motherless.com, youjizz.com, pornone.com, 3movs.com, porndig.com, hotmovs.tube, shemalez.com, txxx.com, ok.xxx, pornhoarder.tw, yesporn.vip, justporn.com, porngo.com, 1porn.tv, thepornbang.com, letsporn.com, teamskeettube.com, sosalkino.guru, tubepornclassic.com, xxxdan.com, pornxxx.tube, sxyprn.com, latestpornvideo.com, youperv.com, tube.perverzija.com, bigwank.com, sp2026.dev (91porn), 91porn.com, 9p9.xyz, sxyland.com, camcaps.tv, koreanpornmovie.com, fullporner.com, superporn.com, siska.tv, shyfap.net, hdporn92.com"
+            detail=f"Unsupported host: {host}. Supported: xnxx, xhamster, xvideos, masa49 (.org/.com/.cam), pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, urshort.live (embed), pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rou.video, 51cg/chigua, oppai.stream, xmoviesforyou.com, tnaflix.com, hornysimp.com, pimpbunny.com, hentaiser.app, bollywoodmaal.com, viralkand.com, blowjobs.pro, blackporn24.com, blackporn.tube, lesbianporn8.net, milfporn8.net, indianporn365.xyz, mmsbro.com, thekamababa.com, desimms2.site, desiporn.one, thotsporn.com, leakedamateurporn.xyz, zeenite.com, uncutmazaa.com (uncutmaza.com/.cc rewrite), mydesi2.dev, mydesimms.watch, 85po.com, cosxplay.com, memojav.com, hohoj.tv, ggjav.com, porn87.com, goodav17.com, kanav.ad, missav.ai, jable.tv, 94mt.cc, bindasmood.com, eporner.com, dotmaal.com, uncutmasti.com, zmaal.net, ulluwebseries.one, desithothub.com, motherless.com, youjizz.com, pornone.com, 3movs.com, porndig.com, hotmovs.tube, shemalez.com, txxx.com, ok.xxx, pornhoarder.tw, yesporn.vip, justporn.com, porngo.com, 1porn.tv, thepornbang.com, letsporn.com, teamskeettube.com, sosalkino.guru, tubepornclassic.com, xxxdan.com, pornxxx.tube, sxyprn.com, latestpornvideo.com, youperv.com, tube.perverzija.com, bigwank.com, sp2026.dev (91porn), 91porn.com, 9p9.xyz, sxyland.com, camcaps.tv, koreanpornmovie.com, fullporner.com, superporn.com, siska.tv, shyfap.net, hdporn92.com, porndos.com"
         )
     
     try:
@@ -563,6 +565,8 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "shyfap.net" in parsed_url.netloc.lower() or
         "hdporn92.com" in parsed_url.netloc.lower() or
         "morencius.com" in parsed_url.netloc.lower() or
+        "porndos.com" in parsed_url.netloc.lower() or
+        "vkuser.net" in parsed_url.netloc.lower() or
         "eporner.com" in parsed_url.netloc.lower() or
         "static.eporner.com" in parsed_url.netloc.lower() or
         "dotmaal.com" in parsed_url.netloc.lower() or
@@ -773,6 +777,8 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "shyfap.net" in host_l
             or "hdporn92.com" in host_l
             or "morencius.com" in host_l
+            or "porndos.com" in host_l
+            or "vkuser.net" in host_l
             or "eporner.com" in host_l
             or "static.eporner.com" in host_l
             or "dotmaal.com" in host_l
