@@ -699,6 +699,19 @@ EXPLORE_SOURCES = [
         pageSize=24,
     ),
     ExploreSourceResponse(
+        baseUrl="https://hdporn92.com/",
+        nickname="Hdporn92",
+        favicon="https://hdporn92.com/favicon.ico",
+        accentColor="#FF3565",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://hdporn92.com/?s={query}",
+        sourceId="hdporn92",
+        disable=False,
+        pageSize=24,
+    ),
+    ExploreSourceResponse(
         baseUrl="https://www.shyfap.net/",
         nickname="ShyFap",
         favicon="https://www.shyfap.net/favicon.ico",
@@ -708,7 +721,7 @@ EXPLORE_SOURCES = [
         hasCategories=True,
         searchUrlTemplate="https://www.shyfap.net/search/?q={query}",
         sourceId="shyfap",
-        disable=True,
+        disable=False,
         pageSize=24,
     ),
     ExploreSourceResponse(

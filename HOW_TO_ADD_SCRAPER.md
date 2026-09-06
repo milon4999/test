@@ -6562,3 +6562,101 @@ Notes from live testing (2026-09 rewrite):
 - Old code failed completely: `api/v8/video` and `api/v8/browse-trending` return 404, `search.htv-services.com` no longer resolves.
 - Rewritten scraper verified: `scrape()` returns title `Arbeit Shiyou!!`, duration `21:15`, views `199.4K` verbatim, uploader `ChiChinoya`, 8 tags, ISO upload date, embed stream (`has_video=True`); listings return 24 cards/page with titles, verbatim views, and cover URLs across pages 1 and 2; categories validate against `CategoryItem`.
 - The handshake algorithm was fully reverse-engineered (documented above) but the API hosts reject server-side calls (auth.hanime.tv 401 Unauthorized, guest.freeanimehentai.net 403 Cloudflare), so only the HTML parsing path is viable.
+
+
+## HDporn92 Implementation Notes
+
+[HDPorn92](https://hdporn92.com/) is a WordPress **retrotube**-theme tube site (same family as SxyLand) for premium-studio scenes (Brazzers, BangBros, Naughty America, ...). Canonical video pages use root-level slugs (e.g. `https://hdporn92.com/freeusefantasy-chanel-camryn-megan-mistakes-megan-takes-a-seat-on-the-freeuse-chair/`). Videos embed a third-party player via `<iframe>` inside `.responsive-player` (host `morencius.com`); direct MP4/HLS URLs are not present in the page HTML.
+
+### Host aliases
+
+- `hdporn92.com`
+- `www.hdporn92.com`
+- `morencius.com` (embed player host, allowlisted in `video_streaming.py`/`schemas.py` for passthrough)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("hdporn92.com", "www.hdporn92.com") or h.endswith(".hdporn92.com")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Listing pages use `article.loop-video.thumb-block` cards (also `article.thumb-block`): post link with `title` attr, thumbnail `<img class="video-main-thumb" src="https://hdporn92.com/wp-content/uploads/...webp">` (real `src`, not lazy), real title in `header.entry-header span`, and views in `span.views` (`5K` — kept verbatim, the eye icon is inside the same span).
+- Keep only same-domain post URLs matching `/{slug}/` (single segment) and skip utility paths: `/categories/`, `/category/`, `/actors/`, `/actor/`, `/tags/`, `/tag/`, `/page/`, `/blog/`, `/feed/`, `/wp-content/`, `/wp-json/`.
+- Page 1 should use `base_url` unchanged.
+- For page > 1, WordPress path pagination is used: `https://hdporn92.com/page/2/` (confirmed by `<link rel="next">`); under category paths it is `/category/{slug}/page/{n}/`. Existing query params (e.g. `?filter=`) are preserved when appending `/page/{n}/`.
+- Sort/filter tabs are query params on the home URL: `?filter=latest`, `?filter=most-viewed`, `?filter=popular`, `?filter=random` (no `?filter=longest`).
+- Search: `https://hdporn92.com/?s={query}` (Rank Math SearchAction).
+
+Useful list base URLs:
+
+- `https://hdporn92.com/`
+- `https://hdporn92.com/?filter=most-viewed`
+- `https://hdporn92.com/category/{slug}/`
+- `https://hdporn92.com/actor/{name}/`
+- `https://hdporn92.com/?s=<query>`
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. visible `h1.entry-title` (Rank Math `og:title`/`<title>` match it here)
+  2. `og:image` / `twitter:image` for the thumbnail (`wp-content/uploads/...webp`)
+  3. `itemprop="uploadDate"` / `article:published_time` meta (`2026-09-06T03:09:28+01:00`)
+  4. `og:description` (strip the trailing `[&hellip;]`)
+- Views: `#video-views span` numeric (`0` on fresh posts; listing cards carry the abbreviated counts) — kept verbatim per site rendering.
+- Tags: `/category/` links inside `article .tags-list` (channel name, e.g. `FreeuseFantasy`) + `/actor/` links in `#video-actors a` (e.g. `Chanel Camryn`, `Megan Mistakes`).
+- Streams: the player is an `<iframe src="https://morencius.com/embed/{hash}">` inside `.responsive-player`. Expose it as `format="embed"`, `quality="Server 1"`, `video.default` = that URL, `video.has_video=True`.
+- Fallback order: iframe embeds in `.responsive-player` / `.video-player` → inline-script `.mp4`/`.m3u8` scan → `meta[itemprop="embedUrl"]` (it exists on the page but is **empty** on embed-only posts).
+- Duration: not exposed anywhere (`None`).
+
+### Categories (`get_categories`)
+
+`categories.json` seeds the nav: Home, the four sort filters (Latest, Most Viewed, Popular, Random), plus the Actors and All Channels index pages. Schema matches the other scraper folders so `/api/v1/categories?source=hdporn92` returns valid `CategoryItem` entries.
+
+### Registration checklist for HDporn92
+
+Besides creating `backend/app/scrapers/hdporn92/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=hdporn92` or `source=hdporn92.com`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif hdporn92.can_handle(host)`)
+  - unsupported-host help text (`hdporn92.com`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`hdporn92.com`, plus player host `morencius.com`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`hdporn92.com`, `morencius.com`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="hdporn92"`, `baseUrl="https://hdporn92.com/"`, `searchUrlTemplate="https://hdporn92.com/?s={query}"`, `accentColor="#FF3565"`)
+
+### HDporn92 verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://hdporn92.com/freeusefantasy-chanel-camryn-megan-mistakes-megan-takes-a-seat-on-the-freeuse-chair/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://hdporn92.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://hdporn92.com/category/freeusefantasy/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=hdporn92"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://hdporn92.com/freeusefantasy-chanel-camryn-megan-mistakes-megan-takes-a-seat-on-the-freeuse-chair/"
+```
+
+Notes from live testing (2026-09):
+
+- Home listing (page 1), page-2 path pagination, category pagination, `scrape()` metadata (title, verbatim views, ISO upload date, channel+actor tags, og:description, 10 related), and the `morencius.com` embed (`Server 1`, `has_video=True`) were all verified.
+- `itemprop="embedUrl"` is present but empty on embed-only posts — the iframe in `.responsive-player` is the real source.
+- Plain `User-Agent` + `Referer` requests are sufficient (no Cloudflare challenge at test time).
