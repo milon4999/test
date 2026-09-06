@@ -1282,7 +1282,7 @@ EXPLORE_SOURCES = [
         hasCategories=True,
         searchUrlTemplate="https://hanime.tv/search?q={query}",
         sourceId="hanime",
-        disable=False,
+        disable=True,
         pageSize=100,
     ),
     ExploreSourceResponse(
