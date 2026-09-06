@@ -6415,7 +6415,7 @@ def can_handle(host: str) -> bool:
 
 - Backend returns the stable same-host embed `https://www.shyfap.net/embed/{video_id}` (from `og:video`, fallback `ya:ovs:id`) as a single `format="embed"` stream — see the IP-bound failure note below.
 - **Why `get_stream/{id}-{quality}.mp4` fails**: the flashvars MP4s are decoys. The real flow is the page's `generate_mp4('token', 'password', 'okVideoId', 'videoId')` call: the base64 token decrypts (PBKDF2-HMAC-SHA512(password, salt, iterations, 32B key) → AES-256-CBC) into an **OK.ru `session_key`**; the player then calls `api.ok.ru/fb.do?...method=video.get&session_key=...&vids={okVideoId}`, which returns direct `ok6-12.vkuser.net/?expires=...&srcIp=...` MP4 URLs for 2160p/1440p/1080p/720p/480p/360p/240p. Those URLs are **signed for the requesting IP and expire** — a backend-resolved URL never plays on a client device (same failure mode as FullPorner's `/vid/` URLs and SuperPorn's `?secure=` token).
-- **Flutter local scraper status: REMOVED** — a local port (`app/lib/features/source/data/scrapers/shyfap.dart`) was built and verified (PBKDF2-SHA512 via pointycastle + AES-CBC produced a valid session key and playable `vkuser.net` URLs in testing), but it did not work reliably in the production app and was removed. ShyFap falls back to the backend embed flow; a WebView-based player would be the remaining option if direct playback is ever needed again.
+- **Playback attempts: direct local scraper REMOVED, MissAV-style WebView playback REVERTED.** A local Dart port (`app/lib/features/source/data/scrapers/shyfap.dart`) was built and verified in isolation (PBKDF2-SHA512 via pointycastle + AES-CBC produced a valid session key and playable `vkuser.net` URLs) but did not work reliably in the production app and was removed. The MissAV-style WebView approach (forcing `EmbedInAppWebViewPlayer` to load the watch page directly, with the site's own kt_player) was also attempted and reverted — it did not play reliably either (the page's aggressive ads/anti-devtools scripts and heavy player bootstrap break inside the constrained WebView). **Current state:** ShyFap falls through to the generic backend flow — the backend returns its stable `https://www.shyfap.net/embed/{video_id}` embed URL, and the app opens it via the embed WebView player. If embedded playback also proves unreliable on a given device, there is no third approach; consider dropping the source.
 
 ### Listing and pagination (`list_videos`)
 
@@ -6502,3 +6502,63 @@ Notes from live testing (2026-09):
 - `scrape()` returns exactly one embed stream `https://www.shyfap.net/embed/{video_id}` (`Server 1`, `has_video=True`); the flashvars `/get_stream/` MP4 construction was removed after the direct URLs failed to play outside the site's player.
 - Pagination gotcha: the first implementation rewrote the section LIST ID (`/most-watched-videos_1/` → `/most-watched-videos_2/`, wrong). The page is a separate path segment — append/replace the trailing numeric segment only.
 - The site ships a `disable-devtool` CDN script (anti-devtools) — irrelevant for server-side scraping; plain `User-Agent` + `Referer` requests are sufficient (no Cloudflare challenge at test time).
+
+
+## Hanime Implementation Notes
+
+[Hanime](https://hanime.tv/) is an Astro/Vue SSR hentai tube site. **The old v8 JSON API (`hanime.tv/api/v8/*`) and the legacy `search.htv-services.com` search API are both dead** (404 / NXDOMAIN as of 2026-09) — the scraper was rewritten to parse the server-rendered HTML. Stream extraction is **not possible server-side**: the site's kt_player performs an AES-GCM handshake (`POST /api/v11/handshake` with an AES-GCM token built from key `SHA-256("htv-insecure-handshake-v1")`, AAD `"htv-insecure-v1"`, payload `{timestamp_unix, directive: "htv_player_handshake", slug}`), and the encrypted `x-token` response only unlocks an HLS manifest **text** minted for the browser session behind Cloudflare/Turnstile — the API hosts 401/403 any server-side call. The app plays hanime via its WebView player (missav-style), so the scraper returns the watch page as the embed source.
+
+### Host aliases
+
+- `hanime.tv`, `www.hanime.tv`
+- CDN: `hanime-cdn.com` (covers/posters/storyboards)
+
+### Streams (`scrape`) — embed only
+
+- The player page's `og:video` is absent; the HLS sources come only from the handshake flow described above.
+- Return one stream: the watch page URL as `format="embed"`, `quality="Server 1"`, `video.default` = page URL, `video.has_video=True`. The app's WebView player loads the page and the site's own player handles the HLS playback (minted for the device's session/IP).
+
+### Listing and pagination (`list_videos`)
+
+- Listing pages are server-rendered. Cards: `<a href="/videos/hentai/{slug}" title="Watch X hentai stream online HD 1080p, 720p">` with `<img src="https://hanime-cdn.com/images/covers/...">`, `<h3>` real title, and an `icon="mdi:eye-outline"` + `<span>` views pair (`3.4M` — kept verbatim).
+- The home page stacks several sliders (Recent Uploads, etc.) — the card-split parser handles all of them (96 cards on the home page).
+- Sort sections: `/browse/trending` (default), plus query `?order=created_at_desc` for newest, `?order=views` for all-time most-viewed. `/browse/random` and `/search?query=...` are client-rendered (0 cards server-side) — do not use them as listing URLs.
+- Pagination: `?page=N` query param on any listing URL (`/browse/trending?page=2`; page 1 uses `base_url` unchanged).
+- Search: **no server-rendered search** — the search page hydrates client-side and cannot be scraped without the gated API.
+
+### Metadata (`scrape`)
+
+- Title: `h1` (the `og:title`/`<title>` are SEO-rewritten to "Watch X Hentai Video in 1080p HD - hanime.tv" — prefer `h1`)
+- Description + thumbnail + duration + upload date: from the embedded `application/ld+json` `VideoObject` block (`duration` is ISO 8601, e.g. `PT21M15S` → `21:15`; `uploadDate` `2010-04-18T15:00:00.000Z`)
+- Views: eye-icon `<span>` text, kept verbatim (`199.4K`)
+- Tags: `/browse/tags/{slug}` badge links (8 per video)
+- Brand (uploader): `a[href^="/browse/brands/"] strong` ("Studio <strong>ChiChinoya</strong>")
+- Related: other `/videos/hentai/` card links on the page (usually just the next-video slider → 1 item; its SSR HTML lacks a title, so the current video's title is reused as fallback)
+
+### Categories (`get_categories`)
+
+`categories.json` seeds three working sections: Trending (`/browse/trending`), Newest (`/browse/trending?order=created_at_desc`), All Time (`/browse/trending?order=views`). Schema matches the other scraper folders so `/api/v1/categories?source=hanime` returns valid `CategoryItem` entries.
+
+### Registration checklist (hanime — already wired, unchanged)
+
+- `backend/app/scrapers/__init__.py`, `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, categories mapping), `backend/app/services/video_streaming.py` (import, selection branch, host lists — includes `hanime.tv`), `backend/app/models/schemas.py` (allowlists), `backend/app/api/endpoints/explore.py` (`ExploreSourceResponse`, `sourceId="hanime"`).
+
+### Hanime verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://hanime.tv/videos/hentai/arbeit-shiyou\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://hanime.tv/browse/trending&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=hanime"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://hanime.tv/videos/hentai/arbeit-shiyou"
+```
+
+Notes from live testing (2026-09 rewrite):
+
+- Old code failed completely: `api/v8/video` and `api/v8/browse-trending` return 404, `search.htv-services.com` no longer resolves.
+- Rewritten scraper verified: `scrape()` returns title `Arbeit Shiyou!!`, duration `21:15`, views `199.4K` verbatim, uploader `ChiChinoya`, 8 tags, ISO upload date, embed stream (`has_video=True`); listings return 24 cards/page with titles, verbatim views, and cover URLs across pages 1 and 2; categories validate against `CategoryItem`.
+- The handshake algorithm was fully reverse-engineered (documented above) but the API hosts reject server-side calls (auth.hanime.tv 401 Unauthorized, guest.freeanimehentai.net 403 Cloudflare), so only the HTML parsing path is viable.
