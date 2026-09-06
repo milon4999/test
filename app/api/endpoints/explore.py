@@ -721,7 +721,7 @@ EXPLORE_SOURCES = [
         hasCategories=True,
         searchUrlTemplate="https://www.shyfap.net/search/?q={query}",
         sourceId="shyfap",
-        disable=True,
+        disable=False,
         pageSize=24,
     ),
     ExploreSourceResponse(
