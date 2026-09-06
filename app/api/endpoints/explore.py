@@ -1085,7 +1085,7 @@ EXPLORE_SOURCES = [
         hasCategories=True,
         searchUrlTemplate="https://www.teamskeettube.com/?s={query}",
         sourceId="teamskeettube",
-        disable=True,
+        disable=False,
         pageSize=24,
     ),
     ExploreSourceResponse(
