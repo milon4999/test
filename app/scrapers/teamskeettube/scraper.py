@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import base64
 import json
 import os
 import re
-import urllib.parse
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
@@ -28,12 +26,6 @@ _DEFAULT_HEADERS = {
 
 _VIDEO_HREF_RE = re.compile(
     r"teamskeettube\.com/video/(?P<slug>(?!category/)[^/?#]+)/?",
-    re.IGNORECASE,
-)
-_PLAYER_Q_RE = re.compile(r"player-x\.php\?q=([^\"'&]+)", re.IGNORECASE)
-_EMBED_SRC_RE = re.compile(r'src=["\']([^"\']+)["\']', re.IGNORECASE)
-_XVIDEOS_EMBED_RE = re.compile(
-    r"https?://(?:www\.)?xvideos\.com/embedframe/[a-z0-9]+",
     re.IGNORECASE,
 )
 _CATEGORY_HREF_RE = re.compile(
@@ -146,24 +138,6 @@ def _path_parts(path: str) -> list[str]:
     return [p for p in (path or "").strip("/").split("/") if p]
 
 
-def _decode_player_q(q: str) -> dict[str, str]:
-    raw = (q or "").strip()
-    if not raw:
-        return {}
-    pad = raw + "=" * (-len(raw) % 4)
-    try:
-        decoded = base64.b64decode(pad).decode("utf-8", errors="ignore")
-    except Exception:
-        return {}
-    out: dict[str, str] = {}
-    for part in decoded.split("&"):
-        if "=" not in part:
-            continue
-        key, value = part.split("=", 1)
-        out[key] = urllib.parse.unquote(value)
-    return out
-
-
 def _normalize_video_href(href: str) -> Optional[str]:
     href = (href or "").strip()
     if not href or href.startswith("#") or href.startswith("javascript:"):
@@ -223,16 +197,15 @@ def _category_name_from_article(article: Any) -> Optional[str]:
     return None
 
 
-def _embeds_from_player_payload(data: dict[str, str], _add) -> None:
-    tag = data.get("tag") or ""
-    for match in _EMBED_SRC_RE.finditer(tag):
-        _add(match.group(1))
-    url = data.get("url") or data.get("video_url") or ""
-    if url:
-        _add(url)
-
-
 def _extract_embed_urls(html: str) -> list[str]:
+    """Collect the playable embed URL for a teamskeettube video page.
+
+    The site wraps its player in the clean-tube-player plugin:
+    /wp-content/plugins/clean-tube-player/public/player-x.php?q=<b64 payload>.
+    The decoded payload is `post_id=..&type=iframe|direct&tag=<iframe|video markup>`,
+    but only the player-x.php URL itself plays — the inner redtube / xvideos
+    iframes it renders do NOT play standalone, so those are not returned.
+    """
     seen: set[str] = set()
     embeds: list[str] = []
 
@@ -243,34 +216,29 @@ def _extract_embed_urls(html: str) -> list[str]:
         seen.add(media)
         embeds.append(media)
 
-    for q in _PLAYER_Q_RE.findall(html or ""):
-        _embeds_from_player_payload(_decode_player_q(q), _add)
-
-    for match in _XVIDEOS_EMBED_RE.findall(html or ""):
-        _add(match)
+    for match in re.finditer(
+        r'(?:(?:src|href)\s*=\s*["\']|https?://(?:www\.)?)'
+        r'((?:https?://(?:www\.)?teamskeettube\.com)?'
+        r"/wp-content/plugins/clean-tube-player/public/player-x\.php\?q=[^\"'&>\s]+)",
+        html or "",
+        re.IGNORECASE,
+    ):
+        _add(match.group(1))
 
     soup = BeautifulSoup(html, "lxml")
     for iframe in soup.select("iframe[src]"):
         src = _normalize_media_url(str(iframe.get("src") or "").strip())
-        if not src:
-            continue
-        if "player-x.php" in src.lower():
-            parsed = urlparse(src)
-            q = dict(parse_qsl(parsed.query)).get("q")
-            if q:
-                _embeds_from_player_payload(_decode_player_q(q), _add)
-            continue
-        if any(x in src.lower() for x in ("embedframe", "embed", "player")):
-            if "teamskeettube.com/wp-content/plugins" not in src.lower():
-                _add(src)
+        if src and "player-x.php" in src.lower():
+            _add(src)
 
     return embeds
 
 
 def _streams_from_html(html: str) -> dict[str, Any]:
+    """Streams: the clean-tube-player player-x.php embed (the only playable source)."""
     streams: list[dict[str, str]] = []
-    for embed in _extract_embed_urls(html):
-        streams.append({"url": embed, "quality": "embed", "format": "embed"})
+    for i, embed in enumerate(_extract_embed_urls(html), start=1):
+        streams.append({"url": embed, "quality": f"Server {i}", "format": "embed"})
 
     default = streams[0]["url"] if streams else None
     return {

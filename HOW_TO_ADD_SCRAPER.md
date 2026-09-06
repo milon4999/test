@@ -4854,80 +4854,61 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://letsporn.com/mia-kh
 
 ## TeamSkeetTube.com (teamskeettube) Implementation Notes
 
-[TeamSkeetTube.com](https://www.teamskeettube.com/) is a WordPress tube site using the `clean-tube-player` plugin. Watch pages embed XVideos via a base64-encoded `player-x.php?q=` payload; there are no direct MP4 URLs on the page.
+[TeamSkeetTube.com](https://www.teamskeettube.com/) is a WordPress tube site using the **clean-tube-player** plugin. Every video embeds its player through `/wp-content/plugins/clean-tube-player/public/player-x.php?q=<base64 payload>`. **Only the player-x.php URL itself plays** — the inner RedTube/XVideos iframes it renders (`embed.redtube.com/?id=...`, `xvideos.com/embedframe/...`) do NOT play standalone and must not be returned (verified 2026-09: embed.redtube.com is unreachable/blocked for many clients).
+
+### Streams (`scrape`) — player-x.php embed only
+
+- The watch page has one `iframe[src]` pointing at `player-x.php?q=...`; its base64 payload decodes to `post_id=..&type=iframe&tag=<iframe src="https://embed.redtube.com/?id=...">`.
+- Return exactly one stream: the **player-x.php URL** as `format="embed"`, `quality="Server 1"`, `video.default` = that URL, `video.has_video=True`.
+- The app plays it via the generic backend flow: `format=embed` → `_videoFormat='embed'` → the embed WebView player loads the player-x.php URL directly, which renders the working inner player.
+- Do NOT return the inner `embed.redtube.com` / `xvideos.com/embedframe/` URLs as fallbacks — they fail to play and pollute the quality selector.
 
 ### Host aliases
 
-- `teamskeettube.com`
-- `www.teamskeettube.com`
-
-Example:
-
-```python
-def can_handle(host: str) -> bool:
-    h = (host or "").lower().split(":")[0]
-    if h.startswith("www."):
-        h = h[4:]
-    if h in {"teamskeettube.com", "www.teamskeettube.com"}:
-        return True
-    return h.endswith(".teamskeettube.com")
-```
+- `teamskeettube.com`, `www.teamskeettube.com` (any `*.teamskeettube.com`)
 
 ### Listing and pagination (`list_videos`)
 
-- Home: `https://www.teamskeettube.com/`
-- Latest: `https://www.teamskeettube.com/?filter=latest`
-- Random: `https://www.teamskeettube.com/?filter=random`
-- Category: `https://www.teamskeettube.com/video/category/{slug}/`
-- Categories index (paginated, 4 pages): `https://www.teamskeettube.com/categories/`
-- Pornstars: `https://www.teamskeettube.com/pornstars/`
+- Cards: `article.thumb-block` / `article.loop-video` with `a[href*='/video/']`, thumbnail `img[data-src]` under `wp-content/uploads/`, title from the anchor `title` attr or `img[alt]`.
+- Category name (uploader): the article's `category-{slug}` CSS class, title-cased.
+- Pagination: WordPress path style `/page/{n}/` (`_build_list_page_url` appends `page/{n}` for page > 1, strips existing `page/N` and `paged` params).
+- Category pages: `/video/category/{slug}/` — `_normalize_list_base_url` canonicalizes them (with the `freeuse` → `freeuse-bundle` alias map).
+- Search: `https://www.teamskeettube.com/?s={query}` (WordPress query search).
 
-`categories.json` has 73 entries (Home, Latest, Random + 70 brand categories scraped from `/categories/` pages 1â€“4). The `freeuse` slug is an alias that redirects to home on-site; use `freeuse-bundle` (mapped automatically in `list_videos`).
+### Metadata (`scrape`)
 
-WordPress-style path pagination (not `?page=N`):
+- Title: `og:title` (fallback JSON-LD `headline`, `h1`), with the studio-prefix stripper (`"Dad Crush: ..."` → `...`) and `- TeamSkeetTube` suffix removal.
+- Thumbnail: `og:image`. Description: `og:description`.
+- Tags: `a[rel='tag']` links; the first `/video/category/` link text is used as uploader and inserted as the first tag.
+- `upload_date`: JSON-LD `datePublished`. Duration/views: not exposed (`None`).
+- Related videos: none on watch pages (empty list).
 
-- Page 2 home: `https://www.teamskeettube.com/page/2/`
-- Page 2 category: `https://www.teamskeettube.com/video/category/anal-mom/page/2/`
-- Page 2 latest: `https://www.teamskeettube.com/page/2/?filter=latest`
+### Categories (`get_categories`)
 
-Query params such as `?filter=latest` are preserved; strip any existing `/page/N/` segment before appending the new page path.
+`categories.json` seeds the main nav sort pages. Schema matches the other scraper folders so `/api/v1/categories?source=teamskeettube` returns valid `CategoryItem` entries.
 
-Parse cards from `article.thumb-block` / `article.loop-video` anchors matching `https://www.teamskeettube.com/video/{slug}/` (exclude `/video/category/` links). Category name comes from `category-{slug}` article classes.
+### Registration checklist (teamskeettube — already wired, unchanged)
 
-Use `curl_cffi` (Chrome impersonation) with `Referer: https://www.teamskeettube.com/` â€” plain `httpx` may get 406 Mod_Security on some URLs.
+- `backend/app/scrapers/__init__.py`, `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, categories mapping), `backend/app/services/video_streaming.py` (import, selection branch, host lists), `backend/app/models/schemas.py` (allowlists), `backend/app/api/endpoints/explore.py` (`ExploreSourceResponse`, `sourceId="teamskeettube"`).
 
-### Scraping (`scrape`)
-
-- **Watch URL shape:** `https://www.teamskeettube.com/video/{slug}/`
-- **Player:** `player-x.php?q={base64}` decodes to `tag=<iframe src="https://www.xvideos.com/embedframe/{id}">`
-- **Streams:** expose decoded XVideos embed URLs as `format: "embed"` (same pattern as yesporn/justporn)
-- **Metadata:** `og:title`, `og:image`, `og:description`, JSON-LD Article; category from first `/video/category/` link
-
-Package folder: `backend/app/scrapers/teamskeettube/`.
-
-Register in:
-
-- `backend/app/scrapers/__init__.py`
-- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` with aliases `teamskeettube`, `teamskeettube.com`)
-- `backend/app/services/video_streaming.py`
-- `backend/app/models/schemas.py`
-- `backend/app/api/endpoints/explore.py` (`sourceId="teamskeettube"`)
-
-### Test commands
+### TeamSkeetTube verification examples
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/api/v1/scrape" \
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
   -H "Content-Type: application/json" \
-  -d "{\"url\":\"https://www.teamskeettube.com/video/pervz-chloe-temple-concept-charmed/\"}"
+  -d "{\"url\":\"https://www.teamskeettube.com/video/dad-crush-lily-larimar-a-little-spanking-goes-a-long-way/\"}"
 
-curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.teamskeettube.com/video/category/pervz&page=1&limit=20"
-
-curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.teamskeettube.com/&page=2&limit=20"
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.teamskeettube.com/&page=1&limit=20"
 
 curl "http://127.0.0.1:8000/api/v1/categories?source=teamskeettube"
 
-curl "http://127.0.0.1:8000/api/v1/videos/info?url=https://www.teamskeettube.com/video/pervz-chloe-temple-concept-charmed/"
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.teamskeettube.com/video/dad-crush-lily-larimar-a-little-spanking-goes-a-long-way/"
 ```
+
+Notes from live testing (2026-09):
+
+- The scraper previously returned the inner `embed.redtube.com/?id=...` URL, which fails: `embed.redtube.com` is connection-blocked/unreachable on many networks and the xvideos embedframe times out. Fixed to return only the `player-x.php?q=` embed (single `Server 1` stream) — verified via `/api/v1/videos/stream` returning `format=embed` with the player-x URL.
+- Listing, pagination (`/page/2/`), and metadata verified against the live site; dead helper code (payload decoder, xvideos regex, base64/urllib imports) removed.
 
 ## Sosalkino (sosalkino.guru) Implementation Notes
 
