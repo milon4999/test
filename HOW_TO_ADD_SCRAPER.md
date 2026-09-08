@@ -6746,4 +6746,23 @@ Notes from live testing (2026-09):
 - aiohttp returns empty 200 bodies — curl_cffi impersonation is mandatory (this broke the first probe attempts).
 - Listing page 1 + page 2 (`videos_60/2/`, 24 cards each), search (`/search/sex/1/`, 32 cards), `scrape()` metadata (title, duration `19:43`, views `319` verbatim, 4 tags, 12 related), and all three direct MP4 qualities were verified.
 - Stream ordering verified: `_KVS_QUALITIES` iterates highest-first so `default` = 720p.
-- `get_stream` 302-redirects to `ok6-5.vkuser.net` with an SSL certificate that fails plain aiohttp verification — the URLs are **IP-signed**, so backend-resolved links fail on devices. The Flutter app ships a local scraper (`app/lib/features/source/data/scrapers/porndos.dart`, `PorndosService.getStreamLinks`) that fetches the page on-device (browser-like headers; plain HTTP gets empty bodies) and parses the same flashvars, so page fetch + playback share the device IP. Wired in `source_video_details_page.dart` (porndos branch before the generic backend fallback, setting `_apiResolutions` + `_videoFormat='mp4'`).
+- `get_stream` 302-redirects to `ok6-5.vkuser.net` with an SSL certificate that fails plain aiohttp verification — the URLs are **IP-signed**, so backend-resolved links fail on devices. **Flutter local scraper status: REMOVED** — a local port (`app/lib/features/source/data/scrapers/porndos.dart`, `PorndosService.getStreamLinks`) was built (page fetch + same flashvars parsing on-device) but did not work reliably in the production app (the bot-protection empty-body guard rejected most device fetches) and was removed along with its wiring in `source_video_details_page.dart`. PornDos falls back to the backend embed flow (`/embed/{id}/`).
+
+
+## XXXParodyHD Embed-Host Rules (2026-09)
+
+The movie pages on xxxparodyhd.net link out to several file-hosts; only some actually play in-app. Rules now encoded in `parse_page` (`backend/app/scrapers/xxxparodyhd/scraper.py`):
+
+- **FreeDL (`frdl.io`)** — download host, no player. Skipped entirely (`embed_host_skip`); "FreeDL" server no longer returned.
+- **VOE (`voe.sx/e/...`)** — returns HTTP 200 with a ~750-byte JS bootstrap page (`window.location.href = "https://eugenemakedraw.com/e/{id}"`). Resolved **at scrape time**: the page is fetched and the JS target extracted with a regex (no static domain map — the mirror rotates).
+- **MixDrop (`mixdrop.my/e/...`)** — HTTP 302 to a rotating mirror (currently `miixdrop.top/e/{id}`). Resolved **at scrape time** by following the 302 (allow_redirects=False + Location header).
+- Both are resolved LIVE per scrape (an `AsyncSession(impersonate="chrome120")` round-trip per embed URL, `needs_resolution` flag) so domain rotations keep working without code changes. `parse_page` is now `async` for this reason.
+- **LuluStream (`luluvid.com/e/...`)** — kept as-is and made the **default** stream (most reliable).
+- **Playmate (`playmate.to/embed/...`)** — kept and included in the priority order.
+
+Streams are returned priority-ordered and deduplicated: **MixDrop → VOE → Playmate → LuluStream**, and `video.default` follows the same order (MixDrop first). The old Streamtape default priority was removed (Streamtape embeds no longer appear on movie pages).
+
+Implementation gotcha: the host tag must be captured **before** applying the domain rewrites (the rewritten domains `miixdrop.top` / `eugenemakedraw.com` no longer contain `mixdrop` / `voe`), and the default-picker must match on the host tag rather than the rewritten URL — otherwise MixDrop/VOE links get dropped or mis-defaulted.
+
+Verified live on `xxxparodyhd.net/teens-playing-with-new-toys/`: returns exactly `LuluStream` (default) + `PlayMate` on the rewritten `playmate.to/embed/...` domain, VOE/MixDrop rewritten when present, FreeDL excluded. `ScrapeResponse` validates; `import app.main` clean.
+

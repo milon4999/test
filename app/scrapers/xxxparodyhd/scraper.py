@@ -55,7 +55,7 @@ def _best_image_url(img: Any) -> Optional[str]:
     return None
 
 
-def parse_page(html: str, url: str) -> dict[str, Any]:
+async def parse_page(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
 
     # Title
@@ -77,18 +77,34 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
 
     # Extract embedded player URLs (iframes)
     embed_urls = []
-    # Look for tab content with player links
+    # Player hosts that actually play (verified 2026-09): MixDrop, VOE,
+    # Playmate, LuluStream. FreeDL is a download host (no player) and is skipped.
+    # MixDrop/VOE embeds redirect to rotating mirror domains at runtime — each
+    # embed URL is RESOLVED LIVE below (HTTP 302 for mixdrop, JS
+    # window.location for voe) instead of using a static domain map.
+    embed_host_priority = ("mixdrop", "voe", "playmate", "luluvid")
+    embed_host_skip = ("frdl", "freedl")
+    needs_resolution = ("mixdrop", "voe")
     for a_tag in soup.select(".su-spoiler-content a[href], .entry-content a[href], .Rtable1 a[href]"):
         href = a_tag.get("href", "")
         text = _text(a_tag) or ""
+        low = href.lower()
         # Common embed hosts
         embed_hosts = ["dood", "doply", "vidnest", "player4me", "upns", "voe.sx",
                        "embedseek", "seekplayer", "mixdrop", "easyvidplayer", "rpmplay",
-                       "luluvid", "streamtape", "frdl", "hxfile", "xshotcok", "urshort"]
-        if any(h in href.lower() for h in embed_hosts):
+                       "luluvid", "streamtape", "playmate", "hxfile", "xshotcok", "urshort"]
+        if any(h in low for h in embed_hosts):
+            # Skip non-playing download hosts
+            if any(x in low for x in embed_host_skip):
+                continue
+            # Tag the host BEFORE resolution (the resolved domain no longer
+            # contains the original host name: voe.sx -> eugenemakedraw.com)
+            host_tag = next((h for h in embed_host_priority if h in low), "other")
             embed_urls.append({
                 "url": href,
                 "label": text or "Player",
+                "host": host_tag,
+                "resolve": any(h in low for h in needs_resolution),
             })
 
     # Also check for iframes
@@ -97,38 +113,83 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
         if src and ("http" in src or src.startswith("//")):
             if src.startswith("//"):
                 src = f"https:{src}"
+            low = src.lower()
+            if any(x in low for x in embed_host_skip):
+                continue
+            if not any(h in low for h in embed_hosts):
+                continue
+            host_tag = next((h for h in embed_host_priority if h in low), "other")
             embed_urls.append({
                 "url": src,
                 "label": "Embedded Player",
+                "host": host_tag,
+                "resolve": any(h in low for h in needs_resolution),
             })
+
+    # Deduplicate by URL, keeping priority order (MixDrop -> VOE -> Playmate -> Lulu)
+    seen_urls = set()
+    ordered = []
+    for host in embed_host_priority:
+        for e in embed_urls:
+            if e["host"] == host and e["url"] not in seen_urls:
+                seen_urls.add(e["url"])
+                ordered.append(e)
+    embed_urls = ordered
+
+    # Resolve MixDrop/VOE embeds to their REAL redirect targets at scrape time:
+    # - MixDrop: HTTP 302 (e.g. mixdrop.my -> miixdrop.top — rotating mirrors)
+    # - VOE: HTTP 200 but a JS redirect (window.location.href = ...) inside a
+    #   ~750-byte bootstrap page -> extract the target with a regex.
+    resolved: list[dict[str, Any]] = []
+    to_resolve = {e["url"]: None for e in embed_urls if e.get("resolve")}
+    if to_resolve:
+        from curl_cffi.requests import AsyncSession
+
+        async with AsyncSession(impersonate="chrome120", timeout=20.0) as client:
+            for u in list(to_resolve.keys()):
+                try:
+                    resp = await client.get(u, allow_redirects=False)
+                    if resp.status_code in (301, 302, 303, 307, 308):
+                        loc = (resp.headers.get("Location") or "").strip()
+                        if loc.startswith("http"):
+                            to_resolve[u] = loc
+                            continue
+                    # VOE-style JS redirect inside the page body
+                    m = re.search(
+                        r"window\.location(?:\.href)?\s*=\s*[\"']([^\"']+)",
+                        resp.text or "",
+                        re.IGNORECASE,
+                    )
+                    if m:
+                        to_resolve[u] = m.group(1)
+                except Exception:
+                    continue
+
+    for e in embed_urls:
+        resolved_url = to_resolve.get(e["url"])
+        resolved.append({**e, "url": resolved_url or e["url"]})
+    embed_urls = resolved
 
     # Build video data
     # XXXParodyHD doesn't host videos directly - it links to external embed players
     video_url = None
     streams = []
     if embed_urls:
-        # Prioritize Streamtape as default if available
-        streamtape_stream = next(
-            (
-                e
-                for e in embed_urls
-                if "streamtape" in e["url"].lower() or "streamtape" in e.get("label", "").lower()
-            ),
+        # Default: MixDrop if available (priority order: MixDrop -> VOE -> Playmate -> Lulu)
+        # Match on the host TAG, not the URL — rewritten domains (miixdrop.top,
+        # eugenemakedraw.com) no longer contain the original host names.
+        priority_default = next(
+            (e for pref in ("mixdrop", "voe", "playmate") for e in embed_urls if e["host"] == pref),
             None,
         )
-        video_url = streamtape_stream["url"] if streamtape_stream else embed_urls[0]["url"]
-        
+        video_url = (priority_default or embed_urls[0])["url"]
+
         for idx, embed in enumerate(embed_urls):
             streams.append({
                 "url": embed["url"],
                 "quality": embed.get("label", f"Player {idx + 1}"),
                 "format": "embed",
             })
-        if video_url:
-            for s in streams:
-                if s.get("url") == video_url:
-                    s["format"] = "default"
-                    break
 
     # Tags / Genres
     tags = []
@@ -212,7 +273,7 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
 
 async def scrape(url: str) -> dict[str, Any]:
     html = await fetch_html(url)
-    return parse_page(html, url)
+    return await parse_page(html, url)
 
 
 def get_categories() -> list[dict[str, Any]]:
