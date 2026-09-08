@@ -708,7 +708,7 @@ EXPLORE_SOURCES = [
         hasCategories=True,
         searchUrlTemplate="https://www.porndos.com/search/{query}/1/",
         sourceId="porndos",
-        disable=False,
+        disable=True,
         pageSize=24,
     ),
     ExploreSourceResponse(
