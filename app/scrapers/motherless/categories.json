@@ -1,19 +1,27 @@
 [
-  { "name": "Home", "url": "https://motherless.xxx/", "video_count": 0 },
-  { "name": "Most Recent", "url": "https://motherless.xxx/videos/recent", "video_count": 0 },
-  { "name": "Most Favorited", "url": "https://motherless.xxx/videos/favorited", "video_count": 0 },
-  { "name": "Most Viewed", "url": "https://motherless.xxx/videos/viewed", "video_count": 0 },
-  { "name": "Most Commented", "url": "https://motherless.xxx/videos/commented", "video_count": 0 },
-  { "name": "Amateur", "url": "https://motherless.xxx/term/videos/amateur", "video_count": 0 },
-  { "name": "Homemade", "url": "https://motherless.xxx/term/videos/homemade", "video_count": 0 },
-  { "name": "Teen (18+)", "url": "https://motherless.xxx/term/videos/teen", "video_count": 0 },
-  { "name": "MILF", "url": "https://motherless.xxx/term/videos/milf", "video_count": 0 },
-  { "name": "Asian", "url": "https://motherless.xxx/term/videos/asian", "video_count": 0 },
-  { "name": "Anal", "url": "https://motherless.xxx/term/videos/anal", "video_count": 0 },
-  { "name": "Blowjob", "url": "https://motherless.xxx/term/videos/blowjob", "video_count": 0 },
-  { "name": "Lesbian", "url": "https://motherless.xxx/term/videos/lesbian", "video_count": 0 },
-  { "name": "POV", "url": "https://motherless.xxx/term/videos/pov", "video_count": 0 },
-  { "name": "Webcam", "url": "https://motherless.xxx/term/videos/webcam", "video_count": 0 },
-  { "name": "Hentai", "url": "https://motherless.xxx/term/videos/hentai", "video_count": 0 },
-  { "name": "BDSM", "url": "https://motherless.xxx/term/videos/bdsm", "video_count": 0 }
+    {
+        "name": "Home",
+        "url": "https://motherlesss.net/",
+        "video_count": 0
+    },
+    {
+        "name": "Category",
+        "url": "https://motherlesss.net/category/",
+        "video_count": 0
+    },
+    {
+        "name": "Model",
+        "url": "https://motherlesss.net/model/",
+        "video_count": 0
+    },
+    {
+        "name": "Series",
+        "url": "https://motherlesss.net/series/",
+        "video_count": 0
+    },
+    {
+        "name": "Tags",
+        "url": "https://motherlesss.net/tags/",
+        "video_count": 0
+    }
 ]

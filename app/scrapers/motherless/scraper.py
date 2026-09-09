@@ -4,24 +4,27 @@ import json
 import os
 import re
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
 
 from app.core.pool import fetch_html as pool_fetch_html
 
-BASE_SITE = "https://motherless.xxx/"
-SITE_HOST = "motherless.xxx"
-SITE_HOSTS = frozenset({"motherless.xxx", "motherless.com"})
+BASE_SITE = "https://motherlesss.net/"
+SITE_HOST = "motherlesss.net"
+SITE_HOSTS = frozenset({"motherlesss.net", "www.motherlesss.net"})
 SITE_ALIASES = frozenset(
     {
+        "motherlesss.net",
+        "www.motherlesss.net",
+        # legacy domains kept for can_handle compatibility
         "motherless.xxx",
         "www.motherless.xxx",
         "motherless.com",
         "www.motherless.com",
     }
 )
-CDN_HOST_MARKERS = ("motherlessmedia.com",)
+CDN_HOST_MARKERS = ("motherlessmedia.com", "video.ogporn.com")
 
 _DEFAULT_HEADERS = {
     "User-Agent": (
@@ -31,66 +34,41 @@ _DEFAULT_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": BASE_SITE,
-    "Cookie": "age_verified=1",
 }
 
-_VIDEO_ID_RE = re.compile(r"^[A-F0-9]{4,12}$", re.IGNORECASE)
-_GALLERY_PATH_RE = re.compile(r"^G[VIGF]?[A-F0-9]+$", re.IGNORECASE)
-_VIDEO_PATH_RE = re.compile(
-    r"^https?://(?:www\.)?motherless\.(?:xxx|com)/(?:g/[a-z0-9_]+/)?(?P<id>[A-F0-9]{4,12})/?(?:$|[?#])",
+_VIDEO_PAGE_RE = re.compile(
+    r"^https?://(?:www\.)?motherlesss?\.(?:net|xxx|com)/(?P<slug>[a-z0-9][a-z0-9-]*)/?$",
     re.IGNORECASE,
 )
-_CDN_VIDEO_RE = re.compile(
-    r"motherlessmedia\.com/videos/(?P<id>[A-F0-9]{4,12})(?:-720p)?\.mp4",
-    re.IGNORECASE,
-)
-_LIST_LINK_RE = re.compile(
-    r'href="[^"]*/(?P<id>[A-F0-9]{4,12})"\s+title="(?P<title>[^"]+)"',
-    re.IGNORECASE,
-)
-_FILEURL_RE = re.compile(
-    r"""(?:__)?fileurl\s*=\s*(["'])(?P<url>(?:(?!\1).)+)\1""",
-    re.IGNORECASE,
-)
-_SETUP_FILE_RE = re.compile(
-    r"""setup\(\{\s*["']file["']\s*:\s*(["'])(?P<url>(?:(?!\1).)+)\1""",
-    re.IGNORECASE,
-)
-_MP4_CDN_RE = re.compile(
-    r"https?://[^\s\"'<>]*motherlessmedia\.com[^\s\"'<>]*\.mp4[^\s\"'<>]*",
-    re.IGNORECASE,
-)
-_CODENAME_RE = re.compile(r'data-codename=["\']([A-F0-9]{4,12})["\']', re.IGNORECASE)
-
-_RESERVED_PATH_HEADS = frozenset(
+_RESERVED_SLUGS = frozenset(
     {
-        "videos",
-        "term",
-        "boards",
-        "groups",
-        "galleries",
-        "m",
-        "u",
-        "gv",
-        "gi",
-        "gf",
-        "gm",
-        "g",
-        "iframe",
-        "search",
+        "category",
+        "model",
+        "series",
+        "tags",
+        "tag",
+        "studio",
+        "page",
+        "feed",
+        "privacy-policy",
+        "contact",
         "login",
         "register",
+        "wp-content",
+        "wp-json",
+        "wp-admin",
+        "search",
     }
+)
+_ISO_DURATION_RE = re.compile(
+    r"^P(?:(?P<days>\d+)D)?(?:T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?)?$",
+    re.IGNORECASE,
 )
 
 
 def _normalize_host(host: str) -> str:
     h = (host or "").lower().split(":")[0]
     return h[4:] if h.startswith("www.") else h
-
-
-def _is_site_host(host: str) -> bool:
-    return _normalize_host(host) in SITE_HOSTS
 
 
 def can_handle(host: str) -> bool:
@@ -110,18 +88,6 @@ def get_categories() -> list[dict]:
         return []
 
 
-def _is_cloudflare_challenge(html: str) -> bool:
-    if not html:
-        return True
-    low = html.lower()
-    return (
-        "just a moment" in low
-        or "cf_chl_opt" in low
-        or "challenge-platform" in low
-        or "enable javascript and cookies" in low
-    )
-
-
 async def _fetch_with_curl_cffi(url: str, *, referer: str | None = None) -> str | None:
     try:
         from curl_cffi.requests import AsyncSession
@@ -135,12 +101,8 @@ async def _fetch_with_curl_cffi(url: str, *, referer: str | None = None) -> str 
         try:
             async with AsyncSession(impersonate=imp, headers=headers, timeout=45.0) as client:
                 resp = await client.get(url)
-                if resp.status_code != 200:
-                    continue
-                text = resp.text
-                if _is_cloudflare_challenge(text):
-                    continue
-                return text
+                if resp.status_code == 200 and resp.text:
+                    return resp.text
         except Exception:
             continue
     return None
@@ -150,13 +112,8 @@ async def fetch_page(url: str, *, referer: str | None = None) -> str:
     text = await _fetch_with_curl_cffi(url, referer=referer)
     if text:
         return text
-
-    headers = dict(_DEFAULT_HEADERS)
-    headers["Referer"] = referer or BASE_SITE
-    html = await pool_fetch_html(url, headers=headers)
-    if _is_cloudflare_challenge(html):
-        raise ValueError(f"Blocked by challenge page: {url}")
-    return html
+    html = await pool_fetch_html(url, headers=_DEFAULT_HEADERS)
+    return html or ""
 
 
 def _first_non_empty(*values: Optional[str]) -> Optional[str]:
@@ -178,109 +135,62 @@ def _meta(soup: BeautifulSoup, *, prop: str | None = None, name: str | None = No
     return None
 
 
-def _clean_title(title: str | None, *, video_id: str | None = None) -> Optional[str]:
+def _clean_title(title: str | None) -> Optional[str]:
     if not title:
         return None
-    t = str(title).strip()
-    for suffix in (
-        " | MOTHERLESS.XXX ™",
-        " - MOTHERLESS.XXX",
-        " | MOTHERLESS.XXX",
-        " | MOTHERLESS.COM ™",
-        " - MOTHERLESS.COM",
-        " | MOTHERLESS.COM",
-    ):
-        if suffix.lower() in t.lower():
-            t = re.split(re.escape(suffix), t, flags=re.I)[0].strip()
-    if video_id and t.upper() == video_id.upper():
-        return None
+    t = re.sub(r"\s+", " ", str(title)).strip()
+    for suffix in (" - Motherless", " | Motherless"):
+        if t.endswith(suffix):
+            t = t[: -len(suffix)].strip()
     return t or None
 
 
-def _normalize_views(text: str | None) -> Optional[str]:
-    if not text:
+def _format_duration_iso(iso: str | None) -> Optional[str]:
+    if not iso:
         return None
-    digits = re.sub(r"[^\d]", "", str(text))
-    return digits or None
-
-
-def _is_gallery_codename(code: str) -> bool:
-    return bool(_GALLERY_PATH_RE.fullmatch((code or "").strip()))
-
-
-def _is_video_codename(code: str) -> bool:
-    code = (code or "").strip().upper()
-    if not _VIDEO_ID_RE.fullmatch(code):
-        return False
-    return not _is_gallery_codename(code)
-
-
-def _extract_video_id(url: str) -> Optional[str]:
-    raw = (url or "").strip().split("#", 1)[0].split("?", 1)[0]
-    m = _VIDEO_PATH_RE.match(raw if raw.endswith("/") else raw + "/")
-    if m and _is_video_codename(m.group("id")):
-        return m.group("id").upper()
-
-    m_cdn = _CDN_VIDEO_RE.search(raw)
-    if m_cdn and _is_video_codename(m_cdn.group("id")):
-        return m_cdn.group("id").upper()
-
-    parsed = urlparse(raw)
-    host = _normalize_host(parsed.netloc or "")
-    if not _is_site_host(host) and "motherlessmedia.com" not in host:
+    m = _ISO_DURATION_RE.match(str(iso).strip())
+    if not m:
         return None
-
-    path = (parsed.path or "").strip("/")
-    if not path:
+    parts = m.groupdict()
+    days = int(parts.get("days") or 0)
+    hours = int(parts.get("hours") or 0) + days * 24
+    minutes = int(parts.get("minutes") or 0)
+    seconds = int(parts.get("seconds") or 0)
+    total = hours * 3600 + minutes * 60 + seconds
+    if total <= 0:
         return None
-
-    parts = [p for p in path.split("/") if p]
-    if not parts:
-        return None
-
-    if parts[0].lower() == "iframe" and len(parts) >= 2:
-        candidate = parts[1]
-        return candidate.upper() if _is_video_codename(candidate) else None
-
-    if parts[0].lower() in _RESERVED_PATH_HEADS and parts[0].lower() != "g":
-        return None
-
-    if parts[0].lower() == "g":
-        if len(parts) < 2:
-            return None
-        candidate = parts[-1]
-    elif len(parts) == 1:
-        candidate = parts[0]
-        if _is_gallery_codename(candidate):
-            return None
-    else:
-        return None
-
-    return candidate.upper() if _is_video_codename(candidate) else None
+    h, rem = divmod(total, 3600)
+    mi, s = divmod(rem, 60)
+    return f"{h}:{mi:02d}:{s:02d}" if h > 0 else f"{mi:02d}:{s:02d}"
 
 
-def _canonical_video_url(video_id: str) -> str:
-    return f"https://{SITE_HOST}/{video_id.upper()}"
-
-
-def _normalize_video_href(href: str) -> Optional[str]:
+def _normalize_slug_href(href: str) -> Optional[str]:
     href = (href or "").strip()
     if not href:
         return None
     if href.startswith("//"):
         href = f"https:{href}"
     elif href.startswith("/"):
-        href = urljoin(BASE_SITE, href)
-    vid = _extract_video_id(href)
-    return _canonical_video_url(vid) if vid else None
+        href = f"{BASE_SITE.rstrip('/')}{href}"
+    parsed = urlparse(href.split("#", 1)[0])
+    host = _normalize_host(parsed.netloc or "")
+    if host not in SITE_HOSTS:
+        return None
+    path = (parsed.path or "").strip("/")
+    if not path:
+        return None
+    slug = path.split("/")[-1]
+    if not slug or slug in _RESERVED_SLUGS:
+        return None
+    return f"https://{SITE_HOST}/{slug}/"
 
 
 def _best_image_url(img: Any) -> Optional[str]:
     if img is None:
         return None
-    for key in ("data-src", "data-original", "data-thumb", "src"):
+    for key in ("data-src", "data-original", "src"):
         v = img.get(key)
-        if not v or str(v).startswith("data:") or "plc.gif" in str(v):
+        if not v or str(v).startswith("data:"):
             continue
         url = str(v).strip()
         if url.startswith("//"):
@@ -289,81 +199,51 @@ def _best_image_url(img: Any) -> Optional[str]:
     return None
 
 
-def _quality_from_url(url: str, *, res: str | None = None) -> str:
-    if res:
-        res = str(res).strip().lower()
-        if res.endswith("p") and res[:-1].isdigit():
-            return res
-    low = (url or "").lower()
-    if "-720p" in low:
-        return "720p"
-    qm = re.search(r"(\d{3,4})p", low)
-    if qm:
-        return f"{qm.group(1)}p"
-    return "default"
-
-
-def _cdn_unsigned_candidates(video_id: str) -> list[str]:
-    vid = video_id.upper()
-    out: list[str] = []
-    for n in (5, 4, 3, 2, 1):
-        out.append(f"https://cdn{n}-videos.motherlessmedia.com/videos/{vid}-720p.mp4")
-        out.append(f"https://cdn{n}-videos.motherlessmedia.com/videos/{vid}.mp4")
-    out.append(f"http://cdn4.videos.motherlessmedia.com/videos/{vid}.mp4?fs=opencloud")
+def _json_ld_graph(soup: BeautifulSoup) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(data, dict):
+            graph = data.get("@graph")
+            if isinstance(graph, list):
+                out.extend(g for g in graph if isinstance(g, dict))
+            else:
+                out.append(data)
     return out
 
 
-def _add_stream(
-    streams: list[dict[str, str]],
-    seen: set[str],
-    url: str,
-    *,
-    res: str | None = None,
-) -> None:
-    url = (url or "").replace("\\/", "/").strip()
-    if not url.startswith("http") or url in seen:
-        return
-    if "motherlessmedia.com" not in url.lower() and ".mp4" not in url.lower():
-        return
-    seen.add(url)
-    streams.append(
-        {
-            "url": url,
-            "quality": _quality_from_url(url, res=res),
-            "format": "mp4",
-        }
-    )
+def _video_object(soup: BeautifulSoup) -> Optional[dict[str, Any]]:
+    for g in _json_ld_graph(soup):
+        if g.get("@type") == "VideoObject":
+            return g
+    return None
 
 
-def _streams_from_html(html: str, video_id: str) -> dict[str, Any]:
+def _streams_from_html(html: str) -> dict[str, Any]:
+    """Direct MP4s live in `<video><source src="https://video.ogporn.com/...">`."""
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
-
-    for pattern in (_FILEURL_RE, _SETUP_FILE_RE):
-        for m in pattern.finditer(html):
-            _add_stream(streams, seen, m.group("url"))
-
     soup = BeautifulSoup(html, "lxml")
-    for source in soup.select("video source[src], #ml-video source[src]"):
-        src = source.get("src") or ""
-        _add_stream(streams, seen, src, res=source.get("res"))
 
-    for url in _MP4_CDN_RE.findall(html):
-        _add_stream(streams, seen, url)
+    for source in soup.select("video source[src]"):
+        src = (source.get("src") or "").strip()
+        if not src.startswith("http") or src in seen:
+            continue
+        seen.add(src)
+        streams.append({"url": src, "quality": "source", "format": "mp4"})
 
-    if not streams and video_id:
-        for url in _cdn_unsigned_candidates(video_id):
-            _add_stream(streams, seen, url)
+    if not streams:
+        for m in re.finditer(
+            r"https?://[^\s\"'<>]*video\.ogporn\.com/[^\s\"'<>]*\.mp4", html, re.IGNORECASE
+        ):
+            u = m.group(0)
+            if u not in seen:
+                seen.add(u)
+                streams.append({"url": u, "quality": "source", "format": "mp4"})
 
-    def _score(s: dict[str, str]) -> int:
-        q = s.get("quality", "")
-        digits = "".join(ch for ch in q if ch.isdigit())
-        score = int(digits) if digits else 0
-        if "hash=" in (s.get("url") or "").lower():
-            score += 10000
-        return score
-
-    streams.sort(key=_score, reverse=True)
     default = streams[0]["url"] if streams else None
     return {
         "streams": streams,
@@ -373,69 +253,64 @@ def _streams_from_html(html: str, video_id: str) -> dict[str, Any]:
     }
 
 
-def _parse_thumb_block(block: Any) -> Optional[dict[str, Any]]:
-    thumb_el = block.select_one(".desktop-thumb[data-codename], .mobile-thumb[data-codename]")
-    codename = None
-    if thumb_el:
-        codename = (thumb_el.get("data-codename") or "").strip().upper()
-    if not codename or not _is_video_codename(codename):
-        return None
+def _parse_card_blocks(html: str, *, limit: int) -> list[dict[str, Any]]:
+    """Parse `<a class="video" href=... title=...>` cards with CSS-background thumbs.
 
-    url = _canonical_video_url(codename)
-    title_el = block.select_one("a.caption.title, a.caption.title.pop")
-    img = block.select_one("img.static, img[data-strip-src], img[alt]")
-    dur_el = block.select_one("span.size")
-    views_el = block.select_one("span.hits span.value, .hits .value")
-    uploader_el = block.select_one("a.uploader")
-
-    title = _clean_title(
-        _first_non_empty(
-            title_el.get("title") if title_el else None,
-            title_el.get_text(" ", strip=True) if title_el else None,
-            img.get("alt") if img else None,
-        ),
-        video_id=codename,
-    ) or codename
-
-    return {
-        "url": url,
-        "title": title,
-        "thumbnail_url": _best_image_url(img),
-        "duration": dur_el.get_text(strip=True) if dur_el else None,
-        "views": _normalize_views(views_el.get_text(strip=True) if views_el else None),
-        "uploader_name": uploader_el.get_text(strip=True) if uploader_el else None,
-        "tags": None,
-    }
-
-
-def _parse_list_items(soup: BeautifulSoup, html: str, *, limit: int) -> list[dict[str, Any]]:
+    The thumbnail lives in the inline style (`background-image: url('...webp')`),
+    duration in `span.time`, relative date in `span.ago`, title in `h2.vtitle`.
+    """
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    for block in soup.select("div.thumb-container.video"):
+    for m in re.finditer(
+        r'<a class="video"[^>]*style="[^"]*background-image:\s*url\(\'?([^\'\)"]+)\'?\)[^"]*"[^>]*'
+        r'(?:title="([^"]*)")?[^>]*href="(https://motherlesss\.net/[^"]+)"(.*?)</a>',
+        html,
+        re.S,
+    ):
         if len(items) >= limit:
             break
-        parsed = _parse_thumb_block(block)
-        if not parsed or parsed["url"] in seen:
+        bg, title_attr, href, inner = m.groups()
+        url = _normalize_slug_href(href)
+        if not url or url in seen:
             continue
-        seen.add(parsed["url"])
-        items.append(parsed)
+        seen.add(url)
 
+        tm = re.search(r'<h2 class="vtitle">(.*?)</h2>', inner, re.S)
+        title = _clean_title(re.sub(r"<[^>]+>", "", tm.group(1)).strip()) if tm else _clean_title(title_attr)
+        dm = re.search(r'<span class="time clock">([^<]+)</span>', inner)
+        duration = dm.group(1).strip() if dm else None
+
+        items.append(
+            {
+                "url": url,
+                "title": title or "Unknown Video",
+                "thumbnail_url": bg.strip(),
+                "duration": duration,
+                "views": None,
+                "uploader_name": None,
+                "tags": None,
+            }
+        )
+    return items[:limit]
+
+
+def _parse_list_items(soup: BeautifulSoup, html: str, *, limit: int) -> list[dict[str, Any]]:
+    items = _parse_card_blocks(html, limit=limit)
     if len(items) < limit:
-        for m in _LIST_LINK_RE.finditer(html):
+        for a in soup.select('a[href^="https://motherlesss.net/"]'):
             if len(items) >= limit:
                 break
-            vid = m.group("id").upper()
-            if not _is_video_codename(vid):
+            url = _normalize_slug_href(a.get("href") or "")
+            if not url or url in {i["url"] for i in items}:
                 continue
-            url = _canonical_video_url(vid)
-            if url in seen:
+            title_el = a.select_one("h2.vtitle")
+            if not title_el:
                 continue
-            seen.add(url)
             items.append(
                 {
                     "url": url,
-                    "title": _clean_title(m.group("title"), video_id=vid) or vid,
+                    "title": _clean_title(title_el.get_text(" ", strip=True)) or "Unknown Video",
                     "thumbnail_url": None,
                     "duration": None,
                     "views": None,
@@ -443,159 +318,82 @@ def _parse_list_items(soup: BeautifulSoup, html: str, *, limit: int) -> list[dic
                     "tags": None,
                 }
             )
-
-    if len(items) < limit:
-        for vid in _CODENAME_RE.findall(html):
-            if len(items) >= limit:
-                break
-            vid = vid.upper()
-            if not _is_video_codename(vid):
-                continue
-            url = _canonical_video_url(vid)
-            if url in seen:
-                continue
-            seen.add(url)
-            items.append(
-                {
-                    "url": url,
-                    "title": vid,
-                    "thumbnail_url": None,
-                    "duration": None,
-                    "views": None,
-                    "uploader_name": None,
-                    "tags": None,
-                }
-            )
-
     return items[:limit]
 
 
 def _build_list_page_url(base_url: str, page: int) -> str:
     raw = (base_url or "").strip() or BASE_SITE
     if not raw.startswith("http"):
-        raw = urljoin(BASE_SITE, raw.lstrip("/"))
+        raw = f"{BASE_SITE.rstrip('/')}/{raw.lstrip('/')}"
     parsed = urlparse(raw)
     page_num = max(1, int(page) if page else 1)
-    qs = {k: v[-1] for k, v in parse_qs(parsed.query).items() if v}
+    path = (parsed.path or "/").rstrip("/") or "/"
 
-    if page_num <= 1:
-        qs.pop("page", None)
-    else:
-        qs["page"] = str(page_num)
+    # WordPress path pagination: /page/2/
+    if page_num > 1:
+        path = re.sub(r"/page/\d+$", "", path, flags=re.I) or "/"
+        path = f"{path}/page/{page_num}" if path != "/" else f"/page/{page_num}"
+    elif re.search(r"/page/\d+$", path, re.I):
+        path = re.sub(r"/page/\d+$", "", path, flags=re.I) or "/"
 
-    query = urlencode(qs) if qs else ""
-    path = parsed.path or "/"
-    if not path.endswith("/") and "." not in path.rsplit("/", 1)[-1]:
-        path = f"{path}/"
-
+    qs = {k: v for k, v in parse_qsl(parsed.query, keep_blank_values=True) if v}
     return urlunparse(
-        (
-            parsed.scheme or "https",
-            parsed.netloc or SITE_HOST,
-            path,
-            "",
-            query,
-            "",
-        )
-    )
-
-
-def _is_missing_media_page(html: str) -> bool:
-    low = (html or "").lower()
-    return (
-        "file not found" in low
-        or "the page you're looking for cannot be found" in low
-        or "404 - motherless.com" in low
-        or "404 - motherless.xxx" in low
+        (parsed.scheme or "https", parsed.netloc or SITE_HOST, path, "", urlencode(qs) if qs else "", "")
     )
 
 
 def parse_video_page(html: str, url: str, *, video: dict[str, Any] | None = None) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
-    video_id = _extract_video_id(url) or ""
-    page_url = _canonical_video_url(video_id) if video_id else url
+    canon = _normalize_slug_href(url) or url
 
-    meta_title_el = soup.select_one(".media-meta-title h1")
-    h1_el = soup.select_one("h1")
-    raw_title = _first_non_empty(
-        meta_title_el.get_text(" ", strip=True) if meta_title_el else None,
-        h1_el.get_text(" ", strip=True) if h1_el else None,
-        _meta(soup, prop="og:title"),
-        soup.title.get_text(strip=True) if soup.title else None,
+    title = _clean_title(
+        _first_non_empty(
+            soup.select_one("h1.stitle").get_text(" ", strip=True) if soup.select_one("h1.stitle") else None,
+            soup.select_one("h1").get_text(" ", strip=True) if soup.select_one("h1") else None,
+            _meta(soup, prop="og:title"),
+            soup.title.get_text(strip=True) if soup.title else None,
+        )
+    ) or "Unknown Video"
+
+    ld = _video_object(soup) or {}
+
+    description = _first_non_empty(
+        ld.get("description"), _meta(soup, prop="og:description"), _meta(soup, name="description")
     )
-    title = _clean_title(raw_title, video_id=video_id) or raw_title or video_id or "Unknown Video"
+    thumbnail = _first_non_empty(ld.get("thumbnailUrl"), _meta(soup, prop="og:image"))
+    duration = _format_duration_iso(ld.get("duration"))
+    upload_date = ld.get("uploadDate")
 
-    thumbnail = _first_non_empty(
-        _meta(soup, prop="og:image"),
-        (soup.select_one("video[data-poster]") or {}).get("data-poster")
-        if soup.select_one("video[data-poster]")
-        else None,
-        _best_image_url(soup.select_one("video[poster], img")),
-    )
-    if thumbnail and thumbnail.startswith("//"):
-        thumbnail = f"https:{thumbnail}"
-
-    views = None
-    for el in soup.select(".media-meta-info span.count, .media-meta span.count"):
-        txt = el.get_text(" ", strip=True)
-        if "view" in txt.lower():
-            views = _normalize_views(txt)
-            break
-
+    # Studio (author org) + models (actors)
     uploader = None
-    up = soup.select_one('.media-meta-member a[href^="/m/"], a.uploader[href^="/m/"]')
-    if up:
-        uploader = up.get_text(strip=True) or None
-        if not uploader:
-            href = up.get("href") or ""
-            uploader = href.strip("/").split("/")[-1] or None
-
-    upload_date = None
-    dm = re.search(
-        r'class=["\']count[^>]+>(\d+\s+[a-zA-Z]{3}\s+\d{4})<',
-        html,
-        re.IGNORECASE,
-    )
-    if dm:
-        upload_date = dm.group(1).strip()
-    else:
-        for el in soup.select(".media-meta-info span.count"):
-            txt = el.get_text(" ", strip=True)
-            if re.search(r"\bago\b", txt, re.I):
-                upload_date = txt
-                break
-
-    duration = None
-    dur_el = soup.select_one(".media-meta-duration, .media-meta-info .duration, span.size")
-    if dur_el:
-        duration = dur_el.get_text(strip=True) or None
+    author = ld.get("author")
+    if isinstance(author, list) and author:
+        uploader = author[0].get("name")
+    elif isinstance(author, dict):
+        uploader = author.get("name")
+    if not uploader:
+        up = soup.select_one('.model-list strong ~ a, a[href*="/studio/"]')
+        if up:
+            uploader = up.get_text(strip=True) or None
 
     tags: list[str] = []
-    kw = _meta(soup, name="keywords")
-    if kw:
-        tags.extend([t.strip() for t in kw.split(",") if t.strip()])
-    for a in soup.select('a[href*="/term/videos/"]'):
-        tag = a.get_text(strip=True)
-        if tag and tag not in tags and len(tag) < 80:
-            tags.append(tag)
+    for a in soup.select('a[href*="/tag/"], a[class="cat"]'):
+        t = a.get_text(" ", strip=True)
+        if t and t not in tags and len(t) < 60:
+            tags.append(t)
 
     related = _parse_list_items(soup, html, limit=24)
-    related = [r for r in related if r.get("url") != page_url]
+    related = [r for r in related if r.get("url") != canon]
 
-    video_data = video or _streams_from_html(html, video_id)
-    if video_id and not video_data.get("streams"):
-        video_data = _streams_from_html("", video_id)
-
-    if _is_missing_media_page(html) and not video_data.get("has_video"):
-        title = title if title != video_id else f"Missing media {video_id}"
+    video_data = video or _streams_from_html(html)
 
     return {
-        "url": page_url,
+        "url": canon,
         "title": title,
-        "description": _meta(soup, prop="og:description") or _meta(soup, name="description"),
+        "description": description,
         "thumbnail_url": thumbnail,
         "duration": duration,
-        "views": views,
+        "views": None,
         "uploader_name": uploader,
         "category": None,
         "tags": tags or None,
@@ -609,15 +407,19 @@ def parse_video_page(html: str, url: str, *, video: dict[str, Any] | None = None
     }
 
 
+def _is_missing_media_page(html: str) -> bool:
+    low = (html or "").lower()
+    return "file not found" in low or "the page you're looking for cannot be found" in low
+
+
 async def scrape(url: str) -> dict[str, Any]:
-    video_id = _extract_video_id(url)
-    if not video_id:
+    canon = _normalize_slug_href(url)
+    if not canon:
         raise ValueError(f"Unsupported Motherless URL: {url}")
 
-    page_url = _canonical_video_url(video_id)
-    html = await fetch_page(page_url, referer=BASE_SITE)
-    video_data = _streams_from_html(html, video_id)
-    return parse_video_page(html, page_url, video=video_data)
+    html = await fetch_page(canon, referer=BASE_SITE)
+    video_data = _streams_from_html(html)
+    return parse_video_page(html, canon, video=video_data)
 
 
 async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[dict[str, Any]]:
@@ -626,6 +428,8 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
     try:
         html = await fetch_page(page_url, referer=normalized_base or BASE_SITE)
     except Exception:
+        return []
+    if not html:
         return []
     soup = BeautifulSoup(html, "lxml")
     return _parse_list_items(soup, html, limit=limit)

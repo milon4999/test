@@ -587,6 +587,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "sendvid.com" in parsed_url.netloc.lower() or
         "motherless.com" in parsed_url.netloc.lower() or
         "motherless.xxx" in parsed_url.netloc.lower() or
+        "motherlesss.net" in parsed_url.netloc.lower() or
         "motherlessmedia.com" in parsed_url.netloc.lower() or
         "youjizz.com" in parsed_url.netloc.lower() or
         "pornone.com" in parsed_url.netloc.lower() or
@@ -799,6 +800,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "sendvid.com" in host_l
             or "motherless.com" in host_l
             or "motherless.xxx" in host_l
+            or "motherlesss.net" in host_l
             or "motherlessmedia.com" in host_l
             or "youjizz.com" in host_l
             or "pornone.com" in host_l

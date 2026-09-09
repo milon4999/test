@@ -6768,3 +6768,30 @@ Implementation gotcha: the host tag must be captured **before** applying the dom
 
 Verified live on `xxxparodyhd.net/teens-playing-with-new-toys/`: returns exactly `LuluStream` (default) + `PlayMate` on the rewritten `playmate.to/embed/...` domain, VOE/MixDrop rewritten when present, FreeDL excluded. `ScrapeResponse` validates; `import app.main` clean.
 
+
+
+## Motherless Domain Migration Notes (2026-09 rewrite)
+
+The Motherless scraper was fully rewritten: the site moved from **`motherless.xxx`** (KVS — `fileurl` streams, `motherlessmedia.com` CDN, `.thumb-container` cards) to **`motherlesss.net`** (WordPress "ogp" theme, Rank Math SEO). None of the old extraction still works.
+
+### New host aliases
+
+- `motherlesss.net`, `www.motherlesss.net` (canonical)
+- Legacy aliases kept in `can_handle` for compatibility: `motherless.xxx`, `motherless.com`
+- Media CDN: **`video.ogporn.com`** (direct MP4s, no signing) — allowlisted for passthrough
+- `motherlessmedia.com` is dead
+
+### New structure
+
+- **Listing cards**: `<a class="video" style="background-image: url('https://motherlesss.net/wp-content/uploads/...webp')" title="..." href="/{slug}/">` — the thumbnail is a CSS **background-image** in the inline style (no `<img>`); duration in `<span class="time clock">49:00</span>`; relative date in `<span class="ago">`; title in `<h2 class="vtitle">`.
+- **Pagination**: WordPress path `/page/2/` (confirmed by `<link rel="next">`).
+- **Video page**: `<video id="my-video"><source src="https://video.ogporn.com/{Studio}/{Title}.mp4" type="video/mp4">` — direct MP4, no signing. `parse_video_page` extracts `video source[src]` first, then regex-falls back to any `video.ogporn.com/...mp4` in the HTML.
+- **Metadata**: JSON-LD `VideoObject` (`name`, `description`, `duration` ISO `PT49M00S` → `49:00`, `uploadDate` ISO, `thumbnailUrl`, `contentUrl`/`embedUrl` = the MP4, `author[].name` = studio e.g. "Little Asians"). Tags from `/tag/` + `a.cat` links. Models appear in `.model-list` and JSON-LD `actor`.
+
+### Verification (2026-09)
+
+- `scrape()` on `/cum-cure/`: title `Cum Cure`, duration `49:00`, upload `2026-09-09T10:16:47+00:00`, uploader `Little Asians`, 6+ tags, direct MP4 `has_video=True`, 9 related with thumbs/durations.
+- Listings pages 1 and 2 (`/page/2/`) return cards with titles, durations, and CSS-background thumbnails.
+- Endpoints at ASGI level: `/categories` 200 (5), `/videos` 200, `/videos/stream` 200 returning `format=mp4` + `stream_url`.
+- Registration: `schemas.py` both allowlists, `video_streaming.py` host lists, and `explore.py` `baseUrl`/`searchUrlTemplate` moved to `motherlesss.net` (`?s={query}` search per its SearchAction).
+
