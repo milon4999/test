@@ -6888,3 +6888,89 @@ Notes from live testing (2026-09):
 - The stream tokens are minted per page load; the same URL construction from the user's browser-captured blob also played, confirming the algorithm.
 - Listing pages 1 and 2 (`/latest/page/2/` — trailing slash required) verified; `/cat/{id}/page/{n}/` and `/viewsing/page/{n}/` share the same rule.
 - `meta[name=description]` is used for the description (the site has no og: tags).
+
+
+## FullXCinema Implementation Notes
+
+[FullXCinema](https://fullxcinema.com/) is a WordPress **retrotube**-theme site (same family as SxyLand/Hdporn92) for full-length movies. Canonical video pages use root-level slugs (e.g. `/wasteland-porn-movie-2012/`). **Two player patterns** exist per post:
+
+- **Pattern A (direct MP4)** — `<meta itemprop="contentURL" content="https://cdn.freevidco.com/{Title}.mp4">` plus a clean-tube-player `player-x.php?q=` iframe whose base64 payload decodes (after URL-decoding, sometimes double-encoded `%2520`) to a video.js tag with `<source src="https://cdn.freevidco.com/...mp4">`. The MP4s are NOT IP-locked (verified `206 video/mp4`).
+- **Pattern B (external embeds)** — `.myiframe iframe#myiframe` (e.g. `heroero.com/embed/24045/`) plus a `#sourcetabs` block of alternate anchors (`videoupornia.com/embed/4489309/`, dood/mixdrop/streamtape variants) that swap the iframe via `sabbia()` JS.
+
+### Host aliases
+
+- `fullxcinema.com`, `www.fullxcinema.com`
+- CDN: `cdn.freevidco.com` (direct MP4s) — allowlisted for passthrough
+- Embed hosts allowlisted: `heroero.com`, `videoupornia.com`
+
+### Streams (`scrape`)
+
+Extraction order in `_streams_from_html`:
+1. `meta[itemprop="contentURL"]` ending `.mp4` → `format="mp4"`, `quality="source"`
+2. clean-tube-player `q=` payload → regex `<source src="...mp4">` from the decoded markup
+3. Pattern B: `#myiframe` / `.myiframe iframe` / `iframe.responsive-iframe` src on recognized embed hosts (heroero/videoupornia/dood/mixdrop/streamtape/suzihaza/diasfem) → `format="embed"`, then `#sourcetabs a[href]`
+4. Last resort: any `.mp4` regex hit outside `/wp-content/`
+
+### Listing and pagination (`list_videos`)
+
+- Cards parsed **by regex split on `article.loop-video`** (not BS4 selectors): link `<a href=".../" title="...">`, title from `header.entry-header span`, thumbnail from `data-main-thumb` attr, views `span.views` (`135K` — verbatim), duration `span.duration` (`13:18`).
+- Pagination: WordPress path `/page/2/` **with trailing slash** (`?filter=` params preserved and appended after the path).
+- Sort tabs: `?filter=latest`, `?filter=most-viewed`, `?filter=longest`, `?filter=popular`, `?filter=random` (default home view is Random).
+- Search: `/?s={query}` (Yoast SearchAction).
+- Nav categories: `/category/celebrity-porn-movies/`, `/category/porn-movies-online/`, `/category/celebrity-porn-videos/`, `/category/nude-movies/`.
+
+### Metadata (`scrape`)
+
+- Title: `h1` / `og:title`; Description: `og:description`; Thumbnail: `og:image`
+- Duration: microdata on `article[itemprop="video"]` → `[itemprop="duration"]` content `P0DT0H13M18S` → `13:18`
+- Upload date: `[itemprop="uploadDate"]` (`2020-02-01T17:44:44+00:00`)
+- Tags: `/tag/` links; No views/uploader exposed
+- Related: same `loop-video` cards (12)
+
+### Categories (`get_categories`)
+
+`categories.json` seeds: Home, four sort filters, and the four nav categories. Schema matches the other scraper folders so `/api/v1/categories?source=fullxcinema` returns valid `CategoryItem` entries.
+
+### Registration checklist for FullXCinema
+
+Besides creating `backend/app/scrapers/fullxcinema/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=fullxcinema` or `source=fullxcinema.com`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif fullxcinema.can_handle(host)`)
+  - unsupported-host help text (`fullxcinema.com`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`fullxcinema.com`, `freevidco.com`, `heroero.com`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`fullxcinema.com`, `www.fullxcinema.com`, `freevidco.com`, `cdn.freevidco.com`, `heroero.com`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="fullxcinema"`, `baseUrl="https://fullxcinema.com/"`, `searchUrlTemplate="https://fullxcinema.com/?s={query}"`, `accentColor="#3779F7"`)
+
+### FullXCinema verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://fullxcinema.com/wasteland-porn-movie-2012/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://fullxcinema.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://fullxcinema.com/category/porn-movies-online/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=fullxcinema"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://fullxcinema.com/wasteland-porn-movie-2012/"
+```
+
+Notes from live testing (2026-09):
+
+- Pattern A verified on `/wasteland-porn-movie-2012/`: direct `cdn.freevidco.com/wasteland.mp4` extracted from `itemprop="contentURL"`, duration `1:57:18`, upload `2020-02-01T17:44:44+00:00`, 6 tags, 12 related.
+- Listings page 1 + 2 verified with verbatim views and `data-main-thumb` covers; `?filter=most-viewed&page=2/` works (filter preserved after the page path).
+- The site sits behind Cloudflare (plain requests can get `error code: 525`) — `fetch_page` uses curl_cffi impersonation first with TLS+browser headers.
+- Pagination gotcha: URLs must keep the trailing slash (`/page/2/`, not `/page/2`).
