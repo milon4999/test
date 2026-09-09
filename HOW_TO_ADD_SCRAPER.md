@@ -6795,3 +6795,92 @@ The Motherless scraper was fully rewritten: the site moved from **`motherless.xx
 - Endpoints at ASGI level: `/categories` 200 (5), `/videos` 200, `/videos/stream` 200 returning `format=mp4` + `stream_url`.
 - Registration: `schemas.py` both allowlists, `video_streaming.py` host lists, and `explore.py` `baseUrl`/`searchUrlTemplate` moved to `motherlesss.net` (`?s={query}` search per its SearchAction).
 
+\n\n## JoysPorn Implementation Notes
+
+[JoysPorn](https://joysporn.io/) is a **DataLife Engine (DLE)** tube site. Canonical video pages use `/view/{numeric_id}` (e.g. `/view/9331`). **Bot protection**: plain aiohttp receives empty/near-empty pages — `fetch_page` uses `curl_cffi` impersonation (`chrome120`/`chrome116`) with the pool as last resort.
+
+### Streams (`scrape`) — constructed from `data-c` blobs
+
+The video page stores each quality in a `data-c` blob on `#loadlinks div` elements:
+
+```
+data-c="{md5hash};{quality};{sizeBytes};{serverN};{videoNum};{timestamp};{token};{node}"
+data-n="d4"
+```
+
+Stream URL construction (verified serving `206 video/mp4` with valid `ftypisom` magic):
+
+```
+https://d{node}.vstor.top/whlvid/{timestamp}/{token}/{folderNum}/{videoNum}/{videoNum}_{quality}.mp4/{quality}.mp4
+```
+
+- `{folderNum}` comes from the thumbnail path: `/contents/videos_screenshots/{folderNum}/{videoNum}/...`
+- Tokens are **per-page-load and time-limited** — the scraper builds fresh URLs on every call, and the blob tokens are not IP-locked (verified playable from any client)
+- Qualities observed: 1080p / 720p / 480p / 240p; streams sorted highest-first, `video.default` = 1080p
+- The page also carries a `data-urls` variant inside the player container with the same fields (both parse identically)
+
+### Listing and pagination (`list_videos`)
+
+- Cards: `#video_preview .video_c` — link `a[href*="/view/"]`, title `h2.vidtitle`, thumbnail `img` (`img.joysporn.io/contents/videos_screenshots/{folder}/{vid}/600x338/N.jpg`), duration `.vidduration` (`23:14`), views `.views` (raw digits `22400`), rating `.like` (ignored).
+- Pagination is DLE-style: `/latest/page/{n}/` (home), `/cat/{id}/page/{n}/`, `/viewsing/page/{n}/` — trailing slash matters (404 without it).
+- Sort sections: `/viewsing/` (Top Rated), `/apapu/` (Most Popular); categories `/cat/{id}`; categories index `/ilisting.html`.
+- Search: POST form (`story` + `do=search&subaction=search`) — server-rendered GET search exists via `/?do=search&subaction=search&story={query}`.
+
+### Metadata (`scrape`)
+
+- Title: `h1` / `<title>` (no suffix stripping needed)
+- Description: `meta[name=description]`
+- Duration: `Duration:` meta line (HTML tags may sit between the label and value — regex tolerates them)
+- Views: `Viewed: {digits}` — raw digits verbatim
+- Tags: tag links (`1080p`, `brunette`, `creampie`, ...)
+- Rating: `85%` on the page (not returned)
+- Thumbnail: `.vidimage img` (may carry an empty folder segment from the site itself)
+- Related: same `.video_c` cards (6 per page)
+
+### Categories (`get_categories`)
+
+`categories.json` seeds: Top Rated, Most Popular, and 8 popular categories (Anal, Asian, MILF & Mature, Teen, Big Tits, Lesbian, Homemade, Full HD Porn). Schema matches the other scraper folders so `/api/v1/categories?source=joysporn` returns valid `CategoryItem` entries.
+
+### Registration checklist for JoysPorn
+
+Besides creating `backend/app/scrapers/joysporn/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=joysporn` or `source=joysporn.io`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif joysporn.can_handle(host)`)
+  - unsupported-host help text (`joysporn.io`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`joysporn.io`, `vstor.top`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`joysporn.io`, `vstor.top`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="joysporn"`, `baseUrl="https://joysporn.io/"`, `searchUrlTemplate="https://joysporn.io/?do=search&subaction=search&story={query}"`, `accentColor="#29B6F6"`)
+
+### JoysPorn verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://joysporn.io/view/9331\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://joysporn.io/&page=1&limit=18"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://joysporn.io/cat/20&page=2&limit=18"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=joysporn"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://joysporn.io/view/9331"
+```
+
+Notes from live testing (2026-09):
+
+- `scrape()` on `/view/9331`: title, duration `23:14`, views `22400`, 5 tags, and all four direct MP4 qualities constructed from fresh tokens (`1080p` default) — verified serving `206 video/mp4` with `ftypisom` magic.
+- The stream tokens are minted per page load; the same URL construction from the user's browser-captured blob also played, confirming the algorithm.
+- Listing pages 1 and 2 (`/latest/page/2/` — trailing slash required) verified; `/cat/{id}/page/{n}/` and `/viewsing/page/{n}/` share the same rule.
+- `meta[name=description]` is used for the description (the site has no og: tags).
