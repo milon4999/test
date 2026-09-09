@@ -6974,3 +6974,95 @@ Notes from live testing (2026-09):
 - Listings page 1 + 2 verified with verbatim views and `data-main-thumb` covers; `?filter=most-viewed&page=2/` works (filter preserved after the page path).
 - The site sits behind Cloudflare (plain requests can get `error code: 525`) — `fetch_page` uses curl_cffi impersonation first with TLS+browser headers.
 - Pagination gotcha: URLs must keep the trailing slash (`/page/2/`, not `/page/2`).
+
+
+## FilmAdult Implementation Notes
+
+[FilmAdult](https://film-adult.video/en/) is a **DataLife Engine (DLE)** full-movie site (same engine family as JoysPorn, theme `HDFilmAdult4K`). Canonical video pages use `/{lang}/{id}-{slug}.html` (e.g. `/en/8553-classy.html`). The site has 2-3 server players whose embeds are **injected on click** from inline scripts — no streams in the static markup.
+
+### Host aliases
+
+- `film-adult.video`, `www.film-adult.video`
+- Embed hosts allowlisted: `hgcloud.to` (main player), `playmogo.com`, `morencius.com`
+
+### Streams (`scrape`) — embed-only via inline click-handler scripts
+
+The video page renders empty player containers; inline scripts inject iframes on first click:
+
+```js
+$(document).one('click', '#video2_container', function () {
+  var s2 = document.createElement("iframe"); s2.src = "https://hgcloud.to/e/9kvptxttubh8"; ...
+});
+$(document).one('click', '#video3_container', ...)  // -> https://playmogo.com/e/ibnn6ei57msa
+$(document).one('click', '#trailer_container', ...) // -> https://morencius.com/embed/tg373qlpcs6v
+```
+
+- `_streams_from_html` pairs each `#\w+_container` selector with the `.src = "https://..."` assignment inside its surrounding `<script>` block.
+- **Container order matters**: `video2_container` (main player) → `video3_container` → `trailer_container` last, enforced by `_PLAYER_ORDER` sort. Labels via `_PLAYER_HOST_LABELS` (HgCloud / Playmogo / Morencius), fall back to `Server N`.
+- **Gotcha caught during testing**: the host tag must be captured before any URL rewriting, and the default picker must match the host tag (not the URL) — same class of bug as xxxparodyhd's rewrites.
+- All three embeds verified present; `has_video=True`, `video.default` = the main player embed.
+
+### Listing and pagination (`list_videos`)
+
+- Cards: `a.poster` anchors — href `/{lang}/{id}-{slug}.html`, title `h3.poster__title`, lazy thumbnail `img[data-src]` (`/uploads/posts/.../thumbs/*.webp`), year + quality in `.main_title_new` (not returned), rating `.poster__rating-likes` (not returned).
+- Pagination is DLE-style: `/en/page/2/`, `/en/movies/page/2/`, `/en/movies/hd-720p/page/2/` — **trailing slash required** (404 without it). Page 1 uses `base_url` unchanged.
+- Section URLs: `/en/movies/`, `/en/porn-scenes/`, `/en/movies/hd-1080p/`, `/en/movies/hd-720p/`, `/en/russian/`, `/en/vintagexxx/`, `/en/porno-parodies/`, `/en/watch/year/{year}/`, studio pages `/en/{studio}/` (e.g. `/en/marc_dorcel/`), country pages `/en/watch/country/{Country}/`.
+- Search: POST form (`story` + `do=search&subaction=search`) — exposed as `?do=search&subaction=search&story={query}` GET template.
+
+### Metadata (`scrape`)
+
+- Title: `h1` / `og:title` (e.g. `Classy (2024, HD) watch porn movie online`)
+- Thumbnail: `og:image` (`/uploads/posts/{yyyy-mm}/{slug}.webp`)
+- Upload date: JSON-LD `Movie` graph `datePublished` (`2026-09-08T18:29:16+03:00`)
+- Description: `og:description` (site-generated, messy)
+- Tags: `a[href*="/movies/"]` links (HD 720p, category names)
+- Related: `a.poster` cards under `pmovie__related` (6+)
+- Canonical URL: `_canonical_page_url` preserves the full `{id}-{slug}.html` tail (an early bug stripped the slug and produced 404s)
+
+### Categories (`get_categories`)
+
+`categories.json` seeds ten sections: Home, Movies, Videos, FullHD, HD, Russian, Classic, Parodies, New (year 2026), Top 100. Schema matches the other scraper folders so `/api/v1/categories?source=filmadult` returns valid `CategoryItem` entries.
+
+### Registration checklist for FilmAdult
+
+Besides creating `backend/app/scrapers/filmadult/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=filmadult` or `source=film-adult.video`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif filmadult.can_handle(host)`)
+  - unsupported-host help text (`film-adult.video`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`film-adult.video`, `hgcloud.to`, `playmogo.com`, `morencius.com`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`film-adult.video`, `www.film-adult.video`, `hgcloud.to`, `playmogo.com`, `morencius.com`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="filmadult"`, `baseUrl="https://film-adult.video/en/"`, `searchUrlTemplate="https://film-adult.video/en/index.php?do=search&subaction=search&story={query}"`, `accentColor="#0F1015"`)
+
+### FilmAdult verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\\"url\\":\\"https://film-adult.video/en/8553-classy.html\\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://film-adult.video/en/&page=1&limit=15"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://film-adult.video/en/movies/hd-720p/&page=2&limit=15"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=filmadult"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://film-adult.video/en/8553-classy.html"
+```
+
+Notes from live testing (2026-09):
+
+- `scrape()` on `/en/8553-classy.html`: title, upload `2026-09-08T18:29:16+03:00`, thumbnail, and all 3 embed streams (`HgCloud` default → `Playmogo` → `Morencius`), `has_video=True`; 6 related with thumbs.
+- Listings page 1 + 2 verified (15 cards/page); trailing-slash pagination confirmed by direct fetch (404 without slash).
+- `_canonical_page_url` must preserve the `{id}-{slug}.html` tail — stripping the slug produced `/en/8553.html` 404s (fixed during testing).
+- Site is Cloudflare-fronted but serves full HTML to curl_cffi impersonation and the pooled aiohttp fetcher.
