@@ -6815,7 +6815,7 @@ https://d{node}.vstor.top/whlvid/{timestamp}/{token}/{folderNum}/{videoNum}/{vid
 ```
 
 - `{folderNum}` comes from the thumbnail path: `/contents/videos_screenshots/{folderNum}/{videoNum}/...`
-- Tokens are **per-page-load and time-limited** — the scraper builds fresh URLs on every call, and the blob tokens are not IP-locked (verified playable from any client)
+- Tokens are **per-page-load and time-limited** — the scraper builds fresh URLs on every call, and the blob tokens are not IP-locked (verified playable from any client). **Flutter local scraper** (`app/lib/features/source/data/scrapers/joysporn.dart`, `JoyspornService.getStreamLinks`) resolves the same blobs on-device with multi-quality support (`_apiResolutions` + `_videoFormat='mp4'` wired in `source_video_details_page.dart`'s joysporn branch) — backend URLs expire between resolve and playback, local ones don't.
 - Qualities observed: 1080p / 720p / 480p / 240p; streams sorted highest-first, `video.default` = 1080p
 - The page also carries a `data-urls` variant inside the player container with the same fields (both parse identically)
 

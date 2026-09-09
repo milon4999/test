@@ -721,7 +721,7 @@ EXPLORE_SOURCES = [
         hasCategories=True,
         searchUrlTemplate="https://joysporn.io/?do=search&subaction=search&story={query}",
         sourceId="joysporn",
-        disable=True,
+        disable=False,
         pageSize=18,
     ),
     ExploreSourceResponse(
