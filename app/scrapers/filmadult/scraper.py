@@ -42,6 +42,10 @@ _PLAYER_LABELS = {
     "trailer_container": "Trailer",
 }
 _PLAYER_ORDER = ["video2_container", "video3_container", "video_container", "trailer_container"]
+# hgcloud.to serves a JS-bootstrap that redirects to rotating mirrors; the same
+# /e/{id} works on every mirror. Verified live (2026-09): hanerix.com, vibuxer.com,
+# audinifer.com all serve the real player.
+_HGCLOUD_MIRRORS = ["hanerix.com", "vibuxer.com", "audinifer.com"]
 _PLAYER_HOST_LABELS = {
     "hgcloud": "HgCloud",
     "playmogo": "Playmogo",
@@ -164,8 +168,14 @@ def _best_image_url(img: Any) -> Optional[str]:
 
 def _streams_from_html(html: str) -> dict[str, Any]:
     """Player embeds are injected on click from inline scripts:
-    `$(\"#video2_container\").one('click', ...){ s2.src = \"https://host/e/id\"; }`.
-    video2_container = main player, video3 = second, trailer = trailer."""
+    `$(document).one('click', '#video2_container', ...){ s2.src = \"https://host/e/id\"; }`.
+    video2_container = main player, video3 = second, trailer = trailer.
+
+    NOTE: `hgcloud.to` serves a 819-byte \"Loading...\" bootstrap page (its
+    main.js redirects to a rotating mirror — hanerix.com / vibuxer.com /
+    audinifer.com, changing per refresh). Since the mirror can't be resolved
+    reliably server-side, hgcloud embeds are REPLACED by all known mirrors
+    (each mirror serves the real player for the same embed id)."""
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
 
@@ -201,6 +211,20 @@ def _streams_from_html(html: str) -> dict[str, Any]:
     streams.sort(key=lambda s: s["_order"])
     for s in streams:
         s.pop("_order", None)
+
+    # Replace hgcloud bootstrap URLs with the rotating mirror pool (same
+    # /e/{id} works on every mirror; each refresh may pick a different one)
+    expanded: list[dict[str, str]] = []
+    for s in streams:
+        m = re.match(r"https://hgcloud\.to/e/([a-z0-9]+)/?$", s["url"], re.IGNORECASE)
+        if m:
+            eid = m.group(1)
+            for mirror in _HGCLOUD_MIRRORS:
+                expanded.append({"url": f"https://{mirror}/e/{eid}", "quality": f"{s['quality']} ({mirror.split('.')[0].capitalize()})", "format": "embed"})
+        else:
+            expanded.append(s)
+    streams = expanded
+
     default = streams[0]["url"] if streams else None
     return {
         "streams": streams,

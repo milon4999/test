@@ -579,6 +579,9 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "heroero.com" in parsed_url.netloc.lower() or
         "film-adult.video" in parsed_url.netloc.lower() or
         "hgcloud.to" in parsed_url.netloc.lower() or
+        "hanerix.com" in parsed_url.netloc.lower() or
+        "vibuxer.com" in parsed_url.netloc.lower() or
+        "audinifer.com" in parsed_url.netloc.lower() or
         "playmogo.com" in parsed_url.netloc.lower() or
         "eporner.com" in parsed_url.netloc.lower() or
         "static.eporner.com" in parsed_url.netloc.lower() or
@@ -799,6 +802,9 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "heroero.com" in host_l
             or "film-adult.video" in host_l
             or "hgcloud.to" in host_l
+            or "hanerix.com" in host_l
+            or "vibuxer.com" in host_l
+            or "audinifer.com" in host_l
             or "playmogo.com" in host_l
             or "eporner.com" in host_l
             or "static.eporner.com" in host_l
