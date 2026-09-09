@@ -6862,6 +6862,10 @@ Besides creating `backend/app/scrapers/joysporn/`, update all of these:
 - `backend/app/api/endpoints/explore.py`
   - `ExploreSourceResponse` entry (`sourceId="joysporn"`, `baseUrl="https://joysporn.io/"`, `searchUrlTemplate="https://joysporn.io/?do=search&subaction=search&story={query}"`, `accentColor="#29B6F6"`)
 
+### JoysPorn stream-URL reconstruction: FAILED, removed
+
+The obfuscated `jquerys.js` player script applies a **rotator IIFE** to its string table (checksum `0x6e27c`), and the stream-URL template depends on variables (`x`, `bl`, `pr`) built at runtime from cookies and device detection — the `whlvid` path segment could not be reproduced statically. Constructed URLs returned `200 text/html` instead of video. **The Flutter local scraper (`joysporn.dart`) was removed**; PornDos-style on-device extraction does not work here. The backend `/videos/stream` endpoint likewise cannot mint playable URLs. If JoysPorn playback is ever needed again, the only viable route is a WebView player loading the watch page (the DLE player JS assembles and plays the stream itself in-browser).
+
 ### JoysPorn verification examples
 
 ```bash
