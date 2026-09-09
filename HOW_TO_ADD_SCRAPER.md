@@ -6757,6 +6757,8 @@ The movie pages on xxxparodyhd.net link out to several file-hosts; only some act
 - **VOE (`voe.sx/e/...`)** — returns HTTP 200 with a ~750-byte JS bootstrap page (`window.location.href = "https://eugenemakedraw.com/e/{id}"`). Resolved **at scrape time**: the page is fetched and the JS target extracted with a regex (no static domain map — the mirror rotates).
 - **MixDrop (`mixdrop.my/e/...`)** — HTTP 302 to a rotating mirror (currently `miixdrop.top/e/{id}`). Resolved **at scrape time** by following the 302 (allow_redirects=False + Location header).
 - Both are resolved LIVE per scrape (an `AsyncSession(impersonate="chrome120")` round-trip per embed URL, `needs_resolution` flag) so domain rotations keep working without code changes. `parse_page` is now `async` for this reason.
+- **Resolution strategies (in order)**: HTTP `Location` header on 301/302/303/307/308 → JS `window.location.href` in the body → meta refresh → any foreign `/e/{id}` URL in the body.
+- **Failure handling**: if a VOE embed cannot be resolved (datacenter IPs sometimes get a challenge page instead of the bootstrap), the VOE stream is **dropped** — the raw `voe.sx/e/...` URL serves the bootstrap page, not a player, so returning it would break playback. MixDrop keeps its original URL on failure because `mixdrop.my` still 302s client-side.
 - **LuluStream (`luluvid.com/e/...`)** — kept as-is and made the **default** stream (most reliable).
 - **Playmate (`playmate.to/embed/...`)** — kept and included in the priority order.
 

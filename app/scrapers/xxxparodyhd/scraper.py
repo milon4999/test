@@ -140,35 +140,67 @@ async def parse_page(html: str, url: str) -> dict[str, Any]:
     # - MixDrop: HTTP 302 (e.g. mixdrop.my -> miixdrop.top — rotating mirrors)
     # - VOE: HTTP 200 but a JS redirect (window.location.href = ...) inside a
     #   ~750-byte bootstrap page -> extract the target with a regex.
+    # Datacenter IPs may instead receive a challenge page — if resolution
+    # fails the VOE stream is DROPPED (voe.sx serves a bootstrap page, not a
+    # player, so the raw URL is unplayable), while MixDrop keeps its original
+    # URL (mixdrop.my still 302s client-side).
     resolved: list[dict[str, Any]] = []
-    to_resolve = {e["url"]: None for e in embed_urls if e.get("resolve")}
+    to_resolve: dict[str, Optional[str]] = {
+        e["url"]: None for e in embed_urls if e.get("resolve")
+    }
     if to_resolve:
-        from curl_cffi.requests import AsyncSession
-
-        async with AsyncSession(impersonate="chrome120", timeout=20.0) as client:
-            for u in list(to_resolve.keys()):
-                try:
-                    resp = await client.get(u, allow_redirects=False)
-                    if resp.status_code in (301, 302, 303, 307, 308):
-                        loc = (resp.headers.get("Location") or "").strip()
-                        if loc.startswith("http"):
-                            to_resolve[u] = loc
+        try:
+            from curl_cffi.requests import AsyncSession
+        except ImportError:
+            to_resolve = {}
+        else:
+            async with AsyncSession(impersonate="chrome120", timeout=20.0) as client:
+                for u in list(to_resolve.keys()):
+                    try:
+                        resp = await client.get(u, allow_redirects=False)
+                        if resp.status_code in (301, 302, 303, 307, 308):
+                            loc = (resp.headers.get("Location") or "").strip()
+                            if loc.startswith("http"):
+                                to_resolve[u] = loc
+                                continue
+                        body = resp.text or ""
+                        # VOE-style JS redirect inside the page body
+                        m = re.search(
+                            r"window\.location(?:\.href)?\s*=\s*[\"']([^\"']+)",
+                            body,
+                            re.IGNORECASE,
+                        )
+                        if m:
+                            to_resolve[u] = m.group(1)
                             continue
-                    # VOE-style JS redirect inside the page body
-                    m = re.search(
-                        r"window\.location(?:\.href)?\s*=\s*[\"']([^\"']+)",
-                        resp.text or "",
-                        re.IGNORECASE,
-                    )
-                    if m:
-                        to_resolve[u] = m.group(1)
-                except Exception:
-                    continue
+                        # meta refresh fallback
+                        m = re.search(
+                            r'http-equiv="refresh"[^>]*url=([^"\'>]+)', body, re.IGNORECASE
+                        )
+                        if m:
+                            to_resolve[u] = m.group(1).strip()
+                            continue
+                        # any /e/{id} URL on a foreign domain inside the body
+                        m = re.search(
+                            r"https?://(?!voe\.sx|mixdrop\.)[a-z0-9.-]+/e/[a-z0-9]+",
+                            body,
+                            re.IGNORECASE,
+                        )
+                        if m:
+                            to_resolve[u] = m.group(0)
+                    except Exception:
+                        continue
 
+    filtered: list[dict[str, Any]] = []
     for e in embed_urls:
         resolved_url = to_resolve.get(e["url"])
+        if e.get("resolve") and not resolved_url:
+            # Could not resolve: VOE raw URL is a bootstrap page (unplayable) —
+            # drop it. MixDrop raw URL still 302s client-side — keep it.
+            if e["host"] == "voe":
+                continue
         resolved.append({**e, "url": resolved_url or e["url"]})
-    embed_urls = resolved
+    embed_urls = filtered or resolved
 
     # Build video data
     # XXXParodyHD doesn't host videos directly - it links to external embed players
