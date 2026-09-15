@@ -163,29 +163,31 @@ def _decode_player_q(q: str) -> str:
 def _streams_from_html(html: str, soup: BeautifulSoup) -> dict[str, Any]:
     """
     Pornmz serves HLS streams from Twitter's video CDN (video.twimg.com).
-    Extraction order:
-      1. meta[itemprop="contentUrl"] -> the m3u8 playlist
-      2. clean-tube-player player-x.php?q= payload -> <source src="...m3u8">
-      3. inline m3u8/mp4 regex scan
-
-    The twimg m3u8 playlists do NOT play in the app's native player, so all
-    streams are returned with format="embed" (routed to the embed/WebView
-    player path) — the URL itself is unchanged.
+    Streams returned (all format="embed" — the app's embed/WebView path):
+      1. The clean-tube-player player-x.php?q=... iframe URL itself (Server 1,
+         default) — the site's own video.js player, plays reliably in WebView.
+      2. The raw twimg m3u8 (from itemprop="contentUrl" or the player payload)
+         as a secondary option (the native player cannot play it).
     """
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
 
-    def _add(url: str, fmt: str, label: str) -> None:
+    def _add(url: str, label: str) -> None:
         url = url.strip()
         if url.startswith("http") and url not in seen:
             seen.add(url)
-            streams.append({"url": url, "quality": label, "format": fmt})
+            streams.append({"url": url, "quality": label, "format": "embed"})
 
+    # 1) The player-x.php embed URL itself (the playable wrapper)
+    for iframe in soup.select('iframe[src*="player-x.php?q="]'):
+        src = (iframe.get("src") or "").strip()
+        if src.startswith("http"):
+            _add(src, "Server 1")
+
+    # 2) The raw twimg m3u8
     content_url = _itemprop(soup, "contentUrl")
     if content_url and ".m3u8" in content_url.lower():
-        _add(content_url, "embed", "adaptive")
-    elif content_url and ".mp4" in content_url.lower():
-        _add(content_url, "embed", "source")
+        _add(content_url, "adaptive")
 
     for iframe in soup.select('iframe[src*="player-x.php?q="]'):
         m = re.search(r"q=([^&\"']+)", iframe.get("src") or "")
@@ -193,17 +195,17 @@ def _streams_from_html(html: str, soup: BeautifulSoup) -> dict[str, Any]:
             continue
         payload = _decode_player_q(m.group(1))
         for sm in re.finditer(r'<source[^>]+src="([^"]+)"[^>]*type="[^"]*m3u8', payload):
-            _add(sm.group(1), "embed", "adaptive")
+            _add(sm.group(1), "adaptive")
         for sm in re.finditer(r'<source[^>]+src="([^"]+\.mp4)', payload):
-            _add(sm.group(1), "embed", "source")
+            _add(sm.group(1), "source")
 
     if not streams:
         html_norm = html.replace("\\/", "/")
         for u in _M3U8_RE.findall(html_norm):
-            _add(u, "embed", "adaptive")
+            _add(u, "adaptive")
         for u in _MP4_RE.findall(html_norm):
             if "/wp-content/" not in u.lower():
-                _add(u, "embed", "source")
+                _add(u, "source")
 
     default = streams[0]["url"] if streams else None
     return {

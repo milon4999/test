@@ -7175,14 +7175,14 @@ Notes from live testing (2026-09):
 - `pornmz.net`, `www.pornmz.net`
 - Stream CDN: `video.twimg.com` (HLS playlists) — allowlisted for passthrough
 
-### Streams (`scrape`) — embed-format HLS
+### Streams (`scrape`) — embed only (player-x.php default + twimg m3u8)
 
-Extraction order in `_streams_from_html`:
-1. `meta[itemprop="contentUrl"]` → the `video.twimg.com/...m3u8` playlist
-2. clean-tube-player `player-x.php?q=` iframe payload (base64 → URL-decode → video.js markup) → `<source src="...m3u8" type="video/m3u8">`
-3. Inline `.m3u8` / `.mp4` regex scan (skip `/wp-content/` assets; the page also contains ad/trailer MP4s from `flixcdn.com`, `project1content.com`, `naughtycdn.com` — these appear only in ad scripts and the m3u8-first order avoids them)
+Streams returned (all `format="embed"` — the app's embed/WebView path):
+1. **The clean-tube-player `player-x.php?q=...` iframe URL itself** (`Server 1`, **default**) — the site's own video.js player, plays reliably in the WebView (its base64 payload decodes to a video.js tag with the twimg m3u8 source).
+2. The raw `video.twimg.com/...m3u8` (from `meta[itemprop="contentUrl"]` or the player payload `<source src="...m3u8">`) as a secondary `adaptive` option — the native player cannot play it.
+3. Inline `.m3u8` / `.mp4` regex scan fallback (skip `/wp-content/` assets; the page also contains ad/trailer MP4s from `flixcdn.com`, `project1content.com`, `naughtycdn.com` — the m3u8-first order avoids them).
 
-**Format note (2026-09 fix)**: the twimg m3u8 playlists do NOT play in the app's native player, so every stream is returned with **`format="embed"`** (the app routes embed-format URLs to its WebView/embed player path) — the URL itself stays the raw m3u8. `video.hls` is kept `None` so nothing routes it to the native HLS pipeline. `video.default` = the twimg m3u8, `has_video=True`.
+**Format note (2026-09 fix)**: the twimg m3u8 playlists do NOT play in the app's native player, so every stream is returned with **`format="embed"`** — the app routes embed-format URLs to its WebView/embed player path. `video.hls` is kept `None` so nothing routes it to the native HLS pipeline. `video.default` = the player-x.php URL, `has_video=True`.
 
 ### Listing and pagination (`list_videos`)
 
