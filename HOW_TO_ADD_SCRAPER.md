@@ -7067,3 +7067,100 @@ Notes from live testing (2026-09):
 - Listings page 1 + 2 verified (15 cards/page); trailing-slash pagination confirmed by direct fetch (404 without slash).
 - `_canonical_page_url` must preserve the `{id}-{slug}.html` tail — stripping the slug produced `/en/8553.html` 404s (fixed during testing).
 - Site is Cloudflare-fronted but serves full HTML to curl_cffi impersonation and the pooled aiohttp fetcher.
+
+
+## PornHits Implementation Notes
+
+[PornHits](https://pornhits.tv/) is a **Next.js** tube site backed by a clean **JSON API** (aggregating hqporner content among others). Canonical video pages use `/video/{slug}` (e.g. `/video/kidnapped-body-heat-127856/`). Unlike every other scraper in this codebase, listings come from the JSON API — no HTML parsing needed — and streams are **direct unsigned MP4s** on `cdn.veporn.com`.
+
+### Host aliases
+
+- `pornhits.tv`, `www.pornhits.tv`
+- CDN: `cdn.veporn.com` (direct MP4s, `206 video/mp4` verified with `ftypisom` magic) — allowlisted for passthrough
+
+### JSON API endpoints
+
+| Endpoint | Response |
+|---|---|
+| `/api/videos?sort=newest` | `{data: [items], nextCursor, hasMore, viewCounts}` — 24 items/page |
+| `/api/videos?category={slug}` | category filter (slugs from `/api/categories`, 61 with videoCount) |
+| `/api/videos?sort=views` | sort by views |
+| `/api/videos/trending` | plain list (20 items, no cursor) |
+| `/api/search?q={query}` | `{data: [items]}` — no cursor (single page) |
+| `/api/categories` | `[{id, name, slug, thumbnailUrl, videoCount, ...}]` |
+
+Video item shape: `id (UUID), title, slug, description, cdnUrl (direct MP4), thumbnailUrl (/uploads/thumbnails/...), previewUrl, duration (seconds), views, likes, dislikes, quality (e.g. "1080p"), categoryId, tags [], source (e.g. "hqporner"), externalId, createdAt`.
+
+**Dead endpoints** (404): `/api/videos/popular`, `/api/tags`, `/api/videos/{id}` (both UUID and externalId), `/api/video/{slug}`. There is **no single-video endpoint** — `?slug=` is silently ignored by `/api/videos`.
+
+### Pagination — cursor-based
+
+`/api/videos` ignores `page`; it returns a base64 `nextCursor` (encoding `createdAt|categoryId`). For page N, follow the cursor chain N-1 hops: `?cursor={quote(cursor)}` — the cursor's base64 `=` padding must be percent-encoded. Search responses have no cursor (single page only).
+
+### Listing (`list_videos`)
+
+`_build_api_url` maps site URLs to API endpoints:
+- `https://pornhits.tv/` or `/videos` → `/api/videos?sort=newest`
+- `?category={slug}` / `?sort={sort}` query params pass through
+- `/trending` path → `/api/videos/trending`
+- `?q={query}` → `/api/search?q={query}`
+
+List items map: url=`/video/{slug}`, duration seconds→`MM:SS`, views verbatim string, thumbnail prefixed with `https://pornhits.tv`.
+
+### Streams and metadata (`scrape`)
+
+1. Fetch the watch page `/video/{slug}` and parse the **JSON-LD VideoObject** embedded (escaped) in the RSC payload: `name`, `description`, `thumbnailUrl`, `uploadDate`, `duration` (ISO `PT35M53S` → `35:53`), `contentUrl` (the direct `cdn.veporn.com` MP4), `interactionStatistic.userInteractionCount` (views).
+2. `contentUrl` becomes the single stream (`format="mp4"`).
+3. **Enrichment** via `/api/search?q={title-words}` (slug with dashes → spaces, numeric suffix stripped): the exact-slug match supplies `tags`, the `quality` label (e.g. `1080p`), and fills any missing duration/views.
+4. Related videos: other results from the same search (excluding the current slug), falling back to `/api/videos/trending`.
+
+Gotchas caught during testing:
+- **Search URL double-encoding**: `f"?q={urlencode({'q': x})}"` produces `q=q=...` — use `urlencode` output as the whole query string.
+- Watch-page JSON-LD must be `unicode_escape`-decoded before `json.loads` (it sits escaped inside the RSC payload).
+
+### Categories (`get_categories`)
+
+`categories.json` seeds 20 entries: Newest, Most Viewed, Trending, and 17 popular category slugs (`anal`, `asian`, `big-ass`, `big-dick`, `milf`, `teen`, ...) as `https://pornhits.tv/videos?category={slug}` URLs. Schema matches the other scraper folders so `/api/v1/categories?source=pornhits` returns valid `CategoryItem` entries.
+
+### Registration checklist for PornHits
+
+Besides creating `backend/app/scrapers/pornhits/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=pornhits` or `source=pornhits.tv`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif pornhits.can_handle(host)`)
+  - unsupported-host help text (`pornhits.tv`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`pornhits.tv`, `veporn.com`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`pornhits.tv`, `www.pornhits.tv`, `veporn.com`, `cdn.veporn.com`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="pornhits"`, `baseUrl="https://pornhits.tv/"`, `searchUrlTemplate="https://pornhits.tv/search?q={query}"`, `accentColor="#E63946"`)
+
+### PornHits verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://pornhits.tv/video/kidnapped-body-heat-127856\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://pornhits.tv/&page=1&limit=24"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://pornhits.tv/videos?category=anal&page=2&limit=24"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=pornhits"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://pornhits.tv/video/kidnapped-body-heat-127856"
+```
+
+Notes from live testing (2026-09):
+
+- `scrape()` on `/video/kidnapped-body-heat-127856`: title `kidnapped body heat`, duration `35:53`, views `166`, upload `2026-09-15T17:00:36.679Z`, 6 tags via search enrichment, quality label `1080p`, and the direct `cdn.veporn.com/videos/hqporner/kidnapped-body-heat-127856.mp4` stream (`206 video/mp4`, `ftypisom` verified); 20 related.
+- Listings page 1 + page 2 (cursor pagination verified — different first item), `?category=anal` filter, and `?q=anal` search all return valid items.
+- The MP4s are unsigned (no IP-lock, no token) — backend-resolved URLs play on any client, so no local app scraper is needed for this source.
