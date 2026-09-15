@@ -7175,14 +7175,14 @@ Notes from live testing (2026-09):
 - `pornmz.net`, `www.pornmz.net`
 - Stream CDN: `video.twimg.com` (HLS playlists) — allowlisted for passthrough
 
-### Streams (`scrape`) — direct HLS
+### Streams (`scrape`) — embed-format HLS
 
 Extraction order in `_streams_from_html`:
-1. `meta[itemprop="contentUrl"]` → the `video.twimg.com/...m3u8` playlist (`format="hls"`, `quality="adaptive"`)
+1. `meta[itemprop="contentUrl"]` → the `video.twimg.com/...m3u8` playlist
 2. clean-tube-player `player-x.php?q=` iframe payload (base64 → URL-decode → video.js markup) → `<source src="...m3u8" type="video/m3u8">`
 3. Inline `.m3u8` / `.mp4` regex scan (skip `/wp-content/` assets; the page also contains ad/trailer MP4s from `flixcdn.com`, `project1content.com`, `naughtycdn.com` — these appear only in ad scripts and the m3u8-first order avoids them)
 
-`video.default` = the twimg m3u8, `video.hls` = same, `has_video=True`.
+**Format note (2026-09 fix)**: the twimg m3u8 playlists do NOT play in the app's native player, so every stream is returned with **`format="embed"`** (the app routes embed-format URLs to its WebView/embed player path) — the URL itself stays the raw m3u8. `video.hls` is kept `None` so nothing routes it to the native HLS pipeline. `video.default` = the twimg m3u8, `has_video=True`.
 
 ### Listing and pagination (`list_videos`)
 
@@ -7245,6 +7245,6 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://pornmz.net/video/id
 
 Notes from live testing (2026-09):
 
-- `scrape()` on `/video/id=pmz/hardcore/15290414`: title `Amatemure - Petite Goth Girl Loves Rough Anal` (og:title; the first itemprop name is the site name — fixed during testing), views `301`, upload `2026-09-15T15:22:32+01:00`, 6 tags, 4 related, and the direct `video.twimg.com/amplify_video/.../C_kD74W84ufEmo84.m3u8` HLS stream (`200 application/x-mpegURL` verified).
+- `scrape()` on `/video/id=pmz/hardcore/15290414`: title `Amatemure - Petite Goth Girl Loves Rough Anal` (og:title; the first itemprop name is the site name — fixed during testing), views `301`, upload `2026-09-15T15:22:32+01:00`, 6 tags, 4 related, and the direct `video.twimg.com/amplify_video/.../C_kD74W84ufEmo84.m3u8` stream (`200 application/x-mpegURL` verified) returned as `format="embed"` after the native player proved unable to play the twimg HLS.
 - Listings: home page 1 + 2 (20 cards/page, different first items), `/pmzvideo/c/hardcore` (26 cards), `?s=anal` search (26 cards) all parse with titles, durations, verbatim views, and thumbnails.
 - The twimg HLS playlists are unsigned (no IP-lock, no token) — backend-resolved URLs play on any client; no local app scraper needed.

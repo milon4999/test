@@ -167,6 +167,10 @@ def _streams_from_html(html: str, soup: BeautifulSoup) -> dict[str, Any]:
       1. meta[itemprop="contentUrl"] -> the m3u8 playlist
       2. clean-tube-player player-x.php?q= payload -> <source src="...m3u8">
       3. inline m3u8/mp4 regex scan
+
+    The twimg m3u8 playlists do NOT play in the app's native player, so all
+    streams are returned with format="embed" (routed to the embed/WebView
+    player path) — the URL itself is unchanged.
     """
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -179,9 +183,9 @@ def _streams_from_html(html: str, soup: BeautifulSoup) -> dict[str, Any]:
 
     content_url = _itemprop(soup, "contentUrl")
     if content_url and ".m3u8" in content_url.lower():
-        _add(content_url, "hls", "adaptive")
+        _add(content_url, "embed", "adaptive")
     elif content_url and ".mp4" in content_url.lower():
-        _add(content_url, "mp4", "source")
+        _add(content_url, "embed", "source")
 
     for iframe in soup.select('iframe[src*="player-x.php?q="]'):
         m = re.search(r"q=([^&\"']+)", iframe.get("src") or "")
@@ -189,23 +193,22 @@ def _streams_from_html(html: str, soup: BeautifulSoup) -> dict[str, Any]:
             continue
         payload = _decode_player_q(m.group(1))
         for sm in re.finditer(r'<source[^>]+src="([^"]+)"[^>]*type="[^"]*m3u8', payload):
-            _add(sm.group(1), "hls", "adaptive")
+            _add(sm.group(1), "embed", "adaptive")
         for sm in re.finditer(r'<source[^>]+src="([^"]+\.mp4)', payload):
-            _add(sm.group(1), "mp4", "source")
+            _add(sm.group(1), "embed", "source")
 
     if not streams:
         html_norm = html.replace("\\/", "/")
         for u in _M3U8_RE.findall(html_norm):
-            _add(u, "hls", "adaptive")
+            _add(u, "embed", "adaptive")
         for u in _MP4_RE.findall(html_norm):
             if "/wp-content/" not in u.lower():
-                _add(u, "mp4", "source")
+                _add(u, "embed", "source")
 
     default = streams[0]["url"] if streams else None
-    hls = next((s["url"] for s in streams if s["format"] == "hls"), None)
     return {
         "streams": streams,
-        "hls": hls,
+        "hls": None,
         "default": default,
         "has_video": bool(streams),
     }
