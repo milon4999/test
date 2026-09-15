@@ -27,12 +27,19 @@ _IMPERSONATIONS = ("chrome", "chrome120", "chrome110", "safari15_3")
 _FLASHVARS_PAIR_RE = re.compile(
     r"[\w.]*?(video_id|video_title|video_categories|video_tags|video_models|"
     r"video_url_text|video_url|video_alt_url_text|video_alt_url|"
-    r"video_alt_url2_text|video_alt_url2|video_alt_url3_text|video_alt_url3)\s*"
+    r"video_alt_url2_text|video_alt_url2|video_alt_url3_text|video_alt_url3|"
+    r"logo_url|preview_url)\s*"
     r"[:=]\s*['\"]([^'\"]*)['\"]",
     re.IGNORECASE,
 )
 _GET_FILE_RE = re.compile(r"https?://(?:www\.)?fpo\.xxx/get_file/[^\s\"'<>\\]+", re.IGNORECASE)
 _M3U8_RE = re.compile(r"https?://[^\s\"'<>\\]+\.m3u8[^\s\"'<>\\]*", re.IGNORECASE)
+
+# URL kind detection: /video/{id}/{slug}/, /embed/{id}, /get_file/.../{folder}/{id}/{file}.mp4
+_EMBED_URL_RE = re.compile(r"fpo\.xxx/embed/(\d+)", re.IGNORECASE)
+_VIDEO_PAGE_ID_RE = re.compile(r"fpo\.xxx/video/(\d+)", re.IGNORECASE)
+_GET_FILE_ID_RE = re.compile(r"fpo\.xxx/get_file/\d+/[\w]+/\d+/(\d+)", re.IGNORECASE)
+_GET_FILE_FILENAME_ID_RE = re.compile(r"get_file/[^\s?&]+/(\d{4,})\.(?:mp4|m3u8)", re.IGNORECASE)
 
 _STREAM_FIELD_PAIRS = (
     ("video_url", "video_url_text"),
@@ -80,6 +87,106 @@ async def fetch_html(url: str) -> str:
             last_error = e
             continue
     raise last_error or RuntimeError(f"Failed to fetch {url}")
+
+
+def _extract_video_id(url: str) -> Optional[str]:
+    """Video id from a /video/, /embed/ or /get_file/ fpo.xxx URL."""
+    for pattern in (_VIDEO_PAGE_ID_RE, _EMBED_URL_RE, _GET_FILE_ID_RE, _GET_FILE_FILENAME_ID_RE):
+        m = pattern.search(url or "")
+        if m:
+            return m.group(1)
+    return None
+
+
+def _is_embed_url(url: str) -> bool:
+    return bool(_EMBED_URL_RE.search(url or ""))
+
+
+def _is_get_file_url(url: str) -> bool:
+    return bool(_GET_FILE_RE.search(url or ""))
+
+
+async def _canonical_from_embed(video_id: str) -> Optional[str]:
+    """
+    Resolve the canonical /video/{id}/{slug}/ URL for a video id.
+
+    /video/{id}/ without the slug returns 404 on fpo.xxx, but the embed page
+    exposes the canonical URL as its `logo_url` flashvar.
+    """
+    try:
+        html = await fetch_html(f"{BASE_SITE}embed/{video_id}/")
+    except Exception:
+        return None
+    flash = _parse_flashvars(html)
+    logo = flash.get("logo_url")
+    if logo and "/video/" in logo:
+        return logo
+    return None
+
+
+def _direct_stream_result(url: str) -> dict[str, Any]:
+    """Minimal result for a direct /get_file/ media link that cannot be canonicalized."""
+    return {
+        "url": url,
+        "title": None,
+        "description": None,
+        "thumbnail_url": None,
+        "duration": None,
+        "views": None,
+        "uploader_name": None,
+        "category": None,
+        "tags": [],
+        "upload_date": None,
+        "related_videos": [],
+        "video": {
+            "streams": [{"quality": "default", "url": url, "format": "mp4"}],
+            "hls": None,
+            "default": url,
+            "has_video": True,
+        },
+    }
+
+
+def _parse_embed_page(html: str, url: str) -> dict[str, Any]:
+    """Parse the /embed/{id}/ player page (has flashvars but no page metadata)."""
+    flash = _parse_flashvars(html)
+    video_id = flash.get("video_id") or _extract_video_id(url)
+
+    streams: list[dict[str, Any]] = []
+    raw = flash.get("video_url")
+    if raw:
+        media = raw.replace("\\/", "/")
+        streams.append(
+            {
+                "quality": _normalize_quality_label(flash.get("video_url_text"), media),
+                "url": media,
+                "format": "hls" if ".m3u8" in media.lower() else "mp4",
+            }
+        )
+    if video_id:
+        streams.append(
+            {"quality": "embed", "url": f"{BASE_SITE}embed/{video_id}/", "format": "embed"}
+        )
+
+    return {
+        "url": url,
+        "title": flash.get("video_title"),
+        "description": None,
+        "thumbnail_url": flash.get("preview_url"),
+        "duration": None,
+        "views": None,
+        "uploader_name": None,
+        "category": None,
+        "tags": [],
+        "upload_date": None,
+        "related_videos": [],
+        "video": {
+            "streams": streams,
+            "hls": None,
+            "default": streams[0]["url"] if streams else None,
+            "has_video": bool(streams),
+        },
+    }
 
 
 def _first_non_empty(*values: Optional[str]) -> Optional[str]:
@@ -234,7 +341,7 @@ def _quality_rank(label: str | None) -> int:
     return int(digits) if digits else 0
 
 
-def _extract_video_urls(html: str) -> dict[str, Any]:
+def _extract_video_urls(html: str, video_id: Optional[str] = None) -> dict[str, Any]:
     """
     Extract video stream URLs from the KVS player flashvars:
 
@@ -247,6 +354,10 @@ def _extract_video_urls(html: str) -> dict[str, Any]:
     seen: set[str] = set()
 
     flash = _parse_flashvars(html)
+    if not video_id:
+        video_id = flash.get("video_id") or _extract_video_id(
+            _meta(BeautifulSoup(html or "", "lxml"), prop="og:url") or ""
+        )
 
     for url_key, label_key in _STREAM_FIELD_PAIRS:
         raw = flash.get(url_key)
@@ -303,7 +414,11 @@ def _extract_video_urls(html: str) -> dict[str, Any]:
         if hls_url not in seen:
             streams.insert(0, {"quality": "adaptive", "url": hls_url, "format": "hls"})
 
-    # Best quality first; default = best MP4, else HLS
+    # Best quality first; embed fallback last; default = best MP4, else HLS
+    if video_id and str(video_id).isdigit():
+        embed = f"{BASE_SITE}embed/{video_id}/"
+        if embed not in seen:
+            streams.append({"quality": "embed", "url": embed, "format": "embed"})
     streams.sort(key=lambda s: _quality_rank(s.get("quality")), reverse=True)
     mp4 = next((s["url"] for s in streams if s.get("format") == "mp4"), None)
     default_url = mp4 or (streams[0]["url"] if streams else None)
@@ -511,7 +626,8 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
                 continue
 
     # Extract video URLs for streaming
-    video_info = _extract_video_urls(html)
+    video_id = flash.get("video_id") or _extract_video_id(url)
+    video_info = _extract_video_urls(html, video_id)
 
     return {
         "url": url,
@@ -530,8 +646,39 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
 
 
 async def scrape(url: str) -> dict[str, Any]:
-    html = await fetch_html(url)
-    return parse_page(html, url)
+    # Direct /get_file/ media link: resolve the canonical video page for fresh
+    # stream tokens + full metadata (get_file access tokens are session/expiry
+    # bound). Fall back to serving the link itself as the stream.
+    if _is_get_file_url(url):
+        video_id = _extract_video_id(url)
+        canon = await _canonical_from_embed(video_id) if video_id else None
+        if canon:
+            try:
+                return await scrape(canon)
+            except Exception:
+                pass
+        return _direct_stream_result(url)
+
+    # /embed/{id} page: redirect to the canonical video page for full metadata
+    # (title, views, uploader, HQ streams). Fall back to parsing the embed
+    # player page itself if the canonical page is unreachable.
+    fetch_url = url
+    requested_embed = _is_embed_url(url)
+    if requested_embed:
+        video_id = _extract_video_id(url)
+        canon = await _canonical_from_embed(video_id) if video_id else None
+        if canon:
+            fetch_url = canon
+
+    try:
+        html = await fetch_html(fetch_url)
+    except Exception:
+        if requested_embed and fetch_url != url:
+            html = await fetch_html(url)
+            return _parse_embed_page(html, url)
+        raise
+
+    return parse_page(html, fetch_url)
 
 
 async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dict[str, Any]]:
