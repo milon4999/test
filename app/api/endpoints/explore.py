@@ -1694,6 +1694,19 @@ EXPLORE_SOURCES = [
         pageSize=60,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://www.fpo.xxx/",
+        nickname="FPO",
+        favicon="https://www.fpo.xxx/favicon.ico",
+        accentColor="#FF5722",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://www.fpo.xxx/search/{query}/",
+        sourceId="fpoxxx",
+        disable=False,
+        pageSize=20,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

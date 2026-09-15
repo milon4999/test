@@ -362,6 +362,8 @@ class ScrapeRequest(BaseModel):
             "img.bigwank.com",
             "cast.bigwank.com",
             "cdnawm.com",
+            "fpo.xxx",
+            "www.fpo.xxx",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
@@ -699,6 +701,8 @@ class ListRequest(BaseModel):
             "www.bigwank.com",
             "img.bigwank.com",
             "cast.bigwank.com",
+            "fpo.xxx",
+            "www.fpo.xxx",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v

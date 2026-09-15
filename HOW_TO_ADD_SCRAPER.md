@@ -7248,3 +7248,108 @@ Notes from live testing (2026-09):
 - `scrape()` on `/video/id=pmz/hardcore/15290414`: title `Amatemure - Petite Goth Girl Loves Rough Anal` (og:title; the first itemprop name is the site name — fixed during testing), views `301`, upload `2026-09-15T15:22:32+01:00`, 6 tags, 4 related, and the direct `video.twimg.com/amplify_video/.../C_kD74W84ufEmo84.m3u8` stream (`200 application/x-mpegURL` verified) returned as `format="embed"` after the native player proved unable to play the twimg HLS.
 - Listings: home page 1 + 2 (20 cards/page, different first items), `/pmzvideo/c/hardcore` (26 cards), `?s=anal` search (26 cards) all parse with titles, durations, verbatim views, and thumbnails.
 - The twimg HLS playlists are unsigned (no IP-lock, no token) — backend-resolved URLs play on any client; no local app scraper needed.
+
+## FPO.XXX Implementation Notes
+
+[FPO.XXX](https://www.fpo.xxx/) is a tube-style site with canonical video pages under `/video/<id>/<slug>/`. The home page exposes card listings and navigation for Latest, Top Rated, Popular, Categories, and Search.
+
+### Host aliases
+
+- `fpo.xxx`
+- `www.fpo.xxx`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower()
+    return h == "fpo.xxx" or h.endswith(".fpo.xxx")
+```
+
+### Listing and pagination (`list_videos`)
+
+Recommended list strategy:
+
+- Parse video cards from `.item` class containers.
+- Keep only same-domain video URLs and skip utility pages such as `/terms`, `/2257`, and external links.
+- Prefer metadata in this order:
+  - title: `strong` tag text, then anchor text, then image `alt`
+  - thumbnail: `data-original`, `data-src`, `src`
+  - duration: parse `span.duration` text for `mm:ss` / `hh:mm:ss` format
+  - views: parse numeric counters from card text when available; keep optional
+- Page 1 should use `base_url` unchanged.
+- For page > 1, follow visible paginator routes first; fallback to `/{page}/` path pagination.
+
+Useful base URLs to support:
+
+- `https://www.fpo.xxx/`
+- `https://www.fpo.xxx/new-1/` (Latest)
+- `https://www.fpo.xxx/top-2/` (Top Rated)
+- `https://www.fpo.xxx/popular-2/` (Popular)
+- `https://www.fpo.xxx/categories/<category-slug>/`
+- `https://www.fpo.xxx/search/<term>/`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Extract metadata from:
+  1. `og:title`, `og:description`, `og:image`
+  2. JSON-LD `VideoObject` if present (`name`, `description`, `thumbnailUrl`, `duration`)
+  3. visible title fallback
+- Scan for playable URLs in:
+  - `video_url` and `video_alt_url` in inline script blocks (primary method)
+  - `<video src>` / `<video><source src>`
+  - inline scripts for `.mp4` / `.m3u8`
+  - `iframe[src]` embeds as fallback
+- Unescape script URLs before using them (`\\/` -> `/`, `\\u0026` -> `&`).
+- Build `video.streams` with:
+  - direct files: `format="mp4"` or `format="hls"`
+  - embeds: `format="embed"` with quality labels
+- Set `video.default` preference:
+  1. highest-quality direct MP4 (from `video_url`)
+  2. lower-quality MP4 (from `video_alt_url`)
+  3. HLS URL
+  4. first playable embed
+
+If detail pages expose only third-party embeds, return embed streams instead of fabricating direct media URLs.
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from the site's public category list. Keep schema aligned with existing scraper folders so `/api/v1/categories?source=fpoxxx` returns valid `CategoryItem` entries.
+
+### Registration checklist for FPO.XXX
+
+Besides creating `backend/app/scrapers/fpoxxx/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=fpoxxx` or `source=fpo.xxx`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry
+
+If URL validation still uses strict allowlists in your branch, also update:
+
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist
+  - list/base URL allowlist
+
+### FPO.XXX verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.fpo.xxx/video/12345/video-slug/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.fpo.xxx/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=fpoxxx"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.fpo.xxx/video/12345/video-slug/"
+```
