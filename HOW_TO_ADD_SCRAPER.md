@@ -7164,3 +7164,87 @@ Notes from live testing (2026-09):
 - `scrape()` on `/video/kidnapped-body-heat-127856`: title `kidnapped body heat`, duration `35:53`, views `166`, upload `2026-09-15T17:00:36.679Z`, 6 tags via search enrichment, quality label `1080p`, and the direct `cdn.veporn.com/videos/hqporner/kidnapped-body-heat-127856.mp4` stream (`206 video/mp4`, `ftypisom` verified); 20 related.
 - Listings page 1 + page 2 (cursor pagination verified — different first item), `?category=anal` filter, and `?q=anal` search all return valid items.
 - The MP4s are unsigned (no IP-lock, no token) — backend-resolved URLs play on any client, so no local app scraper is needed for this source.
+
+
+## Pornmz Implementation Notes
+
+[Pornmz](https://pornmz.net/) is a WordPress **retrotube**-theme tube site (same family as SxyLand/Hdporn92). Canonical video pages use a custom scheme: `/video/id=pmz/{category}/{numeric_id}` (e.g. `/video/id=pmz/hardcore/15290414`, no trailing slash). Videos stream as **HLS on Twitter's CDN** (`video.twimg.com/amplify_video/.../{hash}.m3u8`) — unsigned and directly playable (verified `200 application/x-mpegURL` with a valid `#EXTM3U` master playlist).
+
+### Host aliases
+
+- `pornmz.net`, `www.pornmz.net`
+- Stream CDN: `video.twimg.com` (HLS playlists) — allowlisted for passthrough
+
+### Streams (`scrape`) — direct HLS
+
+Extraction order in `_streams_from_html`:
+1. `meta[itemprop="contentUrl"]` → the `video.twimg.com/...m3u8` playlist (`format="hls"`, `quality="adaptive"`)
+2. clean-tube-player `player-x.php?q=` iframe payload (base64 → URL-decode → video.js markup) → `<source src="...m3u8" type="video/m3u8">`
+3. Inline `.m3u8` / `.mp4` regex scan (skip `/wp-content/` assets; the page also contains ad/trailer MP4s from `flixcdn.com`, `project1content.com`, `naughtycdn.com` — these appear only in ad scripts and the m3u8-first order avoids them)
+
+`video.default` = the twimg m3u8, `video.hls` = same, `has_video=True`.
+
+### Listing and pagination (`list_videos`)
+
+- Cards: `article.thumb-block` — link `a[href]` (`/video/id=pmz/{cat}/{id}`), title `header.entry-header span.title` (fallback anchor `title` attr), thumbnail `img[src]` (real src, not lazy), views `span.views` (`2K` — verbatim), duration `span.duration` (only on some cards).
+- Category URLs: `/pmzvideo/c/{slug}` (e.g. `/pmzvideo/c/hardcore`); tag/actor listings exist under `/pmzvideo/s/{slug}` and `/pmzvideo/actor/{id}` but return listing grids too.
+- Pagination: WordPress path `/page/2/` with trailing slash (home, category `/pmzvideo/c/{slug}/page/2/`, and search `/page/2/?s=...`).
+- Search: `/?s={query}` (WordPress query search).
+- Some listing sections (actor pages, tag pages) paginate the same way.
+
+### Metadata (`scrape`)
+
+- **Title gotcha**: the page carries TWO `itemprop="name"` metas — the site name (`Pornmz`) FIRST, the video title second. Extraction order: `og:title` → `h1` → last `itemprop="name"` filtered against the site name.
+- Description/thumbnail: `itemprop="description"` / `itemprop="thumbnailUrl"` (fallback `og:`)
+- Upload date: `itemprop="uploadDate"` (`2026-09-15T15:22:32+01:00`)
+- Views: `.title-views span.views` (fa-eye + count, verbatim)
+- Tags: `.tags-list a.label` links (categories first, then tags: `Hardcore`, `Amateur`, `POV`, `Teen`, `18+ teens`, `Anal`, ...)
+- Duration: not exposed in microdata (`None` — cards carry it, the watch page doesn't)
+- Related: `article.thumb-block` cards on the watch page (4)
+
+### Categories (`get_categories`)
+
+`categories.json` seeds Home + 9 popular categories (`hardcore`, `amateur`, `big-tits`, `blonde`, `brunette`, `milf`, `teen`, `pov`, `anal`) as `/pmzvideo/c/{slug}` URLs. Schema matches the other scraper folders so `/api/v1/categories?source=pornmz` returns valid `CategoryItem` entries.
+
+### Registration checklist for Pornmz
+
+Besides creating `backend/app/scrapers/pornmz/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=pornmz` or `source=pornmz.net`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif pornmz.can_handle(host)`)
+  - unsupported-host help text (`pornmz.net`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`pornmz.net`, `video.twimg.com`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`pornmz.net`, `www.pornmz.net`, `video.twimg.com`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="pornmz"`, `baseUrl="https://pornmz.net/"`, `searchUrlTemplate="https://pornmz.net/?s={query}"`, `accentColor="#FF2D55"`)
+
+### Pornmz verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://pornmz.net/video/id=pmz/hardcore/15290414\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://pornmz.net/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://pornmz.net/pmzvideo/c/hardcore&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=pornmz"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://pornmz.net/video/id=pmz/hardcore/15290414"
+```
+
+Notes from live testing (2026-09):
+
+- `scrape()` on `/video/id=pmz/hardcore/15290414`: title `Amatemure - Petite Goth Girl Loves Rough Anal` (og:title; the first itemprop name is the site name — fixed during testing), views `301`, upload `2026-09-15T15:22:32+01:00`, 6 tags, 4 related, and the direct `video.twimg.com/amplify_video/.../C_kD74W84ufEmo84.m3u8` HLS stream (`200 application/x-mpegURL` verified).
+- Listings: home page 1 + 2 (20 cards/page, different first items), `/pmzvideo/c/hardcore` (26 cards), `?s=anal` search (26 cards) all parse with titles, durations, verbatim views, and thumbnails.
+- The twimg HLS playlists are unsigned (no IP-lock, no token) — backend-resolved URLs play on any client; no local app scraper needed.
