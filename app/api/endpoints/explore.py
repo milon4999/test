@@ -1707,6 +1707,20 @@ EXPLORE_SOURCES = [
         disable=False,
         pageSize=20,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://watchporn.to/",
+        nickname="WatchPorn",
+        favicon="https://watchporn.to/favicon.ico",
+        accentColor="#E91E63",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://watchporn.to/search/{query}/",
+        sourceId="watchporn",
+        disable=False,
+        pageSize=24,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

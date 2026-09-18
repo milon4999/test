@@ -7353,3 +7353,98 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=fpoxxx"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.fpo.xxx/video/12345/video-slug/"
 ```
+
+## WatchPorn Implementation Notes
+
+[WatchPorn](https://watchporn.to/) is a Kernel Video Sharing (KVS) tube with canonical watch URLs `/video/<id>/<slug>/` and embed URLs `/embed/<id>`. Listings use `.thumb.item` cards (lazy `data-original` thumbs, duration in `.thumb__info-item`, views in `.thumb__meta-item`). The site blocks plain HTTP clients (403); fetch with `curl_cffi` Chrome impersonation.
+
+### Host aliases
+
+- `watchporn.to`
+- `www.watchporn.to`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in {"watchporn.to", "www.watchporn.to"} or h.endswith(".watchporn.to")
+```
+
+### Listing (`list_videos`)
+
+- Page 1 should use `base_url` unchanged.
+- For page > 1, append `/{page}/` to the current path (KVS style).
+- Bare home (`https://watchporn.to/`) has no `/{n}/` index; page > 1 should use `/latest-updates/{n}/`.
+
+Useful base URLs:
+
+- `https://watchporn.to/`
+- `https://watchporn.to/latest-updates/`
+- `https://watchporn.to/top-rated/`
+- `https://watchporn.to/most-popular/`
+- `https://watchporn.to/categories/<slug>/`
+- `https://watchporn.to/search/<term>/`
+- `https://watchporn.to/models/<slug>/`
+- `https://watchporn.to/sites/<slug>/`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Extract metadata from:
+  1. KVS `flashvars` (`video_title`, `video_models`, `video_categories`, `video_tags`, `preview_url`)
+  2. `og:title` / `og:description` / `og:image`
+  3. JSON-LD `VideoObject` (`name`, `description`, `thumbnailUrl`, `duration`, `uploadDate`, `genre`, `keywords`, `actor`)
+  4. `.single__content-meta-item` views (eye icon)
+- Streams come from flashvars `video_url` / `video_alt_url*` plus `*_text` quality labels (`720p`, `1080p`).
+- Those URLs are same-origin `/get_file/.../*.mp4/?v-acctoken=...` links that 302 to signed CDN MP4s on `*.zload.cc` (`200 video/mp4` verified). Resolve redirects at scrape time with a video-page Referer.
+- Always include `/embed/<id>` as `format="embed"` fallback if a `get_file` redirect fails.
+- Skip preview/screenshot `get_file` URLs and the `event_reporting2` GIF decoy.
+
+Default stream preference:
+
+1. Highest-quality resolved MP4 (1080p, then 720p)
+2. Embed player URL
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from Latest / Top Rated / Most Popular plus the public `/categories/` grid. Schema matches other scraper folders so `/api/v1/categories?source=watchporn` returns valid `CategoryItem` entries.
+
+### Registration checklist for WatchPorn
+
+Besides creating `backend/app/scrapers/watchporn/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=watchporn` or `source=watchporn.to`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text (`watchporn.to`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`watchporn.to`, `zload.cc`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="watchporn"`, `baseUrl="https://watchporn.to/"`, `searchUrlTemplate="https://watchporn.to/search/{query}/"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`watchporn.to`, `www.watchporn.to`, `zload.cc`)
+  - list/base URL allowlist (`watchporn.to`, `www.watchporn.to`)
+
+### WatchPorn verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://watchporn.to/video/161790/britney-amber-seductive-stepmom/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://watchporn.to/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://watchporn.to/latest-updates/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=watchporn"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://watchporn.to/video/161790/britney-amber-seductive-stepmom/"
+```
