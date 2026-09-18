@@ -1773,7 +1773,7 @@ EXPLORE_SOURCES = [
         hasCategories=True,
         searchUrlTemplate="https://www.exeporn.net/search?q={query}",
         sourceId="exeporn",
-        disable=False,
+        disable=True,
         pageSize=24,
         hasRelatedVideos=True,
     ),
