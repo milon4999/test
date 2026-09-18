@@ -1777,6 +1777,20 @@ EXPLORE_SOURCES = [
         pageSize=24,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://www.xozilla.com/",
+        nickname="Xozilla",
+        favicon="https://www.xozilla.com/favicon.ico",
+        accentColor="#E53935",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://www.xozilla.com/search/{query}/",
+        sourceId="xozilla",
+        disable=False,
+        pageSize=24,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

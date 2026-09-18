@@ -7821,3 +7821,93 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=exeporn"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.exeporn.net/video/milf-enjoys-dildo-and-neighbor-s-dick/"
 ```
+
+## Xozilla Implementation Notes
+
+[Xozilla](https://www.xozilla.com/) is a Kernel Video Sharing tube behind Cloudflare (`server: cloudflare`). Canonical watch URLs are `/videos/<id>/<slug>/`. Listings use `a.item` cards inside `.list-videos` with lazy `data-original` thumbs on `i.xozilla.com`. Duration is HTML-commented as `11m:00s`. Fetch with `curl_cffi` Chrome impersonation; prefer `chrome136`.
+
+### Host aliases
+
+- `xozilla.com`
+- `www.xozilla.com` (canonical)
+- `i.xozilla.com` (thumbs / static)
+- `vcdn.xozilla.com` (resolved MP4)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in {"xozilla.com", "www.xozilla.com", "i.xozilla.com", "vcdn.xozilla.com"} or h.endswith(".xozilla.com")
+```
+
+### Listing (`list_videos`)
+
+- Page 1 should use `base_url` unchanged.
+- For page > 1, append `/{page}/` (verified `/latest-updates/2/` returns 100 cards).
+- Bare home (`https://www.xozilla.com/`) is mixed “watched right now”; page > 1 should use `/latest-updates/{n}/`.
+
+Useful base URLs:
+
+- `https://www.xozilla.com/`
+- `https://www.xozilla.com/latest-updates/`
+- `https://www.xozilla.com/most-popular/`
+- `https://www.xozilla.com/top-rated/`
+- `https://www.xozilla.com/categories/<slug>/`
+- `https://www.xozilla.com/search/<term>/`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Extract metadata from `og:title` / `og:image` plus KT Player `var flashvars` (`video_url`, `video_alt_url`, `video_url_text` e.g. `540p` / `720p`, `video_categories`, `video_tags`).
+- `/get_file/.../*.mp4/` URLs 302 to `http://vcdn.xozilla.com/key=...,end=.../<id>hd.mp4`. Resolve the top quality at scrape time with a watch-page Referer and Range GET; upgrade the Location to `https://`.
+- Do **not** return `/embed/<id>` streams. Incoming embed URLs are rewritten to `/videos/<id>/`.
+- Skip `*_vthumb.mp4` previews and screenshot URLs.
+
+Default stream preference:
+
+1. Resolved `vcdn.xozilla.com` MP4
+2. Original `/get_file/` URL if redirect fails
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from Latest / Most Popular / Top Rated plus a small `/categories/<slug>/` set. Schema matches other scraper folders so `/api/v1/categories?source=xozilla` returns valid `CategoryItem` entries.
+
+### Registration checklist for Xozilla
+
+Besides creating `backend/app/scrapers/xozilla/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=xozilla` or `source=xozilla.com`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text (`xozilla.com`)
+  - `available_qualities` / `per_stream_format_keys` (`xozilla.com`, `vcdn.xozilla.com`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="xozilla"`, `baseUrl="https://www.xozilla.com/"`, `searchUrlTemplate="https://www.xozilla.com/search/{query}/"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`xozilla.com`, `www.xozilla.com`, `i.xozilla.com`, `vcdn.xozilla.com`)
+  - list/base URL allowlist (`xozilla.com`, `www.xozilla.com`)
+
+### Xozilla verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.xozilla.com/videos/849584/danica-collins-rubs-oil-all-over-her-massive-tits-and-tight-ass-in-solo-play/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.xozilla.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.xozilla.com/latest-updates/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=xozilla"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.xozilla.com/videos/849584/danica-collins-rubs-oil-all-over-her-massive-tits-and-tight-ass-in-solo-play/"
+```
