@@ -7448,3 +7448,97 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=watchporn"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://watchporn.to/video/161790/britney-amber-seductive-stepmom/"
 ```
+
+## Hello.Porn Implementation Notes
+
+[Hello.Porn](https://hello.porn/) is a KVS-style tube behind Cloudflare (`server: cloudflare`, `cf-ray`). Canonical watch URLs are `/videos/<id>/`. Listings use `.items-videos .item` cards with lazy `data-src` thumbs on `static.hello.porn` and duration in `.duration_item`. Fetch with `curl_cffi` Chrome impersonation (plain httpx gets 403).
+
+### Host aliases
+
+- `hello.porn`
+- `www.hello.porn`
+- `static.hello.porn` (thumbs / static assets)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in {"hello.porn", "www.hello.porn", "static.hello.porn"} or h.endswith(".hello.porn")
+```
+
+### Listing (`list_videos`)
+
+- Page 1 should use `base_url` unchanged.
+- For page > 1, append `/{page}/` (verified `/new/2/`).
+- Bare home (`https://hello.porn/`) has mixed homepage blocks; page > 1 should use `/new/{n}/`.
+
+Useful base URLs:
+
+- `https://hello.porn/`
+- `https://hello.porn/new/`
+- `https://hello.porn/trending/`
+- `https://hello.porn/best/`
+- `https://hello.porn/categories/<slug>/`
+- `https://hello.porn/search/<term>/`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Extract metadata from:
+  1. `og:title` / `og:description` / `og:image` / `og:duration`
+  2. JSON-LD `VideoObject` (`name`, `thumbnailUrl`, `duration`, `uploadDate`, `actor`, `author`, `keywords`, `userInteractionCount`)
+  3. Fluid Player `<video><source src="...get_file...">` labels (`360p`, `480p`, `720p`)
+- `/get_file/.../*.mp4/` URLs 302 to signed HLS on `*.cdn.privatehost.com` (`200 application/vnd.apple.mpegurl` verified). Resolve at scrape time with a video-page Referer and Range GET.
+- Deduplicate qualities that collapse to the same HLS master.
+- `/embed/<id>/` exists but returns "You are not allowed to watch this video" without a session; keep it only as `format="embed"` fallback.
+- Skip `*_preview360p.mp4` preview clips.
+
+Default stream preference:
+
+1. Resolved HLS master
+2. Direct MP4 `get_file` if redirect fails
+3. Embed URL
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from New / Trending / The Best plus the homepage category slider (do not dump the huge `/categories/` tag list). Schema matches other scraper folders so `/api/v1/categories?source=helloporn` returns valid `CategoryItem` entries.
+
+### Registration checklist for Hello.Porn
+
+Besides creating `backend/app/scrapers/helloporn/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=helloporn` or `source=hello.porn`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text (`hello.porn`)
+  - `available_qualities` / `per_stream_format_keys` (`hello.porn`, `privatehost.com`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="helloporn"`, `baseUrl="https://hello.porn/"`, `searchUrlTemplate="https://hello.porn/search/{query}/"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`hello.porn`, `www.hello.porn`, `static.hello.porn`, `privatehost.com`)
+  - list/base URL allowlist (`hello.porn`, `www.hello.porn`)
+
+### Hello.Porn verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://hello.porn/videos/785625/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://hello.porn/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://hello.porn/new/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=helloporn"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://hello.porn/videos/785625/"
+```

@@ -1721,6 +1721,20 @@ EXPLORE_SOURCES = [
         pageSize=24,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://hello.porn/",
+        nickname="HelloPorn",
+        favicon="https://hello.porn/favicon-32x32.png",
+        accentColor="#FFC600",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://hello.porn/search/{query}/",
+        sourceId="helloporn",
+        disable=False,
+        pageSize=24,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

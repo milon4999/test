@@ -367,6 +367,11 @@ class ScrapeRequest(BaseModel):
             "watchporn.to",
             "www.watchporn.to",
             "zload.cc",
+            "hello.porn",
+            "www.hello.porn",
+            "static.hello.porn",
+            "privatehost.com",
+            "cdn.privatehost.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
@@ -708,6 +713,8 @@ class ListRequest(BaseModel):
             "www.fpo.xxx",
             "watchporn.to",
             "www.watchporn.to",
+            "hello.porn",
+            "www.hello.porn",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
