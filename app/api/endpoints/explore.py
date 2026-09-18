@@ -1735,6 +1735,20 @@ EXPLORE_SOURCES = [
         pageSize=24,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://homo.xxx/",
+        nickname="HomoXXX",
+        favicon="https://homo.xxx/favicon.ico",
+        accentColor="#7C4DFF",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://homo.xxx/search/{query}/",
+        sourceId="homoxxx",
+        disable=False,
+        pageSize=24,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

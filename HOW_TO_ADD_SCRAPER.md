@@ -7541,3 +7541,96 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=helloporn"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://hello.porn/videos/785625/"
 ```
+
+## Homo.XXX Implementation Notes
+
+[HOMO.XXX](https://homo.xxx/) is a KVS-style gay tube (same family as Hello.Porn) behind Cloudflare (`server: cloudflare`). Canonical watch URLs are `/videos/<id>/`. Listings use `.items-videos .item` cards with lazy `data-src` thumbs on `static.homo.xxx` and duration in `.duration_item`. Fetch with `curl_cffi` Chrome impersonation; prefer `chrome136` (generic `chrome` can stall with 0-byte timeouts).
+
+### Host aliases
+
+- `homo.xxx`
+- `www.homo.xxx`
+- `static.homo.xxx` (thumbs / static assets)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in {"homo.xxx", "www.homo.xxx", "static.homo.xxx"} or h.endswith(".homo.xxx")
+```
+
+### Listing (`list_videos`)
+
+- Page 1 should use `base_url` unchanged.
+- For page > 1, append `/{page}/` (verified `/new/2/` returns 24 cards).
+- Bare home (`https://homo.xxx/`) has mixed homepage blocks; page > 1 should use `/new/{n}/`.
+
+Useful base URLs:
+
+- `https://homo.xxx/`
+- `https://homo.xxx/new/`
+- `https://homo.xxx/trending/`
+- `https://homo.xxx/best/`
+- `https://homo.xxx/categories/<slug>/`
+- `https://homo.xxx/search/<term>/`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Extract metadata from:
+  1. `og:title` / `og:description` / `og:image` / `og:duration`
+  2. JSON-LD `VideoObject` (`name`, `thumbnailUrl`, `duration`, `uploadDate`, `actor`, `author`, `keywords`, `userInteractionCount`)
+  3. Fluid Player `<video><source src="...get_file...">` labels (`480p`, `720p`; skip `Auto`)
+- `/get_file/.../*.mp4/` URLs 302 to signed HLS on `cdn.privatehost.com` (`/hls/contents/videos/...`). Resolve at scrape time with a video-page Referer and Range GET.
+- Deduplicate qualities that collapse to the same HLS master.
+- Do **not** return `/embed/<id>/` streams. Incoming `/embed/<id>/` URLs are rewritten to `/videos/<id>/` then scraped for direct media.
+- Skip `*_preview360p.mp4` preview clips.
+
+Default stream preference:
+
+1. Resolved HLS master
+2. Direct MP4 `get_file` if redirect fails
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from New / Trending / The Best plus the homepage category slider (do not dump the huge `/categories/` tag list). Schema matches other scraper folders so `/api/v1/categories?source=homoxxx` returns valid `CategoryItem` entries.
+
+### Registration checklist for Homo.XXX
+
+Besides creating `backend/app/scrapers/homoxxx/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=homoxxx` or `source=homo.xxx`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text (`homo.xxx`)
+  - `available_qualities` / `per_stream_format_keys` (`homo.xxx`, `privatehost.com`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="homoxxx"`, `baseUrl="https://homo.xxx/"`, `searchUrlTemplate="https://homo.xxx/search/{query}/"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`homo.xxx`, `www.homo.xxx`, `static.homo.xxx`, `privatehost.com`)
+  - list/base URL allowlist (`homo.xxx`, `www.homo.xxx`)
+
+### Homo.XXX verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://homo.xxx/videos/45411/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://homo.xxx/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://homo.xxx/new/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=homoxxx"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://homo.xxx/videos/45411/"
+```
