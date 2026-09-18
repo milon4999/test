@@ -26,25 +26,16 @@ _IMPERSONATIONS = ("chrome", "chrome120", "chrome110", "safari15_3")
 # KVS flashvars (var flashvars = { video_url: '...', video_alt_url_text: 'HQ', ... })
 _FLASHVARS_PAIR_RE = re.compile(
     r"[\w.]*?(video_id|video_title|video_categories|video_tags|video_models|"
-    r"video_url_text|video_url|video_alt_url_text|video_alt_url|"
-    r"video_alt_url2_text|video_alt_url2|video_alt_url3_text|video_alt_url3|"
     r"logo_url|preview_url)\s*"
     r"[:=]\s*['\"]([^'\"]*)['\"]",
     re.IGNORECASE,
 )
-_GET_FILE_RE = re.compile(r"https?://(?:www\.)?fpo\.xxx/get_file/[^\s\"'<>\\]+", re.IGNORECASE)
-_M3U8_RE = re.compile(r"https?://[^\s\"'<>\\]+\.m3u8[^\s\"'<>\\]*", re.IGNORECASE)
+
 
 # URL kind detection: /video/{id}/{slug}/, /embed/{id}
 _EMBED_URL_RE = re.compile(r"fpo\.xxx/embed/(\d+)", re.IGNORECASE)
 _VIDEO_PAGE_ID_RE = re.compile(r"fpo\.xxx/video/(\d+)", re.IGNORECASE)
 
-_STREAM_FIELD_PAIRS = (
-    ("video_url", "video_url_text"),
-    ("video_alt_url", "video_alt_url_text"),
-    ("video_alt_url2", "video_alt_url2_text"),
-    ("video_alt_url3", "video_alt_url3_text"),
-)
 
 # Views text like "242 515" / "242,515" / "1.2M"
 _VIEWS_RE = re.compile(r"(\d[\d\s,.]*)(\s*[KMB])?", re.IGNORECASE)
@@ -119,21 +110,11 @@ async def _canonical_from_embed(video_id: str) -> Optional[str]:
 
 
 def _parse_embed_page(html: str, url: str) -> dict[str, Any]:
-    """Parse the /embed/{id}/ player page (has flashvars but no page metadata)."""
+    """Parse the /embed/{id}/ player page."""
     flash = _parse_flashvars(html)
     video_id = flash.get("video_id") or _extract_video_id(url)
 
     streams: list[dict[str, Any]] = []
-    raw = flash.get("video_url")
-    if raw:
-        media = raw.replace("\\/", "/")
-        streams.append(
-            {
-                "quality": _normalize_quality_label(flash.get("video_url_text"), media),
-                "url": media,
-                "format": "hls" if ".m3u8" in media.lower() else "mp4",
-            }
-        )
     if video_id:
         streams.append(
             {"quality": "embed", "url": f"{BASE_SITE}embed/{video_id}/", "format": "embed"}
@@ -288,41 +269,13 @@ def _clean_count(text: str) -> Optional[str]:
     return f"{val}{suf}" if suf else val
 
 
-def _normalize_quality_label(label: str | None, url: str = "") -> str:
-    text = str(label or "").strip()
-    if text.isdigit():
-        return f"{text}p"
-    mq = re.search(r"(\d{3,4})[pP]", text)
-    if mq:
-        return f"{mq.group(1)}p"
-    # Resolution encoded in the file name: ..._720p.mp4 / ..._720m.mp4
-    mq = re.search(r"_(\d{3,4})[pm]\.mp4", url, re.IGNORECASE)
-    if mq:
-        return f"{mq.group(1)}p"
-    mq = re.search(r"-(\d{3,4})\.mp4", url, re.IGNORECASE)
-    if mq:
-        return f"{mq.group(1)}p"
-    if text:
-        return text
-    return "default"
-
-
-def _quality_rank(label: str | None) -> int:
-    digits = "".join(ch for ch in str(label or "") if ch.isdigit())
-    return int(digits) if digits else 0
 
 
 def _extract_video_urls(html: str, video_id: Optional[str] = None) -> dict[str, Any]:
     """
-    Extract video stream URLs from the KVS player flashvars:
-
-        video_url: '<LQ mp4>', video_url_text: 'LQ',
-        video_alt_url: '<HQ 720p mp4>', video_alt_url_text: 'HQ', ...
-
-    Returns {"streams": [...], "hls": ..., "default": ..., "has_video": bool}
+    Extract video stream URLs. Only returns the embed player URL.
     """
     streams: list[dict[str, Any]] = []
-    seen: set[str] = set()
 
     flash = _parse_flashvars(html)
     if not video_id:
@@ -330,74 +283,14 @@ def _extract_video_urls(html: str, video_id: Optional[str] = None) -> dict[str, 
             _meta(BeautifulSoup(html or "", "lxml"), prop="og:url") or ""
         )
 
-    for url_key, label_key in _STREAM_FIELD_PAIRS:
-        raw = flash.get(url_key)
-        if not raw:
-            continue
-        media = raw.replace("\\/", "/")
-        if not media or media in seen:
-            continue
-        seen.add(media)
-        streams.append(
-            {
-                "quality": _normalize_quality_label(flash.get(label_key), media),
-                "url": media,
-                "format": "hls" if ".m3u8" in media.lower() else "mp4",
-            }
-        )
-
-    # Fallback: any get_file mp4 URL on the page
-    if not streams:
-        for raw in _GET_FILE_RE.findall((html or "").replace("\\/", "/")):
-            media = raw.rstrip("/\\")
-            if "_preview" in media.lower() or media in seen:
-                continue
-            seen.add(media)
-            streams.append(
-                {
-                    "quality": _normalize_quality_label(None, media),
-                    "url": media,
-                    "format": "hls" if ".m3u8" in media.lower() else "mp4",
-                }
-            )
-
-    # Fallback: <video>/<source> tags
-    if not streams:
-        soup = BeautifulSoup(html, "lxml")
-        for source in soup.select("video source[src], video[src]"):
-            src = str(source.get("src") or "")
-            if not src or src in seen:
-                continue
-            seen.add(src)
-            streams.append(
-                {
-                    "quality": _normalize_quality_label(source.get("label"), src),
-                    "url": src,
-                    "format": "hls" if ".m3u8" in src.lower() else "mp4",
-                }
-            )
-
-    # HLS master playlist if present
-    hls_url: Optional[str] = None
-    hls_match = _M3U8_RE.search(html or "")
-    if hls_match:
-        hls_url = hls_match.group(0)
-        if hls_url not in seen:
-            streams.insert(0, {"quality": "adaptive", "url": hls_url, "format": "hls"})
-
-    # Best quality first; embed fallback last; default = best MP4, else HLS
     if video_id and str(video_id).isdigit():
         embed = f"{BASE_SITE}embed/{video_id}/"
-        if embed not in seen:
-            streams.append({"quality": "embed", "url": embed, "format": "embed"})
-    streams.sort(key=lambda s: _quality_rank(s.get("quality")), reverse=True)
-    mp4 = next((s["url"] for s in streams if s.get("format") == "mp4"), None)
-    default_url = mp4 or (streams[0]["url"] if streams else None)
+        streams.append({"quality": "embed", "url": embed, "format": "embed"})
 
     return {
         "streams": streams,
-        "hls": hls_url,
-        "default": default_url,
+        "hls": None,
+        "default": embed if streams else None,
         "has_video": bool(streams),
     }
 
