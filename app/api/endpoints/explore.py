@@ -1817,6 +1817,20 @@ EXPLORE_SOURCES = [
         disable=False,
         pageSize=24,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://www.analdin.com/",
+        nickname="Analdin",
+        favicon="https://www.analdin.com/favicon.ico",
+        accentColor="#E53935",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://www.analdin.com/search/{query}/",
+        sourceId="analdin",
+        disable=False,
+        pageSize=24,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

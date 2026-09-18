@@ -8101,3 +8101,93 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=hdzog"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://hdzog.com/videos/3032913/massaged-on-the-job-dirty-masseur/"
 ```
+
+## Analdin Implementation Notes
+
+[Analdin](https://www.analdin.com/) is a Kernel Video Sharing tube behind Cloudflare (`server: cloudflare`). Canonical watch URLs are `/videos/<id>/<slug>/`. Listings use `div.item` cards with `a.popup-video-link` (not `a.item` — those are model tiles). Thumbs are `img.thumb.lazy-load[data-original]` or the link `thumb` attribute on `i.analdin.com`. Duration is HTML-commented as `<!-- <div class="duration">22:16</div>-->`. Fetch with `curl_cffi` Chrome impersonation; prefer `chrome136`.
+
+### Host aliases
+
+- `analdin.com`
+- `www.analdin.com` (canonical)
+- `i.analdin.com` (thumbs / screenshots)
+- `vcdn.analdin.com` (resolved MP4, when `/get_file/` 302s)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in {"analdin.com", "www.analdin.com", "i.analdin.com", "vcdn.analdin.com"} or h.endswith(".analdin.com")
+```
+
+### Listing (`list_videos`)
+
+- Page 1 uses `base_url` unchanged.
+- For page > 1, append `/{page}/` (verified `/latest-updates/2/` returns 100 `/videos/<id>/` hrefs).
+- Bare home (`https://www.analdin.com/`) is mixed; page > 1 should use `/latest-updates/{n}/`.
+
+Useful base URLs:
+
+- `https://www.analdin.com/`
+- `https://www.analdin.com/latest-updates/`
+- `https://www.analdin.com/most-popular/`
+- `https://www.analdin.com/top-rated/`
+- `https://www.analdin.com/categories/<slug>/`
+- `https://www.analdin.com/search/<term>/`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Extract metadata from `og:title` / `og:image` plus KT Player `var flashvars` (`video_url`, `video_alt_url`, `video_url_text` e.g. `540p` / `720p`, `video_categories`, `video_tags`, `preview_url`).
+- `/get_file/.../*.mp4/` URLs 302 to a signed CDN MP4. Resolve the top quality at scrape time with a watch-page Referer and Range GET; upgrade `http://` Location to `https://`.
+- Do **not** return `/embed/<id>` streams. Incoming embed URLs are rewritten to `/videos/<id>/`.
+- Skip `*_vthumb.mp4` previews and screenshot URLs.
+
+Default stream preference:
+
+1. Resolved CDN MP4
+2. Original `/get_file/` URL if redirect fails
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from Latest / Most Popular / Top Rated plus a small `/categories/<slug>/` set (Anal, MILF, Big Tits, …). `/api/v1/categories?source=analdin` returns valid `CategoryItem` entries.
+
+### Registration checklist for Analdin
+
+Besides creating `backend/app/scrapers/analdin/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=analdin` or `source=analdin.com`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text (`analdin.com`)
+  - `available_qualities` / `per_stream_format_keys` (`analdin.com`, `vcdn.analdin.com`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="analdin"`, `baseUrl="https://www.analdin.com/"`, `searchUrlTemplate="https://www.analdin.com/search/{query}/"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`analdin.com`, `www.analdin.com`, `i.analdin.com`, `vcdn.analdin.com`)
+  - list/base URL allowlist (`analdin.com`, `www.analdin.com`)
+
+### Analdin verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.analdin.com/videos/819398/innocent-muslim-beauty-discovers-wild-gangbang-ecstasy-in-sensual-overload/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.analdin.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.analdin.com/latest-updates/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=analdin"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.analdin.com/videos/819398/innocent-muslim-beauty-discovers-wild-gangbang-ecstasy-in-sensual-overload/"
+```
