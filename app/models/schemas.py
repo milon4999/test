@@ -394,6 +394,13 @@ class ScrapeRequest(BaseModel):
             "www.analdin.com",
             "i.analdin.com",
             "vcdn.analdin.com",
+            "nuvid.club",
+            "www.nuvid.club",
+            "m.nuvid.club",
+            "gcdn.nuvid.club",
+            "nuvid.com",
+            "www.nuvid.com",
+            "nvdst.com",
             "vkuser.net",
             "privatehost.com",
             "cdn.privatehost.com",
@@ -754,6 +761,11 @@ class ListRequest(BaseModel):
             "www.hdzog.com",
             "analdin.com",
             "www.analdin.com",
+            "nuvid.club",
+            "www.nuvid.club",
+            "m.nuvid.club",
+            "nuvid.com",
+            "www.nuvid.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v

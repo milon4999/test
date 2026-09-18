@@ -8191,3 +8191,104 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=analdin"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.analdin.com/videos/819398/innocent-muslim-beauty-discovers-wild-gangbang-ecstasy-in-sensual-overload/"
 ```
+
+## Nuvid Implementation Notes
+
+[Nuvid](https://www.nuvid.club/) is a DrTuber-family custom CMS (not KVS and not Magma/TXXX). Canonical watch URLs are `/video/<id>/<slug>` (singular `video`, no trailing slash required). The HTML5 player uses `htmlVideoPlayer({ configUrl: '/player_config_json/', configData: { vid, aid: 0, domain_id: 0, embed: 0, check_speed: 0 } })` with quality titles `lq=320p`, `hq=720p`, `4k=2160p`. Fetch with `curl_cffi` Chrome impersonation; prefer `chrome136`. POST to `/player_config_json/` can return an empty array; GET with query params returns the JSON.
+
+### Host aliases
+
+- `nuvid.club` / `www.nuvid.club` (canonical)
+- `m.nuvid.club`
+- `nuvid.com` / `www.nuvid.com` (aliases that land on `.club`)
+- `gcdn.nuvid.club` (signed MP4 CDN)
+- `*.nvdst.com` (thumbs / static, e.g. `g1.nvdst.com`)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return (
+        h in {"nuvid.club", "www.nuvid.club", "m.nuvid.club", "gcdn.nuvid.club", "nuvid.com", "nvdst.com"}
+        or h.endswith(".nuvid.club")
+        or h.endswith(".nvdst.com")
+        or h.endswith(".nuvid.com")
+    )
+```
+
+### Listing (`list_videos`)
+
+- Home page 1 is `https://www.nuvid.club/`.
+- Home page > 1 is `/videos/{n}` (not `/?page=` and not `/2`). Bare `/videos` is 404.
+- Category pages are `/{slug}-porn` with page > 1 as `/{slug}-porn/{n}`.
+- Search is `/search/videos/{query}` with page > 1 as `/search/videos/{query}/{n}`.
+- Cards are `#search_results a.vid_link` (class `th video-thumb vid_link`). Title is the `title` attribute, thumbs are `img.image[src]` on `*.nvdst.com/media/videos/tmb/<id>/240_147/N.jpg`, duration is `i.time`. Skip `data-webm` / `/media/videos/tmb/<id>/<id>.mp4` preview clips.
+
+Useful base URLs:
+
+- `https://www.nuvid.club/`
+- `https://www.nuvid.club/hd-porn`
+- `https://www.nuvid.club/milf-porn`
+- `https://www.nuvid.club/search/videos/milf`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Load the watch HTML for `og:` metadata, `.runtime`, `.video-cat a.button2` tags, `.add-by` uploader, and related curb thumbs.
+- GET `https://www.nuvid.club/player_config_json/?vid=<id>&aid=0&domain_id=0&embed=0&check_speed=0` with the watch URL as Referer.
+- Streams come from `files.lq` / `files.hq` / `files.4k` (null or `""` means that quality is missing). CDN hosts are `gcdn.nuvid.club`.
+- Do **not** return `/embed/<id>` streams. Incoming embed URLs are rewritten to `/video/<id>`.
+- Skip tmb preview MP4/WebM.
+
+Default stream preference:
+
+1. `4k` (2160p) when present
+2. `hq` (720p)
+3. `lq` (320p)
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from Trending / HD / 4K plus `/categories` niches (`a.btnBig[href$=-porn]`). `/api/v1/categories?source=nuvid` returns valid `CategoryItem` entries.
+
+### Registration checklist for Nuvid
+
+Besides creating `backend/app/scrapers/nuvid/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=nuvid` or `source=nuvid.club`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text (`nuvid.club`)
+  - `available_qualities` / `per_stream_format_keys` (`nuvid.club`, `nuvid.com`, `gcdn.nuvid.club`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="nuvid"`, `baseUrl="https://www.nuvid.club/"`, `searchUrlTemplate="https://www.nuvid.club/search/videos/{query}"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`nuvid.club`, `www.nuvid.club`, `m.nuvid.club`, `gcdn.nuvid.club`, `nuvid.com`, `nvdst.com`)
+  - list/base URL allowlist (`nuvid.club`, `www.nuvid.club`, `m.nuvid.club`, `nuvid.com`)
+
+### Nuvid verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.nuvid.club/video/8431204/japanese-teen-hardcore-masturbating-at-asian-chatroom\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.nuvid.club/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.nuvid.club/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.nuvid.club/milf-porn&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=nuvid"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.nuvid.club/video/8431204/japanese-teen-hardcore-masturbating-at-asian-chatroom"
+```
+

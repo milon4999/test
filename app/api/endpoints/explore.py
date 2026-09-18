@@ -1831,6 +1831,20 @@ EXPLORE_SOURCES = [
         pageSize=24,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://www.nuvid.club/",
+        nickname="Nuvid",
+        favicon="https://www.nuvid.club/favicon.ico",
+        accentColor="#1E88E5",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://www.nuvid.club/search/videos/{query}",
+        sourceId="nuvid",
+        disable=False,
+        pageSize=40,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(
