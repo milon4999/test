@@ -7634,3 +7634,98 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=homoxxx"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://homo.xxx/videos/45411/"
 ```
+
+## PerfectGirls.XXX Implementation Notes
+
+[Perfect Girls](https://www.perfectgirls.xxx/) is a KVS-style tube (Private Host family, same CDN as Hello.Porn / Homo.XXX) behind Cloudflare (`server: cloudflare`). Canonical watch URLs are `/video/<id>/` (singular). Listings use `.item.thumb-bl-video` cards with lazy `data-original` thumbs on `static.perfectgirls.xxx`, duration/views in `.video-meta`, and channel name in `.content_items`. Fetch with `curl_cffi` Chrome impersonation; prefer `chrome136`.
+
+### Host aliases
+
+- `perfectgirls.xxx`
+- `www.perfectgirls.xxx` (canonical)
+- `static.perfectgirls.xxx` (thumbs / static assets)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in {"perfectgirls.xxx", "www.perfectgirls.xxx", "static.perfectgirls.xxx"} or h.endswith(".perfectgirls.xxx")
+```
+
+### Listing (`list_videos`)
+
+- Page 1 should use `base_url` unchanged.
+- For page > 1, append `/{page}/` (verified `/2/` and `/popular/2/` return 60 cards).
+- Bare home (`https://www.perfectgirls.xxx/`) page > 1 is `/{n}/` (not `/new/{n}/`; `/new/2/` is 404).
+- Skip player scene-skip slides that have `data-href` but no `/video/` href.
+
+Useful base URLs:
+
+- `https://www.perfectgirls.xxx/`
+- `https://www.perfectgirls.xxx/popular/`
+- `https://www.perfectgirls.xxx/trending/`
+- `https://www.perfectgirls.xxx/tags/<slug>/`
+- `https://www.perfectgirls.xxx/search/<term>/`
+- `https://www.perfectgirls.xxx/channels/<slug>/`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Extract metadata from:
+  1. `og:title` / `og:description` / `og:image` / `og:duration`
+  2. JSON-LD `VideoObject` (`name`, `thumbnailUrl`, `duration`, `uploadDate`, `author`, `keywords`, `userInteractionCount`)
+  3. Fluid Player `<video><source src="...get_file...">` labels (`360p`, `480p`, `720p`; skip `Auto`)
+- `/get_file/.../*.mp4/` URLs 302 to signed HLS on `cdn.privatehost.com` (`/hls/contents/videos/...`). Resolve at scrape time with a video-page Referer and Range GET.
+- Deduplicate qualities that collapse to the same HLS master.
+- Do **not** return `/embed/<id>/` streams. Incoming `/embed/<id>/` URLs are rewritten to `/video/<id>/` then scraped for direct media.
+- Skip `*_preview360p.mp4` preview clips.
+- Related videos live in `#custom_list_videos_custom_related_videos.related-videos`.
+
+Default stream preference:
+
+1. Resolved HLS master
+2. Direct MP4 `get_file` if redirect fails
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from New / Popular / Trending plus a small set of `/tags/<slug>/` entries (do not dump the huge `/tags/` index). Schema matches other scraper folders so `/api/v1/categories?source=perfectgirls` returns valid `CategoryItem` entries.
+
+### Registration checklist for PerfectGirls.XXX
+
+Besides creating `backend/app/scrapers/perfectgirls/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=perfectgirls` or `source=perfectgirls.xxx`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text (`perfectgirls.xxx`)
+  - `available_qualities` / `per_stream_format_keys` (`perfectgirls.xxx`, `privatehost.com`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="perfectgirls"`, `baseUrl="https://www.perfectgirls.xxx/"`, `searchUrlTemplate="https://www.perfectgirls.xxx/search/{query}/"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`perfectgirls.xxx`, `www.perfectgirls.xxx`, `static.perfectgirls.xxx`, `privatehost.com`)
+  - list/base URL allowlist (`perfectgirls.xxx`, `www.perfectgirls.xxx`)
+
+### PerfectGirls.XXX verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.perfectgirls.xxx/video/785678/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.perfectgirls.xxx/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.perfectgirls.xxx/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=perfectgirls"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.perfectgirls.xxx/video/785678/"
+```

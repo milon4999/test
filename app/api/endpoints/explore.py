@@ -1749,6 +1749,20 @@ EXPLORE_SOURCES = [
         pageSize=24,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://www.perfectgirls.xxx/",
+        nickname="PerfectGirls",
+        favicon="https://www.perfectgirls.xxx/favicon-32x32.png",
+        accentColor="#F7616D",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://www.perfectgirls.xxx/search/{query}/",
+        sourceId="perfectgirls",
+        disable=False,
+        pageSize=60,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

@@ -373,6 +373,9 @@ class ScrapeRequest(BaseModel):
             "homo.xxx",
             "www.homo.xxx",
             "static.homo.xxx",
+            "perfectgirls.xxx",
+            "www.perfectgirls.xxx",
+            "static.perfectgirls.xxx",
             "privatehost.com",
             "cdn.privatehost.com",
         ]
@@ -720,6 +723,8 @@ class ListRequest(BaseModel):
             "www.hello.porn",
             "homo.xxx",
             "www.homo.xxx",
+            "perfectgirls.xxx",
+            "www.perfectgirls.xxx",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
