@@ -35,11 +35,9 @@ _FLASHVARS_PAIR_RE = re.compile(
 _GET_FILE_RE = re.compile(r"https?://(?:www\.)?fpo\.xxx/get_file/[^\s\"'<>\\]+", re.IGNORECASE)
 _M3U8_RE = re.compile(r"https?://[^\s\"'<>\\]+\.m3u8[^\s\"'<>\\]*", re.IGNORECASE)
 
-# URL kind detection: /video/{id}/{slug}/, /embed/{id}, /get_file/.../{folder}/{id}/{file}.mp4
+# URL kind detection: /video/{id}/{slug}/, /embed/{id}
 _EMBED_URL_RE = re.compile(r"fpo\.xxx/embed/(\d+)", re.IGNORECASE)
 _VIDEO_PAGE_ID_RE = re.compile(r"fpo\.xxx/video/(\d+)", re.IGNORECASE)
-_GET_FILE_ID_RE = re.compile(r"fpo\.xxx/get_file/\d+/[\w]+/\d+/(\d+)", re.IGNORECASE)
-_GET_FILE_FILENAME_ID_RE = re.compile(r"get_file/[^\s?&]+/(\d{4,})\.(?:mp4|m3u8)", re.IGNORECASE)
 
 _STREAM_FIELD_PAIRS = (
     ("video_url", "video_url_text"),
@@ -90,8 +88,8 @@ async def fetch_html(url: str) -> str:
 
 
 def _extract_video_id(url: str) -> Optional[str]:
-    """Video id from a /video/, /embed/ or /get_file/ fpo.xxx URL."""
-    for pattern in (_VIDEO_PAGE_ID_RE, _EMBED_URL_RE, _GET_FILE_ID_RE, _GET_FILE_FILENAME_ID_RE):
+    """Video id from a /video/ or /embed/ fpo.xxx URL."""
+    for pattern in (_VIDEO_PAGE_ID_RE, _EMBED_URL_RE):
         m = pattern.search(url or "")
         if m:
             return m.group(1)
@@ -100,10 +98,6 @@ def _extract_video_id(url: str) -> Optional[str]:
 
 def _is_embed_url(url: str) -> bool:
     return bool(_EMBED_URL_RE.search(url or ""))
-
-
-def _is_get_file_url(url: str) -> bool:
-    return bool(_GET_FILE_RE.search(url or ""))
 
 
 async def _canonical_from_embed(video_id: str) -> Optional[str]:
@@ -122,29 +116,6 @@ async def _canonical_from_embed(video_id: str) -> Optional[str]:
     if logo and "/video/" in logo:
         return logo
     return None
-
-
-def _direct_stream_result(url: str) -> dict[str, Any]:
-    """Minimal result for a direct /get_file/ media link that cannot be canonicalized."""
-    return {
-        "url": url,
-        "title": None,
-        "description": None,
-        "thumbnail_url": None,
-        "duration": None,
-        "views": None,
-        "uploader_name": None,
-        "category": None,
-        "tags": [],
-        "upload_date": None,
-        "related_videos": [],
-        "video": {
-            "streams": [{"quality": "default", "url": url, "format": "mp4"}],
-            "hls": None,
-            "default": url,
-            "has_video": True,
-        },
-    }
 
 
 def _parse_embed_page(html: str, url: str) -> dict[str, Any]:
@@ -646,19 +617,6 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
 
 
 async def scrape(url: str) -> dict[str, Any]:
-    # Direct /get_file/ media link: resolve the canonical video page for fresh
-    # stream tokens + full metadata (get_file access tokens are session/expiry
-    # bound). Fall back to serving the link itself as the stream.
-    if _is_get_file_url(url):
-        video_id = _extract_video_id(url)
-        canon = await _canonical_from_embed(video_id) if video_id else None
-        if canon:
-            try:
-                return await scrape(canon)
-            except Exception:
-                pass
-        return _direct_stream_result(url)
-
     # /embed/{id} page: redirect to the canonical video page for full metadata
     # (title, views, uploader, HQ streams). Fall back to parsing the embed
     # player page itself if the canonical page is unreachable.
