@@ -7729,3 +7729,95 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=perfectgirls"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.perfectgirls.xxx/video/785678/"
 ```
+
+## eXePorn Implementation Notes
+
+[eXePorn](https://www.exeporn.net/) is a Kernel Video Sharing tube behind Cloudflare (`server: cloudflare`). Canonical watch URLs are `/video/<slug>/`. Listings use `a.cards__item.thumb` cards (lazy `data-srcset` thumbs under `/images/thumb/`, duration in `.card__info_time`). Fetch with `curl_cffi` Chrome impersonation; prefer `chrome136`.
+
+### Host aliases
+
+- `exeporn.net`
+- `www.exeporn.net` (canonical)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in {"exeporn.net", "www.exeporn.net"} or h.endswith(".exeporn.net")
+```
+
+### Listing (`list_videos`)
+
+- Page 1 should use `base_url` unchanged.
+- For page > 1, add `?page=n` (verified `/videos/?page=2`, `/big-tits/?page=2`, `/search?q=milf&page=2`).
+- Bare home (`https://www.exeporn.net/`) is a mixed featured/newest block; page > 1 should use `/videos/?page=n`.
+- Categories are root slugs (`/milf/`, `/big-tits/`), not `/categories/<slug>/` (those 404).
+- Search is `GET /search?q=<term>` (not `/search/<term>/`).
+
+Useful base URLs:
+
+- `https://www.exeporn.net/`
+- `https://www.exeporn.net/videos/`
+- `https://www.exeporn.net/milf/`
+- `https://www.exeporn.net/big-tits/`
+- `https://www.exeporn.net/search?q=<term>`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Extract metadata from:
+  1. `og:title` / `og:description` / `og:image`
+  2. Schema.org `VideoObject` itemprop (`description`, `keywords`, `uploadDate`, `thumbnailUrl`)
+  3. KT Player `var flashvars = { video_url, video_alt_url, video_url_text, video_alt_url_text, ... }`
+- Direct media is `/get_stream/<id>-<quality>.mp4?md5=...&timestamp=...`. A Range GET with the watch-page Referer 302s to MP4 on `*.vkuser.net`. Resolve the top quality at scrape time; do not download the file.
+- Do **not** return `/embed/<id>` streams. The public embed page is a stub without flashvars. Incoming embed URLs are only rewritten if a canonical `/video/<slug>/` link is present.
+- Skip preview clips / logo placeholders.
+
+Default stream preference:
+
+1. Resolved `vkuser.net` MP4
+2. Original `/get_stream/` URL if redirect fails
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from Newest (`/videos/`) plus homepage category slugs. Schema matches other scraper folders so `/api/v1/categories?source=exeporn` returns valid `CategoryItem` entries.
+
+### Registration checklist for eXePorn
+
+Besides creating `backend/app/scrapers/exeporn/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=exeporn` or `source=exeporn.net`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text (`exeporn.net`)
+  - `available_qualities` / `per_stream_format_keys` (`exeporn.net`, `vkuser.net`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="exeporn"`, `baseUrl="https://www.exeporn.net/"`, `searchUrlTemplate="https://www.exeporn.net/search?q={query}"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`exeporn.net`, `www.exeporn.net`, `vkuser.net`)
+  - list/base URL allowlist (`exeporn.net`, `www.exeporn.net`)
+
+### eXePorn verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.exeporn.net/video/milf-enjoys-dildo-and-neighbor-s-dick/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.exeporn.net/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.exeporn.net/videos/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=exeporn"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.exeporn.net/video/milf-enjoys-dildo-and-neighbor-s-dick/"
+```

@@ -1763,6 +1763,20 @@ EXPLORE_SOURCES = [
         pageSize=60,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://www.exeporn.net/",
+        nickname="eXePorn",
+        favicon="https://www.exeporn.net/favicon.ico",
+        accentColor="#FF0036",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://www.exeporn.net/search?q={query}",
+        sourceId="exeporn",
+        disable=False,
+        pageSize=24,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(
