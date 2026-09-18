@@ -7494,14 +7494,13 @@ For detail pages:
   3. Fluid Player `<video><source src="...get_file...">` labels (`360p`, `480p`, `720p`)
 - `/get_file/.../*.mp4/` URLs 302 to signed HLS on `*.cdn.privatehost.com` (`200 application/vnd.apple.mpegurl` verified). Resolve at scrape time with a video-page Referer and Range GET.
 - Deduplicate qualities that collapse to the same HLS master.
-- `/embed/<id>/` exists but returns "You are not allowed to watch this video" without a session; keep it only as `format="embed"` fallback.
+- Do **not** return `/embed/<id>/` streams. The embed player is session-locked; `scrape()` only keeps direct HLS/MP4. Incoming `/embed/<id>/` URLs are rewritten to `/videos/<id>/` then scraped for direct media.
 - Skip `*_preview360p.mp4` preview clips.
 
 Default stream preference:
 
 1. Resolved HLS master
 2. Direct MP4 `get_file` if redirect fails
-3. Embed URL
 
 ### Categories (`get_categories`)
 

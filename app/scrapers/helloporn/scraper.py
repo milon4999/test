@@ -271,7 +271,7 @@ def _quality_from_stream(url: str, label: Optional[str] = None) -> str:
     return "mp4"
 
 
-def _streams_from_page(html: str, soup: BeautifulSoup, video_id: Optional[str]) -> dict[str, Any]:
+def _streams_from_page(html: str, soup: BeautifulSoup) -> dict[str, Any]:
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
 
@@ -305,17 +305,11 @@ def _streams_from_page(html: str, soup: BeautifulSoup, video_id: Optional[str]) 
     streams = list(best.values())
     streams.sort(key=lambda s: _quality_rank(s.get("quality")), reverse=True)
 
-    if video_id:
-        embed = f"{BASE_SITE}embed/{video_id}/"
-        streams.append({"url": embed, "quality": "embed", "format": "embed"})
-
-    mp4 = next((s for s in streams if s.get("format") != "embed"), None)
-    embed = next((s for s in streams if s.get("format") == "embed"), None)
-    default = (mp4 or embed or {}).get("url") if (mp4 or embed) else None
+    direct = next((s for s in streams if s.get("format") in {"mp4", "hls"}), None)
     return {
         "streams": streams,
         "hls": None,
-        "default": default,
+        "default": direct.get("url") if direct else None,
         "has_video": bool(streams),
     }
 
@@ -393,10 +387,10 @@ async def _resolve_video_streams(video: dict[str, Any], *, referer: str) -> None
             if s.get("format") != "mp4" or "/get_file/" not in (s.get("url") or "")
         ]
 
+    streams[:] = [s for s in streams if s.get("format") != "embed"]
     hls = next((s for s in streams if s.get("format") == "hls"), None)
     mp4 = next((s for s in streams if s.get("format") == "mp4"), None)
-    embed = next((s for s in streams if s.get("format") == "embed"), None)
-    default_stream = hls or mp4 or embed
+    default_stream = hls or mp4
     video["default"] = default_stream.get("url") if default_stream else None
     video["hls"] = hls.get("url") if hls else None
     video["has_video"] = bool(streams)
@@ -515,8 +509,7 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
         category = tags[0]
 
     related = _parse_cards(soup, base=url, exclude_url=url, limit=12)
-    video_id = _extract_video_id(url)
-    video = _streams_from_page(html, soup, video_id)
+    video = _streams_from_page(html, soup)
 
     return {
         "url": url,
