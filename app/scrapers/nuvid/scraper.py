@@ -63,11 +63,6 @@ _EMBED_HREF_RE = re.compile(
 )
 _CONFIG_VID_RE = re.compile(r"configData\s*:\s*\{[^}]*?\bvid\s*:\s*(?P<id>\d+)", re.IGNORECASE | re.S)
 _DURATION_RE = re.compile(r"\b(?:\d{1,2}:){1,2}\d{2}\b")
-_FILE_QUALITY = {
-    "4k": "2160p",
-    "hq": "720p",
-    "lq": "320p",
-}
 
 _HOME_PAGE_SEGMENTS = frozenset({"", "videos"})
 
@@ -120,48 +115,8 @@ def _fetch_html_sync(url: str, referer: str | None = None) -> str:
     raise last_error or RuntimeError(f"Failed to fetch {url}")
 
 
-def _fetch_json_sync(url: str, *, params: dict[str, Any], referer: str) -> Any:
-    from curl_cffi.requests import Session
-
-    headers = {
-        "User-Agent": _HEADERS["User-Agent"],
-        "Accept": "application/json, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": referer,
-        "X-Requested-With": "XMLHttpRequest",
-    }
-    last_error: Exception | None = None
-    for impersonate in _IMPERSONATIONS:
-        try:
-            with Session(impersonate=impersonate) as client:
-                resp = client.get(url, headers=headers, params=params, timeout=25.0, allow_redirects=True)
-            if resp.status_code in (403, 429, 503):
-                last_error = RuntimeError(f"HTTP {resp.status_code}")
-                continue
-            resp.raise_for_status()
-            data = resp.json()
-            if data in ([], {}, None):
-                last_error = RuntimeError("empty player config")
-                continue
-            return data
-        except Exception as e:
-            last_error = e
-            continue
-    raise last_error or RuntimeError(f"Failed to fetch {url}")
-
-
 async def fetch_html(url: str, *, referer: str | None = None) -> str:
     return await asyncio.to_thread(_fetch_html_sync, url, referer)
-
-
-async def fetch_player_config(video_id: str, *, referer: str) -> dict[str, Any]:
-    data = await asyncio.to_thread(
-        _fetch_json_sync,
-        urljoin(BASE_SITE, "/player_config_json/"),
-        params={"vid": video_id, "aid": 0, "domain_id": 0, "embed": 0, "check_speed": 0},
-        referer=referer,
-    )
-    return data if isinstance(data, dict) else {}
 
 
 def _first_non_empty(*values: Any) -> Optional[str]:
@@ -195,16 +150,6 @@ def _meta(soup: BeautifulSoup, *, prop: str | None = None, name: str | None = No
     return None
 
 
-def _as_list(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return [str(x).strip() for x in value if str(x).strip() and str(x).strip() != "-"]
-    if isinstance(value, str):
-        return [x.strip() for x in re.split(r"[,\n]", value) if x.strip() and x.strip() != "-"]
-    return [str(value).strip()] if str(value).strip() else []
-
-
 def _normalize_duration(seconds_or_iso: Any) -> Optional[str]:
     if seconds_or_iso is None:
         return None
@@ -230,24 +175,6 @@ def _normalize_duration(seconds_or_iso: Any) -> Optional[str]:
         found = _DURATION_RE.search(v)
         return found.group(0) if found else None
     return None
-
-
-def _quality_rank(label: Optional[str]) -> int:
-    text = (label or "").lower()
-    m = re.search(r"(\d{3,4})", text)
-    if m:
-        return int(m.group(1))
-    if "4k" in text or "uhd" in text:
-        return 2160
-    if "hq" in text or "hd" in text:
-        return 720
-    if "lq" in text or "sd" in text:
-        return 320
-    if text in {"hls", "mp4"}:
-        return 1
-    if text == "embed":
-        return -1
-    return 0
 
 
 def _extract_video_id(url: str, html: str = "") -> Optional[str]:
@@ -337,43 +264,20 @@ def _build_list_page_url(base_url: str, page: int) -> str:
     return urlunparse((parsed.scheme or "https", host, new_path, "", query, ""))
 
 
-def _is_direct_media(url: str) -> bool:
-    low = (url or "").lower()
-    if not low.startswith("http"):
-        return False
-    if "/embed/" in low or "javascript:" in low:
-        return False
-    if "/media/videos/tmb/" in low:
-        return False
-    if low.endswith(".webm"):
-        return False
-    if ".jpg" in low or ".jpeg" in low or ".png" in low or ".gif" in low:
-        return False
-    return ".mp4" in low or "gcdn.nuvid" in low
+def _embed_url(video_id: str) -> str:
+    return f"https://{CANONICAL_HOST}/embed/{video_id}"
 
 
-def _streams_from_player_config(cfg: dict[str, Any]) -> dict[str, Any]:
-    streams: list[dict[str, str]] = []
-    seen: set[str] = set()
-    files = cfg.get("files") if isinstance(cfg.get("files"), dict) else {}
-
-    def _add(url: Any, label: str) -> None:
-        media = _https_url(str(url or "").strip().replace("\\/", "/"))
-        if not media or media in seen or not _is_direct_media(media):
-            return
-        seen.add(media)
-        streams.append({"url": media, "quality": label, "format": "mp4"})
-
-    for key in ("4k", "hq", "lq"):
-        _add(files.get(key), _FILE_QUALITY.get(key, key))
-
-    streams.sort(key=lambda s: _quality_rank(s.get("quality")), reverse=True)
-    direct = next((s for s in streams if s.get("format") == "mp4"), None)
+def _embed_streams(video_id: Optional[str]) -> dict[str, Any]:
+    vid = (video_id or "").strip()
+    if not vid:
+        return {"streams": [], "hls": None, "default": None, "has_video": False}
+    embed = _embed_url(vid)
     return {
-        "streams": streams,
+        "streams": [{"url": embed, "quality": "Server 1", "format": "embed"}],
         "hls": None,
-        "default": direct.get("url") if direct else None,
-        "has_video": bool(streams),
+        "default": embed,
+        "has_video": True,
     }
 
 
@@ -441,11 +345,10 @@ def _parse_cards(
     return items
 
 
-def parse_page(html: str, url: str, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+def parse_page(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
-    cfg = cfg or {}
+    video_id = _extract_video_id(url, html)
     title = _first_non_empty(
-        cfg.get("title"),
         _meta(soup, prop="og:title"),
         _text(soup.select_one("h1")),
         _text(soup.select_one(".discription")),
@@ -457,16 +360,10 @@ def parse_page(html: str, url: str, cfg: dict[str, Any] | None = None) -> dict[s
                 title = title[: -len(suffix)].strip()
 
     description = _first_non_empty(_meta(soup, prop="og:description"), _meta(soup, name="description"))
-    thumbnail = _first_non_empty(cfg.get("poster"), _meta(soup, prop="og:image"))
+    thumbnail = _meta(soup, prop="og:image")
     if thumbnail:
         thumbnail = _https_url(str(thumbnail))
-    duration = _normalize_duration(
-        _first_non_empty(
-            cfg.get("duration_format"),
-            cfg.get("duration"),
-            _text(soup.select_one(".runtime")),
-        )
-    )
+    duration = _normalize_duration(_text(soup.select_one(".runtime")))
     tags: list[str] = []
     for a in soup.select(".video-cat a, .tags-box a.button2"):
         name = a.get("title") or _text(a)
@@ -476,7 +373,7 @@ def parse_page(html: str, url: str, cfg: dict[str, Any] | None = None) -> dict[s
     category = tags[0] if tags else None
     uploader = _text(soup.select_one(".add-by a"))
     related = _parse_cards(soup, base=url, exclude_url=url, limit=12)
-    video = _streams_from_player_config(cfg)
+    video = _embed_streams(video_id)
 
     return {
         "url": url,
@@ -505,15 +402,7 @@ async def scrape(url: str) -> dict[str, Any]:
             fetch_url = normalized
 
     html = await fetch_html(fetch_url, referer=BASE_SITE)
-    video_id = video_id or _extract_video_id(fetch_url, html)
-    cfg: dict[str, Any] = {}
-    if video_id:
-        try:
-            cfg = await fetch_player_config(video_id, referer=fetch_url)
-        except Exception:
-            cfg = {}
-    data = parse_page(html, fetch_url, cfg)
-    return data
+    return parse_page(html, fetch_url)
 
 
 async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[dict[str, Any]]:

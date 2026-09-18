@@ -8194,14 +8194,14 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.analdin.com/vid
 
 ## Nuvid Implementation Notes
 
-[Nuvid](https://www.nuvid.club/) is a DrTuber-family custom CMS (not KVS and not Magma/TXXX). Canonical watch URLs are `/video/<id>/<slug>` (singular `video`, no trailing slash required). The HTML5 player uses `htmlVideoPlayer({ configUrl: '/player_config_json/', configData: { vid, aid: 0, domain_id: 0, embed: 0, check_speed: 0 } })` with quality titles `lq=320p`, `hq=720p`, `4k=2160p`. Fetch with `curl_cffi` Chrome impersonation; prefer `chrome136`. POST to `/player_config_json/` can return an empty array; GET with query params returns the JSON.
+[Nuvid](https://www.nuvid.club/) is a DrTuber-family custom CMS (not KVS and not Magma/TXXX). Canonical watch URLs are `/video/<id>/<slug>` (singular `video`, no trailing slash required). Signed `gcdn.nuvid.club` MP4s from `/player_config_json/` do not play reliably (expiry / speed / Referer), so scrape returns the player embed `https://www.nuvid.club/embed/<id>` as `format=embed`. Fetch listings and watch HTML with `curl_cffi` Chrome impersonation; prefer `chrome136`.
 
 ### Host aliases
 
 - `nuvid.club` / `www.nuvid.club` (canonical)
 - `m.nuvid.club`
 - `nuvid.com` / `www.nuvid.com` (aliases that land on `.club`)
-- `gcdn.nuvid.club` (signed MP4 CDN)
+- `gcdn.nuvid.club` (unused for playback; CDN MP4s are not returned)
 - `*.nvdst.com` (thumbs / static, e.g. `g1.nvdst.com`)
 
 Example:
@@ -8239,16 +8239,12 @@ Useful base URLs:
 For detail pages:
 
 - Load the watch HTML for `og:` metadata, `.runtime`, `.video-cat a.button2` tags, `.add-by` uploader, and related curb thumbs.
-- GET `https://www.nuvid.club/player_config_json/?vid=<id>&aid=0&domain_id=0&embed=0&check_speed=0` with the watch URL as Referer.
-- Streams come from `files.lq` / `files.hq` / `files.4k` (null or `""` means that quality is missing). CDN hosts are `gcdn.nuvid.club`.
-- Do **not** return `/embed/<id>` streams. Incoming embed URLs are rewritten to `/video/<id>`.
-- Skip tmb preview MP4/WebM.
+- Do **not** call `/player_config_json/` or return `gcdn.nuvid.club` MP4s.
+- Return one stream: `https://www.nuvid.club/embed/<id>` with `quality: "Server 1"` and `format: "embed"` (also set `video.default` to that URL). Incoming `/embed/<id>` URLs still fetch `/video/<id>` for metadata.
 
 Default stream preference:
 
-1. `4k` (2160p) when present
-2. `hq` (720p)
-3. `lq` (320p)
+1. Site embed `/embed/<id>`
 
 ### Categories (`get_categories`)
 
