@@ -459,11 +459,6 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
     # Add available_qualities for Pornhub, YouPorn, and RedTube
     from urllib.parse import urlparse
     parsed_url = urlparse(url)
-    if "exeporn.net" in parsed_url.netloc.lower():
-        video_referer = (video_data.get("referer") if isinstance(video_data, dict) else None) or url
-        if "/embed/" in str(video_referer):
-            video_referer = "https://www.exeporn.net/"
-        response["referer"] = video_referer
     if ("pornhub.com" in parsed_url.netloc.lower() or 
         "youporn.com" in parsed_url.netloc.lower() or
         "redtube.com" in parsed_url.netloc.lower() or
