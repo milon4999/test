@@ -8005,3 +8005,99 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=xmilf"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://xmilf.com/video/1173421/sleeping-mom-got-a-strong-dick-in-the-anal-hole/"
 ```
+
+## HDZog Implementation Notes
+
+[HDZog](https://hdzog.com/) is a Magma/TXXX-family Vue SPA (`window.constants.host_root = hdzog.com`). Homepage HTML is an empty i18n shell (`<title></title>` plus `$t("component.listing...")` placeholders), so this scraper is **API-first**. Canonical watch URLs are `/videos/<id>/<slug>/` (singular `/video/` 404s). Do **not** return `/embed/` streams. Incoming `/embed/<id>/` is rewritten to `/videos/<id>/` then canonicalized from the detail JSON.
+
+### Host aliases
+
+- `hdzog.com`
+- `www.hdzog.com`
+- `tn.hdzog.com` (thumbnails)
+- `hdzog.ahcdn.com` (first `/get_file/` 302 hop; often continues to `*.ahcdn.com`)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in {"hdzog.com", "www.hdzog.com", "tn.hdzog.com", "hdzog.ahcdn.com"} or h.endswith(".hdzog.com")
+```
+
+### JSON API surface
+
+- **Listings:** `GET /api/json/videos2/86400/str/{sort}/{count}/{section}.{object_id}.{page}.all.all.all.json`
+  - Empty listings must use `0.0.{page}` (a leading `.1.` returns `invalid_params_page`).
+  - `sort`: `latest-updates`, `longest`, `most-commented`, `most-popular`, `top-rated`.
+  - Category: `categories.{dir}.{page}` (HTML path `/categories/<dir>/`).
+- **Search:** `GET /api/videos2.php?params=86400/str/relevance/{count}/search.0.{page}.all.all.all&s={query}`
+- **Video detail:** `GET /api/json/video/86400/{id//1e6 * 1e6}/{id//1000 * 1000}/{id}.json` (e.g. `3032913` → `3000000/3032000/3032913.json`).
+- **Streams:** `GET /api/videofile.php?video_id={id}&lifetime=8640000`
+  - Same Magma base164 alphabet as XMILF/BlackPornTube.
+  - Format is often just `.mp4` (no `_sd` suffix); quality then defaults to `source`.
+  - Decoded path is `/get_file/.../{id}.mp4/?d=..&br=..&ti=..`.
+  - GET + `Range` 302s to `https://hdzog.ahcdn.com/key=.../{id}.mp4` then to `https://ip*.ahcdn.com/...` (`video/mp4`, 206). Resolve at scrape time; do not emit embed URLs.
+- **Categories:** `GET /api/json/categories/14400/str.all.en.json`
+
+JSON endpoints work without Chrome impersonation; `/get_file/` resolution prefers `curl_cffi` `chrome136`.
+
+### Listing and pagination (`list_videos`)
+
+Page *n* is the `{page}` segment of the API URL. Recognized `base_url` shapes:
+
+- `https://hdzog.com/`, `/latest-updates/`
+- `/most-popular/`, `/top-rated/`, `/most-commented/`, `/longest/`
+- `/categories/{slug}/`
+- `/search/?s={query}`
+- Watch URLs (`/videos/<id>/<slug>/`) are ignored as list contexts and fall back to latest-updates.
+
+### Metadata and streams (`scrape`)
+
+- Input must be `/videos/{numeric_id}/{slug}/` (id-only `/videos/{id}/` or `/embed/{id}/` is accepted and canonicalized after the detail call).
+- Metadata from the bucketed video JSON (`title`, `duration`, `post_date`, `scr`/`thumb`/`thumbsrc`, categories/tags/models).
+- Streams: decode `video_url`, keep `/get_file/` only, resolve 302 to CDN MP4. No embed fallback.
+
+### Categories (`get_categories`)
+
+Seed `categories.json` with Latest / Most Popular / Top Rated / Most Commented / Longest plus top `/categories/{dir}/` tabs (HD, Big Tits, Brunette, MILF, …). `/api/v1/categories?source=hdzog` serves them.
+
+### Registration checklist for HDZog
+
+Besides creating `backend/app/scrapers/hdzog/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=hdzog` or `source=hdzog.com`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text (`hdzog.com`)
+  - `available_qualities` / `per_stream_format_keys` (`hdzog.com`, `hdzog.ahcdn.com`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="hdzog"`, `baseUrl="https://hdzog.com/"`, `searchUrlTemplate="https://hdzog.com/search/?s={query}"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`hdzog.com`, `www.hdzog.com`, `tn.hdzog.com`, `hdzog.ahcdn.com`)
+  - list/base URL allowlist (`hdzog.com`, `www.hdzog.com`)
+
+### HDZog verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://hdzog.com/videos/3032913/massaged-on-the-job-dirty-masseur/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://hdzog.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://hdzog.com/latest-updates/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://hdzog.com/categories/hd/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=hdzog"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://hdzog.com/videos/3032913/massaged-on-the-job-dirty-masseur/"
+```

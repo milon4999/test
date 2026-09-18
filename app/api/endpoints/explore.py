@@ -1804,6 +1804,20 @@ EXPLORE_SOURCES = [
         disable=False,
         pageSize=24,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://hdzog.com/",
+        nickname="HDZog",
+        favicon="https://hdzog.com/static/images/favicons/favicon-32x32.png",
+        accentColor="#FF5722",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://hdzog.com/search/?s={query}",
+        sourceId="hdzog",
+        disable=False,
+        pageSize=24,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

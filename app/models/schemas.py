@@ -386,6 +386,10 @@ class ScrapeRequest(BaseModel):
             "www.xmilf.com",
             "tn.xmilf.com",
             "ahcdn.xmilf.com",
+            "hdzog.com",
+            "www.hdzog.com",
+            "tn.hdzog.com",
+            "hdzog.ahcdn.com",
             "vkuser.net",
             "privatehost.com",
             "cdn.privatehost.com",
@@ -742,6 +746,8 @@ class ListRequest(BaseModel):
             "www.xozilla.com",
             "xmilf.com",
             "www.xmilf.com",
+            "hdzog.com",
+            "www.hdzog.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
