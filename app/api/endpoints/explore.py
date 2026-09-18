@@ -1791,6 +1791,20 @@ EXPLORE_SOURCES = [
         pageSize=24,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://xmilf.com/",
+        nickname="XMILF",
+        favicon="https://xmilf.com/static/images/favicons/favicon-32x32.png",
+        accentColor="#E91E63",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://xmilf.com/search/?s={query}",
+        sourceId="xmilf",
+        disable=False,
+        pageSize=24,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

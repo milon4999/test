@@ -7911,3 +7911,97 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=xozilla"
 
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.xozilla.com/videos/849584/danica-collins-rubs-oil-all-over-her-massive-tits-and-tight-ass-in-solo-play/"
 ```
+
+## XMILF Implementation Notes
+
+[xmilf.com](https://xmilf.com/) is a Magma/TXXX-family Vue SPA (`window.constants.host_root`, `magma_source`). Homepage HTML is an empty shell (`<title></title>` + `/upd/.../static/assets/app.js`), so this scraper is **API-first**. Canonical watch URLs are `/video/<id>/<slug>/`. Do **not** return `/embed/` streams.
+
+### Host aliases
+
+- `xmilf.com`
+- `www.xmilf.com`
+- `tn.xmilf.com` (thumbnails)
+- `ahcdn.xmilf.com` (first `/get_file/` 302 hop; often continues to `*.ahcdn.com`)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in {"xmilf.com", "www.xmilf.com", "tn.xmilf.com", "ahcdn.xmilf.com"} or h.endswith(".xmilf.com")
+```
+
+### JSON API surface
+
+- **Listings:** `GET /api/json/videos2/86400/str/{sort}/{count}/{section}.{object_id}.{page}.all.all.all.json`
+  - Empty listings must use `0.0.{page}` (a leading `.1.` returns `invalid_params_page`).
+  - `sort`: `latest-updates`, `longest`, `most-commented`, `most-popular`, `top-rated`.
+  - Category: `categories.{dir}.{page}` (HTML paths `/categories/<dir>/` and `/c/<dir>/`).
+- **Search:** `GET /api/videos2.php?params=86400/str/relevance/{count}/search.0.{page}.all.all.all&s={query}`
+- **Video detail:** `GET /api/json/video/86400/{id//1e6 * 1e6}/{id//1000 * 1000}/{id}.json` (e.g. `1173421` → `1000000/1173000/1173421.json`). Follow redirects if the unpadded form is used.
+- **Streams:** `GET /api/videofile.php?video_id={id}&lifetime=8640000`
+  - Same Magma base164 alphabet as BlackPornTube (`АВСDЕFGHIJKLМNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,~`).
+  - Decoded path is `/get_file/.../{id}_sd.mp4/?d=..&br=..&ti=..`.
+  - GET + `Range` on that path 302s to `https://ahcdn.xmilf.com/key=.../{id}_sd.mp4` then to `https://ip*.ahcdn.com/...` (`video/mp4`, 206). Resolve at scrape time; do not emit embed URLs.
+- **Categories:** `GET /api/json/categories/14400/str.all.en.json`
+
+JSON endpoints work without Chrome impersonation; `/get_file/` resolution prefers `curl_cffi` `chrome136`.
+
+### Listing and pagination (`list_videos`)
+
+Page *n* is the `{page}` segment of the API URL (not HTML `/{n}/`). Recognized `base_url` shapes:
+
+- `https://xmilf.com/`, `/latest-updates/`
+- `/most-popular/`, `/top-rated/`, `/most-commented/`, `/longest/`
+- `/categories/{slug}/`, `/c/{slug}/`
+- `/search/?s={query}` (or `/search/{term}/`)
+
+### Metadata and streams (`scrape`)
+
+- Input must be `/video/{numeric_id}/{slug}/` (id-only `/video/{id}/` is accepted and canonicalized after the detail call).
+- Metadata from the bucketed video JSON (`title`, `duration`, `post_date`, `scr`/`thumb`/`thumbsrc`, categories/tags/models).
+- Streams: decode `video_url`, keep `/get_file/` only, resolve 302 to CDN MP4, `quality` from `_sd` / `_hd` / `_720p` suffixes. No embed fallback.
+
+### Categories (`get_categories`)
+
+Seed `categories.json` with Latest / Most Popular / Top Rated / Most Commented / Longest plus top `/categories/{dir}/` tabs (MILF, HD, Big Tits, …). `/api/v1/categories?source=xmilf` serves them.
+
+### Registration checklist for XMILF
+
+Besides creating `backend/app/scrapers/xmilf/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=xmilf` or `source=xmilf.com`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text (`xmilf.com`)
+  - `available_qualities` / `per_stream_format_keys` (`xmilf.com`, `ahcdn.xmilf.com`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="xmilf"`, `baseUrl="https://xmilf.com/"`, `searchUrlTemplate="https://xmilf.com/search/?s={query}"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`xmilf.com`, `www.xmilf.com`, `tn.xmilf.com`, `ahcdn.xmilf.com`)
+  - list/base URL allowlist (`xmilf.com`, `www.xmilf.com`)
+
+### XMILF verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://xmilf.com/video/1173421/sleeping-mom-got-a-strong-dick-in-the-anal-hole/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://xmilf.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://xmilf.com/latest-updates/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://xmilf.com/categories/milf/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=xmilf"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://xmilf.com/video/1173421/sleeping-mom-got-a-strong-dick-in-the-anal-hole/"
+```
