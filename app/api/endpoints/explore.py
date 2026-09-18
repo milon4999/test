@@ -1803,7 +1803,6 @@ EXPLORE_SOURCES = [
         sourceId="xmilf",
         disable=False,
         pageSize=24,
-        hasRelatedVideos=True,
     ),
 ]
 
