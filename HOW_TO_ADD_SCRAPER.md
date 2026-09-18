@@ -7773,14 +7773,14 @@ For detail pages:
   1. `og:title` / `og:description` / `og:image`
   2. Schema.org `VideoObject` itemprop (`description`, `keywords`, `uploadDate`, `thumbnailUrl`)
   3. KT Player `var flashvars = { video_url, video_alt_url, video_url_text, video_alt_url_text, ... }`
-- Direct media is `/get_stream/<id>-<quality>.mp4?md5=...&timestamp=...`. A Range GET with the watch-page Referer 302s to MP4 on `*.vkuser.net`. Resolve the top quality at scrape time; do not download the file.
+- Direct media is `/get_stream/<id>-<quality>.mp4?md5=...&timestamp=...`. Opening that URL with no Referer returns `error`. Send `Referer: https://www.exeporn.net/video/<slug>/` (or the site root). The player then 302s to an **IP-signed** `*.vkuser.net` MP4. Do **not** resolve that redirect on the backend — a server-IP signature will not play on the client.
+- `/api/v1/videos/stream` includes `referer` so the app can send it.
 - Do **not** return `/embed/<id>` streams. The public embed page is a stub without flashvars. Incoming embed URLs are only rewritten if a canonical `/video/<slug>/` link is present.
 - Skip preview clips / logo placeholders.
 
 Default stream preference:
 
-1. Resolved `vkuser.net` MP4
-2. Original `/get_stream/` URL if redirect fails
+1. Signed `/get_stream/` MP4 (client follows 302 with Referer)
 
 ### Categories (`get_categories`)
 

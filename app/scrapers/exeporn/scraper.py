@@ -322,71 +322,20 @@ def _streams_from_flashvars(flash: dict[str, str]) -> dict[str, Any]:
     }
 
 
-def _resolve_stream_url_sync(stream_url: str, referer: str) -> Optional[str]:
-    raw = (stream_url or "").strip()
-    if not raw or "/get_stream/" not in raw:
-        return None
-    headers = {
-        "User-Agent": _HEADERS["User-Agent"],
-        "Referer": referer if referer.startswith("http") else BASE_SITE,
-        "Accept": "*/*",
-        "Range": "bytes=0-0",
-    }
-    try:
-        from curl_cffi.requests import Session
-
-        for impersonate in _IMPERSONATIONS:
-            try:
-                with Session(impersonate=impersonate) as client:
-                    resp = client.get(raw, headers=headers, timeout=15.0, allow_redirects=False)
-                if resp.status_code in (301, 302, 303, 307, 308):
-                    loc = resp.headers.get("Location") or resp.headers.get("location")
-                    if loc and loc.startswith("http") and "/get_stream/" not in loc.lower() and "/embed/" not in loc.lower():
-                        return loc
-            except Exception:
-                continue
-    except Exception:
-        return None
-    return None
-
-
-async def _resolve_video_streams(video: dict[str, Any], *, referer: str) -> None:
+def _finalize_video_streams(video: dict[str, Any], *, referer: str) -> None:
+    """Keep signed /get_stream/ URLs. Do not resolve vkuser.net on the server:
+    those redirects are IP-locked and fail in the player. The client must
+    request get_stream with Referer set to the watch page (or site root).
+    """
     streams: list[dict[str, str]] = video.get("streams") or []
-    candidates = [s for s in streams if "/get_stream/" in (s.get("url") or "")]
-    if candidates:
-        candidates = candidates[:1]
-    if not candidates:
-        streams[:] = [s for s in streams if s.get("format") != "embed"]
-        video["has_video"] = bool(streams)
-        return
-
-    resolved: Optional[str] = None
-    try:
-        resolved = await asyncio.wait_for(
-            asyncio.to_thread(_resolve_stream_url_sync, candidates[0]["url"], referer),
-            timeout=18.0,
-        )
-    except Exception:
-        resolved = None
-
-    if resolved:
-        candidates[0]["url"] = resolved
-        low = resolved.lower()
-        if ".m3u8" in low or "/hls/" in low:
-            candidates[0]["format"] = "hls"
-        streams[:] = [
-            s
-            for s in streams
-            if s.get("format") != "mp4" or "/get_stream/" not in (s.get("url") or "")
-        ]
-
     streams[:] = [s for s in streams if s.get("format") != "embed"]
-    hls = next((s for s in streams if s.get("format") == "hls"), None)
     mp4 = next((s for s in streams if s.get("format") == "mp4"), None)
+    hls = next((s for s in streams if s.get("format") == "hls"), None)
     default_stream = hls or mp4
     video["default"] = default_stream.get("url") if default_stream else None
     video["hls"] = hls.get("url") if hls else None
     video["has_video"] = bool(streams)
+    video["referer"] = referer if referer.startswith("http") else BASE_SITE
 
 
 def _parse_card(block: Any, *, base: str, exclude_url: str | None = None) -> Optional[dict[str, Any]]:
@@ -514,7 +463,7 @@ async def scrape(url: str) -> dict[str, Any]:
             fetch_url = canonical
             html = await fetch_html(fetch_url, referer=BASE_SITE)
     data = parse_page(html, fetch_url)
-    await _resolve_video_streams(data.get("video") or {}, referer=fetch_url)
+    _finalize_video_streams(data.get("video") or {}, referer=fetch_url)
     return data
 
 
