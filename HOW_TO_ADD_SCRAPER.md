@@ -8295,3 +8295,75 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=nuvid"
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.nuvid.club/video/8431204/japanese-teen-hardcore-masturbating-at-asian-chatroom"
 ```
 
+## p4455.com Implementation Notes
+
+[p4455.com](https://p4455.com/) is a **WordPress** (theme `kolortube`) front-end for the Mydesi.net library. Unlike KVS tube sites, video pages are **root-level slugs** (`/{slug}/`) and streams are **direct progressive MP4s** on `*.myd-cdn.com` — no token resolution or `/get_file/` redirects needed.
+
+Use `mydesimms` as the closest implementation reference (also WordPress-based).
+
+### Host aliases
+
+- `p4455.com`
+- `www.p4455.com`
+
+```python
+def can_handle(host: str) -> bool:
+    return _normalize_host(host) in _SUPPORTED_HOSTS  # {"p4455.com", "www.p4455.com"}
+```
+
+### Listing and pagination (`list_videos`)
+
+- Video URLs: `https://p4455.com/{slug}/` (single path segment, no `/video/` or `/v/` prefix)
+- Parse `div.video-block` cards: `a.thumb` (img.thumb-img) + `a.infos` (`title` attr / `span.title`)
+- Card meta is in `.video-datas` → `.views-number` spans (`duration | age | resolution`, e.g. `9:34 | 1 day ago | 720p`)
+- Sections: `/`, `/latest/`, `/most/`, `/best/`, `/category/{slug}/`
+- Search: `?s={query}`
+- Pagination is **path-based for every section**: `/page/{n}/`. Search keeps its query (`/page/2/?s=desi`). `?paged={n}` is silently ignored by the site (returns page 1), so `_build_list_page_url` strips it and uses `/page/{n}/` instead.
+- `_normalize_video_href` filters out non-video paths (`/category/`, `/tag/`, `/wp-content/`, `/latest/`, etc.) via `_NON_VIDEO_PATH_SEGMENTS`.
+
+### Metadata and streams (`scrape`)
+
+- **There are no `og:*` tags.** JSON-LD `VideoObject` is the primary source: `name`, `description`, `thumbnailUrl`, `duration` (ISO-8601 `PT9M34S`), `uploadDate`, `contentUrl` (the MP4).
+- Fallbacks: `h1`, `<title>` (suffix `- Mydesi.net` stripped), `.video-datas` for duration.
+- Streams are collected from, in priority order:
+  1. JSON-LD `contentUrl` (most reliable)
+  2. `<video><source src>` / `<video src>`
+  3. inline `https://...myd-cdn.com/...mp4` URLs in scripts
+  4. player iframes (fallback `Server N` embeds)
+- The CDN URLs have no resolution marker, so `quality` is `"source"`; the site's real per-card resolution label lives in `.video-datas` if needed later.
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from public nav: Home, Latest, Most Views, Best Videos, plus `/category/...` entries (watch-desi-hd-porn-video-free, tango, hard, amateur, ass, mature-bhabi, old, …).
+
+### Registration checklist for p4455.com
+
+Besides creating `backend/app/scrapers/p4455/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` (`from . import p4455` + `__all__`)
+- `backend/app/main.py`
+  - import list (`..., nuvid, p4455`)
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=p4455` or `source=p4455.com`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch (`elif p4455.can_handle(host):`)
+  - supported-host help text
+  - stream quality map host checks (both `parsed_url.netloc` and `host_l` chains) for `p4455.com`
+- `backend/app/models/schemas.py`
+  - both URL allowlists (`p4455.com`)
+
+### p4455 verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://p4455.com/sister-nude-captured-secretly-2/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://p4455.com/latest/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=p4455"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://p4455.com/sister-nude-captured-secretly-2/"
+```
+
