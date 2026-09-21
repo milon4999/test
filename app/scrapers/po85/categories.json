@@ -1,6 +1,12 @@
 [
-  { "name": "Latest", "url": "https://www.85po.com/latest-updates/" },
-  { "name": "4K", "url": "https://www.85po.com/4k/" },
-  { "name": "Top Rated", "url": "https://www.85po.com/top-rated/" },
-  { "name": "Most Popular", "url": "https://www.85po.com/most-popular/" }
+  { "name": "Latest", "url": "https://www.85ro.com/en/latest-updates/" },
+  { "name": "Top Rated", "url": "https://www.85ro.com/en/top-rated/" },
+  { "name": "Most Popular", "url": "https://www.85ro.com/en/most-popular/" },
+  { "name": "Japan", "url": "https://www.85ro.com/en/categories/ri-ben/" },
+  { "name": "China", "url": "https://www.85ro.com/en/categories/zhong-guo/" },
+  { "name": "Taiwan", "url": "https://www.85ro.com/en/categories/tai-wan/" },
+  { "name": "Malaysia", "url": "https://www.85ro.com/en/categories/ma-lai-xi-ya/" },
+  { "name": "Singapore", "url": "https://www.85ro.com/en/categories/xin-jia-po/" },
+  { "name": "Hong Kong", "url": "https://www.85ro.com/en/categories/xiang-gang/" }
 ]
+

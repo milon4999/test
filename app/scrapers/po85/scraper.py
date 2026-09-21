@@ -12,15 +12,47 @@ from bs4 import BeautifulSoup
 
 from app.core.pool import fetch_html as pool_fetch_html
 
-BASE_SITE = "https://www.85po.com/"
-SITE_HOST = "85po.com"
+# ---------------------------------------------------------------------------
+# 85PO network facts (verified 2026-09):
+# - 85po.com: original domain, now behind Cloudflare bot protection (403 for
+#   server traffic) -> kept only as last-resort host fallback.
+# - 85ro.com: mirror, TLS certificate currently expired -> fetch with SSL
+#   verification disabled.
+# - 85po.net: mirror, valid TLS.
+# - Language prefixes: /en/ and /ja/ (zh is served from bare paths). The site
+#   redirects bare URLs to /en/ when Accept-Language is en-US.
+# - Video pages: /{lang}/video/{id}/{slug}/ (legacy /v/{id}/{slug}/ paths 404).
+# - Streams: same-origin /{lang}/get_file/... links 302 -> signed CDN URL.
+# - Pagination: path based /{page}/ for latest-updates / top-rated /
+#   most-popular; KVS async block params for tag and search pages; the
+#   homepage itself has no page 2 (its pagination points at latest-updates).
+# ---------------------------------------------------------------------------
+SITE_HOSTS = ("85ro.com", "85po.net", "85po.com")
+DEFAULT_HOST = "85ro.com"
+BLOCKED_HOST = "85po.com"
+BASE_SITE = f"https://www.{DEFAULT_HOST}/en/"
+DEFAULT_LANG = "en"
+
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+
+def _normalize_host(host: str) -> str:
+    h = (host or "").lower().split(":")[0].strip()
+    if h.startswith("www."):
+        h = h[4:]
+    return h
+
+
+def _is_site_host(host: str) -> bool:
+    h = _normalize_host(host)
+    return any(h == s or h.endswith(f".{s}") for s in SITE_HOSTS)
 
 
 def can_handle(host: str) -> bool:
-    h = (host or "").lower().split(":")[0]
-    if h.startswith("www."):
-        h = h[4:]
-    return h == SITE_HOST or h.endswith(f".{SITE_HOST}")
+    return _is_site_host(host)
 
 
 def get_categories() -> list[dict]:
@@ -33,14 +65,72 @@ def get_categories() -> list[dict]:
         return []
 
 
+# ---------------------------------------------------------------------------
+# URL helpers
+# ---------------------------------------------------------------------------
+
+def _host_of(url: str) -> Optional[str]:
+    try:
+        host = urlparse(url).netloc.lower().split(":")[0]
+    except Exception:
+        return None
+    return _normalize_host(host) if _is_site_host(host) else None
+
+
+def _www(host: str) -> str:
+    return host if host.startswith("www.") else f"www.{host}"
+
+
+def _swap_host(url: str, host: str) -> str:
+    """Return `url` rewritten onto `host` (https, same path/query)."""
+    raw = (url or "").strip()
+    if not raw.startswith("http"):
+        raw = "https://" + raw.lstrip("/")
+    parsed = urlparse(raw)
+    return urlunparse(("https", _www(host), parsed.path or "/", "", parsed.query, ""))
+
+
+def _lang_of(url_or_path: str) -> str:
+    path = urlparse(url_or_path).path or url_or_path
+    m = re.match(r"^/([a-z]{2})(?:/|$)", path or "")
+    return m.group(1) if m else ""
+
+
+def _candidate_hosts(url: str) -> list[str]:
+    """Hosts to try in order; 85po.com goes last (Cloudflare blocks bots)."""
+    preferred = _host_of(url)
+    order = [h for h in SITE_HOSTS if h != BLOCKED_HOST]
+    if preferred and preferred in order:
+        order.remove(preferred)
+        order.insert(0, preferred)
+    order.append(BLOCKED_HOST)
+    return order
+
+
 async def fetch_page(url: str, referer: str = BASE_SITE) -> str:
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "User-Agent": _USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": referer,
     }
-    return await pool_fetch_html(url, headers=headers)
+    # ssl=False: 85ro.com currently serves an expired TLS certificate and
+    # 85po.com sits behind Cloudflare; neither works with verification on.
+    return await pool_fetch_html(url, headers=headers, ssl=False)
+
+
+async def _fetch_with_fallback(url: str, referer: str = BASE_SITE) -> tuple[str, str]:
+    """Fetch `url`, retrying on the other 85PO mirrors. Returns (html, host)."""
+    last_error: Optional[Exception] = None
+    for host in _candidate_hosts(url):
+        candidate = _swap_host(url, host)
+        try:
+            html = await fetch_page(candidate, referer=referer)
+        except Exception as e:  # noqa: BLE001 - any failure moves to the next mirror
+            last_error = e
+            continue
+        return html, host
+    raise last_error or RuntimeError(f"Failed to fetch {url}")
 
 
 def _first_non_empty(*values: Optional[str]) -> Optional[str]:
@@ -69,14 +159,15 @@ def _clean_title(title: str | None) -> Optional[str]:
     for suffix in (
         " - 85PO",
         " | 85PO",
-        " – 85PO",
+        " â€“ 85PO",
         " - 85po",
         " | 85po",
-        " – 85po",
+        " â€“ 85po",
     ):
         if t.endswith(suffix):
             t = t[: -len(suffix)].strip()
     return t or None
+
 
 
 def _normalize_numberish(value: str | None) -> Optional[str]:
@@ -107,7 +198,7 @@ def _extract_views(text: str | None) -> Optional[str]:
 
 
 def _views_from_eye_icon(container: Any) -> Optional[str]:
-    """85PO shows view counts beside <svg class=\"icon-eye\"> (listing: .thumb-item, detail: .count-item)."""
+    """View counts may sit beside <svg class="icon-eye">."""
     if container is None:
         return None
     for svg in container.select("svg.icon-eye, svg.svg-icon.icon-eye"):
@@ -126,6 +217,31 @@ def _views_from_eye_icon(container: Any) -> Optional[str]:
     return None
 
 
+def _views_from_container(container: Any) -> Optional[str]:
+    """Cards and detail pages render the view count in a .views div."""
+    if container is None:
+        return None
+    for selector in (".views", ".count"):
+        el = container.select_one(selector)
+        if el is not None:
+            txt = el.get_text(" ", strip=True)
+            views = _normalize_numberish(txt) or _extract_views(txt)
+            if views:
+                return views
+    return None
+
+
+def _duration_from_container(container: Any) -> Optional[str]:
+    if container is None:
+        return None
+    el = container.select_one(".duration")
+    if el is not None:
+        d = _extract_duration(el.get_text(" ", strip=True))
+        if d:
+            return d
+    return None
+
+
 def _best_image_url(img: Any) -> Optional[str]:
     if img is None:
         return None
@@ -134,7 +250,7 @@ def _best_image_url(img: Any) -> Optional[str]:
         if not v:
             continue
         url = str(v).strip()
-        if not url:
+        if not url or url.startswith("data:"):
             continue
         if key == "srcset" and " " in url:
             url = url.split(" ", 1)[0].strip()
@@ -146,60 +262,121 @@ def _best_image_url(img: Any) -> Optional[str]:
     return None
 
 
-def _normalize_video_href(href: str) -> Optional[str]:
+# ---------------------------------------------------------------------------
+# Video URL parsing (current: /{lang}/video/{id}/{slug}/; legacy /v/ is dead)
+# ---------------------------------------------------------------------------
+
+_VIDEO_PATH_RE = re.compile(r"^/(?:[a-z]{2}/)?video/(\d+)/[^/]+/?$", re.IGNORECASE)
+_LEGACY_VIDEO_PATH_RE = re.compile(r"^/(?:[a-z]{2}/)?v/(\d+)/[^/]+/?$", re.IGNORECASE)
+_EMBED_PATH_RE = re.compile(r"^/(?:[a-z]{2}/)?embed/(\d+)/?$", re.IGNORECASE)
+
+
+def _extract_video_id(url: str) -> Optional[str]:
+    path = urlparse(url or "").path or ""
+    for rx in (_VIDEO_PATH_RE, _LEGACY_VIDEO_PATH_RE, _EMBED_PATH_RE):
+        m = rx.match(path)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _is_video_page_url(url: str) -> bool:
+    path = urlparse(url or "").path or ""
+    return bool(_VIDEO_PATH_RE.match(path) or _LEGACY_VIDEO_PATH_RE.match(path))
+
+
+def _is_embed_page_url(url: str) -> bool:
+    path = urlparse(url or "").path or ""
+    return bool(_EMBED_PATH_RE.match(path))
+
+
+def _legacy_to_video_url(url: str) -> str:
+    """Rewrite the dead /v/{id}/{slug}/ paths to /video/{id}/{slug}/."""
+    raw = (url or "").strip()
+    if not raw.startswith("http"):
+        return raw
+    parsed = urlparse(raw)
+    new_path = re.sub(r"^(/(?:[a-z]{2}/)?)v/(\d+)/", r"\1video/\2/", parsed.path or "", flags=re.IGNORECASE)
+    if new_path == (parsed.path or ""):
+        return raw
+    return urlunparse(("https", parsed.netloc, new_path, "", parsed.query, ""))
+
+
+def _normalize_video_href(href: str, page_url: str = BASE_SITE) -> Optional[str]:
     href = (href or "").strip()
-    if not href:
+    if not href or href.startswith(("javascript:", "mailto:", "tel:", "#", "data:")):
         return None
     if href.startswith("//"):
         href = f"https:{href}"
     elif href.startswith("/"):
-        href = urljoin(BASE_SITE, href)
+        href = urljoin(page_url, href)
     if not href.startswith("http"):
         return None
 
     parsed = urlparse(href)
-    host = (parsed.netloc or "").lower()
-    if SITE_HOST not in host and f"www.{SITE_HOST}" not in host:
+    host = _normalize_host(parsed.netloc)
+    if not _is_site_host(host):
         return None
+    path = parsed.path or ""
     if parsed.query:
         return None
-    if not re.match(r"^/v/\d+/[^/]+/?$", parsed.path or "", flags=re.IGNORECASE):
+    if not (_VIDEO_PATH_RE.match(path) or _LEGACY_VIDEO_PATH_RE.match(path)):
         return None
-    return urlunparse(("https", f"www.{SITE_HOST}", parsed.path.rstrip("/") + "/", "", "", ""))
+    path = re.sub(r"^(/(?:[a-z]{2}/)?)v/(\d+)/", r"\1video/\2/", path, flags=re.IGNORECASE)
+    if not path.endswith("/"):
+        path += "/"
+    return urlunparse(("https", _www(host), path, "", "", ""))
+
+
+def _embed_player_url(video_id: str, page_url: str = BASE_SITE) -> str:
+    host = _host_of(page_url) or DEFAULT_HOST
+    lang = _lang_of(page_url) or DEFAULT_LANG
+    return f"https://www.{host}/{lang}/embed/{video_id}"
 
 
 def _list_section_id(base_url: str) -> str:
-    path = (urlparse(base_url).path or "/").lower().rstrip("/") or "/"
+    path = (urlparse(base_url).path or "/").lower()
+    path = re.sub(r"^/[a-z]{2}/", "/", path).rstrip("/") or "/"
 
-    # Tag detail pages (e.g. /tags/kou-jiao/)
-    if path.startswith("/tags/") and path != "/tags":
+    # Search results
+    if path.startswith("/search"):
+        return "list_videos_videos_list_search_result"
+
+    # Tag detail pages (e.g. /tags/kou-jiao/) and community categories
+    if path.startswith("/tags/") or path.startswith("/categories/"):
         return "list_videos_common_videos_list"
 
-    # Latest updates and 4K use the same primary list block
-    if path in ("/4k", "/latest-updates"):
+    # Latest updates (and the removed /4k/) use the primary list block
+    if path in ("/latest-updates", "/4k"):
         return "list_videos_latest_videos_list"
 
     # Rankings / popularity listings
     if path in ("/top-rated", "/most-popular"):
         return "list_videos_common_videos_list"
 
-    # Homepage and other fallbacks (e.g. /)
+    # Homepage and other fallbacks
     return "list_videos_most_recent_videos"
 
 
 def _list_root(soup: BeautifulSoup, base_url: str) -> Any:
     section_id = _list_section_id(base_url)
-    return soup.select_one(f"#{section_id}") or soup.select_one(f"#{section_id}_items")
+    block = soup.select_one(f"#{section_id}") or soup.select_one(f"#{section_id}_items")
+    if block is not None:
+        if (block.get("id") or "").endswith("_items"):
+            return block
+        inner = block.select_one(f"#{section_id}_items")
+        return inner or block
+    # KVS async fragments contain a single items container; full pages have
+    # several (sidebar blocks), so only trust this fallback when unambiguous.
+    items = soup.select("[id$='_items']")
+    if len(items) == 1:
+        return items[0]
+    return None
 
 
-def _is_embed_page_url(url: str) -> bool:
-    path = (urlparse(url).path or "").lower()
-    return bool(re.fullmatch(r"/embed/\d+/?", path))
-
-
-def _embed_player_url(video_id: str) -> str:
-    return f"https://www.{SITE_HOST}/embed/{video_id}"
-
+# ---------------------------------------------------------------------------
+# Stream detection
+# ---------------------------------------------------------------------------
 
 def _detect_media_format(url: str) -> Optional[str]:
     low = (url or "").lower()
@@ -222,7 +399,8 @@ def _is_blocked_stream_url(url: str) -> bool:
         return True
     if any(x in low for x in ("/player/html.php", "/player/stats.php", "preview.mp4.jpg")):
         return True
-    if re.search(r"85po\.com/embed/\d+/?(?:\?|$)", low):
+    path = urlparse(url).path.lower() if url else ""
+    if _EMBED_PATH_RE.match(path):
         return True
     return False
 
@@ -245,11 +423,25 @@ def _is_non_video_asset_url(url: str) -> bool:
     return any(marker in low for marker in blocked_markers)
 
 
+def _is_probable_ad_iframe(src: str) -> bool:
+    s = (src or "").lower()
+    blocked = (
+        "googlesyndication",
+        "doubleclick",
+        "adservice",
+        "trafficjunky",
+        "exoclick",
+        "juicyads",
+        "adspyglass",
+    )
+    return any(marker in s for marker in blocked)
+
+
 def _extract_inline_urls(html: str) -> list[str]:
     unescaped = html.replace("\\/", "/").replace("\\u0026", "&")
     urls: list[str] = []
     for pat in (
-        r"https?://(?:www\.)?85po\.com/get_file/[^\s\"'<>]+",
+        r"https?://(?:www\.)?(?:85ro|85po)\.(?:com|net)(?::\d+)?/(?:[a-z]{2}/)?get_file/[^\s\"'<>]+",
         r"https?://[^\s\"'<>]+\.m3u8[^\s\"'<>]*",
         r"https?://[^\s\"'<>]+\.mp4[^\s\"'<>]*",
     ):
@@ -273,19 +465,32 @@ def _get_file_tier_key(url: str) -> Optional[str]:
 
 
 def _get_file_url_priority(url: str) -> int:
-    """
-    Prefer download links (302 -> CDN). Player ?br= tokens often 404.
-    """
+    """Prefer download links (302 -> CDN). Player tokens can be picky."""
     low = (url or "").lower()
     if "download=true" in low and "download_filename" in low:
         return 100
     if "download=true" in low:
         return 80
-    if re.search(r"/get_file/1/", low):
+    if re.search(r"/get_file/\d+/", low):
         return 50
     if "br=" in low and "download_filename" not in low:
         return 5
     return 20
+
+
+def _stream_quality_from_url(url: str) -> str:
+    low = (url or "").lower()
+    q = re.search(r"_(\d{3,4})p\.mp4", low)
+    if q:
+        return f"{q.group(1)}p"
+    if re.search(r"/\d+\.mp4", low) and not re.search(r"_\d{3,4}p\.mp4", low):
+        return "source"
+    q = re.search(r"(\d{3,4})p", low)
+    if q and "download_filename" in low:
+        return f"{q.group(1)}p"
+    if _detect_media_format(url) == "hls":
+        return "adaptive"
+    return "source"
 
 
 def _prefer_playable_get_file_streams(streams: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -304,35 +509,6 @@ def _prefer_playable_get_file_streams(streams: list[dict[str, str]]) -> list[dic
         best["quality"] = _stream_quality_from_url(url)
         picked.append(best)
     return other + picked
-
-
-def _stream_quality_from_url(url: str) -> str:
-    low = (url or "").lower()
-    q = re.search(r"_(\d{3,4})p\.mp4", low)
-    if q:
-        return f"{q.group(1)}p"
-    if re.search(r"/\d+\.mp4", low) and not re.search(r"_\d{3,4}p\.mp4", low):
-        return "source"
-    q = re.search(r"(\d{3,4})p", low)
-    if q and "download_filename" in low:
-        return f"{q.group(1)}p"
-    if _detect_media_format(url) == "hls":
-        return "adaptive"
-    return "source"
-
-
-def _is_probable_ad_iframe(src: str) -> bool:
-    s = (src or "").lower()
-    blocked = (
-        "googlesyndication",
-        "doubleclick",
-        "adservice",
-        "trafficjunky",
-        "exoclick",
-        "juicyads",
-        "adspyglass",
-    )
-    return any(marker in s for marker in blocked)
 
 
 def _extract_streams(soup: BeautifulSoup, html: str, page_url: str) -> dict[str, Any]:
@@ -436,7 +612,7 @@ def _extract_streams(soup: BeautifulSoup, html: str, page_url: str) -> dict[str,
 
     video_id = _extract_video_id(page_url)
     if video_id:
-        embed_url = _embed_player_url(video_id)
+        embed_url = _embed_player_url(video_id, page_url)
         if not any(s.get("url") == embed_url for s in materialized):
             materialized.append({"url": embed_url, "quality": "85po", "format": "embed"})
 
@@ -452,17 +628,17 @@ async def _get_file_to_remote_playable(get_file_url: str, *, referer: str) -> Op
     base = get_file_url.split("?", 1)[0].strip().rstrip("/")
     ref = referer.strip() if referer.strip().startswith("http") else BASE_SITE
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "User-Agent": _USER_AGENT,
         "Referer": ref,
         "Accept": "*/*",
         "Accept-Language": "en-US,en;q=0.9",
     }
 
-    async def _attempt(url: str, method: str, range_hdr: Optional[str]) -> Optional[str]:
+    async def _attempt(url: str, method: str, range_hdr: Optional[str], verify: bool) -> Optional[str]:
         h = dict(headers)
         if range_hdr:
             h["Range"] = range_hdr
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False, verify=verify) as client:
             if method == "HEAD":
                 resp = await client.head(url, headers=h)
             else:
@@ -473,6 +649,11 @@ async def _get_file_to_remote_playable(get_file_url: str, *, referer: str) -> Op
                 return None
             if _is_non_video_asset_url(loc) or _is_probable_ad_iframe(loc):
                 return None
+            # A 30x out of /get_file/ points at the signed CDN object (85PO uses
+            # e.g. ppxdd.com/remote_control.php?file=... with no .mp4 suffix),
+            # so accept any non-asset redirect, not just detectable media URLs.
+            if loc.lower().startswith(("http://", "https://")):
+                return loc
             fmt = _detect_media_format(loc)
             if fmt in ("mp4", "hls"):
                 return loc
@@ -489,46 +670,19 @@ async def _get_file_to_remote_playable(get_file_url: str, *, referer: str) -> Op
         (base, "GET", "bytes=0-"),
         (base, "GET", "bytes=0-0"),
     ]
-    for u, method, rng in attempts:
-        try:
-            resolved = await asyncio.wait_for(_attempt(u, method, rng), timeout=16.0)
-            if resolved:
-                return resolved
-        except Exception:
-            continue
+    # 85ro.com currently serves an expired TLS certificate: try unverified
+    # first there, verified-first everywhere else.
+    low = (get_file_url or "").lower()
+    verify_order = (False, True) if "85ro.com" in low else (True, False)
+    for verify in verify_order:
+        for u, method, rng in attempts:
+            try:
+                resolved = await asyncio.wait_for(_attempt(u, method, rng, verify), timeout=16.0)
+                if resolved:
+                    return resolved
+            except Exception:
+                continue
     return None
-
-
-def _extract_video_id(url: str) -> Optional[str]:
-    m = re.search(r"/(?:v|embed)/(\d+)/?", url or "", flags=re.IGNORECASE)
-    return m.group(1) if m else None
-
-
-def _find_canonical_video_page_url(soup: BeautifulSoup, html: str, video_id: str) -> Optional[str]:
-    vid = str(video_id).strip()
-    if not vid:
-        return None
-    for a in soup.select("a[href]"):
-        href = _normalize_video_href(a.get("href") or "")
-        if href and re.search(rf"/v/{re.escape(vid)}/", href, flags=re.IGNORECASE):
-            return href
-    m = re.search(rf"https?://(?:www\.)?{re.escape(SITE_HOST)}/v/{re.escape(vid)}/[^\"'\s<>]+/?", html, flags=re.IGNORECASE)
-    if m:
-        return _normalize_video_href(m.group(0))
-    return None
-
-
-def _ensure_embed_stream(video: dict[str, Any], video_id: str) -> None:
-    """Expose the site's iframe player (e.g. https://www.85po.com/embed/30)."""
-    embed_url = _embed_player_url(video_id)
-    streams: list[dict[str, str]] = video.get("streams") or []
-    if any(s.get("url") == embed_url for s in streams):
-        return
-    streams.append({"url": embed_url, "quality": "85po", "format": "embed"})
-    video["streams"] = streams
-    if not video.get("default"):
-        video["default"] = embed_url
-    video["has_video"] = True
 
 
 def _url_contains_video_id(url: str, video_id: str) -> bool:
@@ -558,10 +712,8 @@ async def _resolve_video_streams_to_remote_playable(video: dict[str, Any], *, re
     resolved_pairs = await asyncio.gather(*[_resolve_one(s) for s in get_file_mp4])
     for stream, resolved in resolved_pairs:
         if resolved:
-            # CDN URLs may not embed the numeric id; keep redirect when we got a playable file.
-            if video_id and not _url_contains_video_id(resolved, video_id):
-                if _detect_media_format(resolved) not in ("mp4", "hls"):
-                    continue
+            # _get_file_to_remote_playable only returns real redirect targets,
+            # which are playable CDN objects even without a media filename.
             stream["url"] = resolved
         # If redirect resolution fails, keep the original /get_file/ URL (playable with Referer).
 
@@ -586,6 +738,37 @@ async def _resolve_video_streams_to_remote_playable(video: dict[str, Any], *, re
 
     video["hls"] = hls["url"] if hls else None
     video["has_video"] = bool(mp4_streams) or bool(hls) or bool(embed)
+
+
+def _find_canonical_video_page_url(soup: BeautifulSoup, html: str, video_id: str, page_url: str = BASE_SITE) -> Optional[str]:
+    vid = str(video_id).strip()
+    if not vid:
+        return None
+    for a in soup.select("a[href]"):
+        href = _normalize_video_href(a.get("href") or "", page_url)
+        if href and re.search(rf"/video/{re.escape(vid)}/", href, flags=re.IGNORECASE):
+            return href
+    m = re.search(
+        rf"https?://[^\s\"'<>]*/(?:[a-z]{{2}}/)?video/{re.escape(vid)}/[^\s\"'<>]*/?",
+        html,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        return _normalize_video_href(m.group(0), page_url)
+    return None
+
+
+def _ensure_embed_stream(video: dict[str, Any], video_id: str, page_url: str = BASE_SITE) -> None:
+    """Expose the site's iframe player (e.g. https://www.85ro.com/en/embed/{id})."""
+    embed_url = _embed_player_url(video_id, page_url)
+    streams: list[dict[str, str]] = video.get("streams") or []
+    if any(s.get("url") == embed_url for s in streams):
+        return
+    streams.append({"url": embed_url, "quality": "85po", "format": "embed"})
+    video["streams"] = streams
+    if not video.get("default"):
+        video["default"] = embed_url
+    video["has_video"] = True
 
 
 def parse_video_page(html: str, url: str) -> dict[str, Any]:
@@ -614,12 +797,12 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
     views = (
         _views_from_eye_icon(soup.select_one(".title-holder"))
         or _views_from_eye_icon(soup.select_one(".col-video"))
-        or _views_from_eye_icon(soup)
+        or _views_from_container(soup.select_one(".info, .video-info, .col-video"))
     )
     if not views:
         views_el = soup.select_one(".views")
         views_text = views_el.get_text(" ", strip=True) if views_el else None
-        views = _extract_views(views_text) or _extract_views(text_blob)
+        views = _normalize_numberish(views_text) or _extract_views(views_text) or _extract_views(text_blob)
 
     tags: list[str] = []
     for el in soup.select(".tags a, a[href*='/tags/']"):
@@ -649,32 +832,37 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
 
 
 async def scrape(url: str) -> dict[str, Any]:
-    html = await fetch_page(url, referer=url)
+    raw_url = (url or "").strip()
+    url = _legacy_to_video_url(raw_url)
     video_id = _extract_video_id(url)
+    html, serving_host = await _fetch_with_fallback(url, referer=BASE_SITE)
+    page_url = _swap_host(url, serving_host)
     soup = BeautifulSoup(html, "lxml")
 
-    if _is_embed_page_url(url) and video_id:
-        canonical = _find_canonical_video_page_url(soup, html, video_id)
+    if _is_embed_page_url(page_url) and video_id:
+        canonical = _find_canonical_video_page_url(soup, html, video_id, page_url)
         if canonical:
             try:
-                full_html = await fetch_page(canonical, referer=url)
-                data = parse_video_page(full_html, url)
+                full_html, canonical_host = await _fetch_with_fallback(canonical, referer=page_url)
+                page_url = _swap_host(canonical, canonical_host)
+                data = parse_video_page(full_html, page_url)
             except Exception:
-                data = parse_video_page(html, url)
+                data = parse_video_page(html, page_url)
         else:
-            data = parse_video_page(html, url)
+            data = parse_video_page(html, page_url)
         if video_id:
-            _ensure_embed_stream(data.get("video", {}), video_id)
+            _ensure_embed_stream(data.get("video", {}), video_id, page_url)
     else:
-        data = parse_video_page(html, url)
+        data = parse_video_page(html, page_url)
 
-    await _resolve_video_streams_to_remote_playable(data.get("video", {}), referer=url)
+    await _resolve_video_streams_to_remote_playable(data.get("video", {}), referer=page_url)
 
-    # When opened via /embed/{id}, prefer the embed player as default if no direct MP4 survived resolve.
-    if _is_embed_page_url(url) and video_id:
+    # When opened via /embed/{id}, prefer the embed player as default if no
+    # direct MP4 survived resolve.
+    if _is_embed_page_url(raw_url) and video_id:
         video = data.get("video", {})
         mp4s = [s for s in (video.get("streams") or []) if s.get("format") == "mp4"]
-        embed_url = _embed_player_url(video_id)
+        embed_url = _embed_player_url(video_id, page_url)
         if not mp4s:
             video["default"] = embed_url
         video["has_video"] = bool(video.get("streams"))
@@ -687,26 +875,71 @@ def _build_list_page_url(base_url: str, page: int) -> str:
     if not raw.startswith("http"):
         raw = "https://" + raw.lstrip("/")
     parsed = urlparse(raw)
-    scheme = parsed.scheme or "https"
-    netloc = parsed.netloc or f"www.{SITE_HOST}"
+    host = _host_of(raw) or DEFAULT_HOST
+    netloc = _www(host)
     path = parsed.path or "/"
+    lang = _lang_of(path) or DEFAULT_LANG
+    lang_dir = f"/{lang}"
+
     query_items = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query_items.pop("page", None)
+    for legacy in ("page", "from", "mode", "function", "block_id"):
+        query_items.pop(legacy, None)
+
+    # Language-stripped path for section matching (e.g. /en/latest-updates -> /latest-updates)
+    bare_path = re.sub(rf"^{re.escape(lang_dir)}/?", "/", path, flags=re.IGNORECASE)
+    bare_path = bare_path.rstrip("/") or "/"
 
     if page <= 1:
-        return urlunparse((scheme, netloc, path, "", urlencode(query_items), ""))
+        return urlunparse(("https", netloc, path, "", urlencode(query_items), ""))
 
-    query_items["from"] = str(page)
-    return urlunparse((scheme, netloc, path, "", urlencode(query_items), ""))
+    # Homepage has no own page 2; the site's pagination points at latest-updates.
+    if bare_path == "/":
+        return urlunparse(("https", netloc, f"{lang_dir}/latest-updates/{page}/", "", urlencode(query_items), ""))
+
+    # Search pages paginate through the KVS async block API
+    if bare_path.startswith("/search"):
+        q = ""
+        m = re.search(r"/search/([^/]+)/?", bare_path)
+        if m:
+            q = m.group(1)
+        params = dict(query_items)
+        params.update(
+            {
+                "mode": "async",
+                "function": "get_block",
+                "block_id": "list_videos_videos_list_search_result",
+                "q": q,
+                "from_videos": str(page),
+            }
+        )
+        return urlunparse(("https", netloc, path, "", urlencode(params), ""))
+
+    # Tag detail pages paginate through the KVS async block API
+    if bare_path.startswith("/tags"):
+        params = dict(query_items)
+        params.update(
+            {
+                "mode": "async",
+                "function": "get_block",
+                "block_id": "list_videos_common_videos_list",
+                "sort_by": "post_date",
+                "from": str(page),
+            }
+        )
+        return urlunparse(("https", netloc, path, "", urlencode(params), ""))
+
+    # latest-updates / top-rated / most-popular / categories: path pagination
+    return urlunparse(("https", netloc, f"{path.rstrip('/')}/{page}/", "", urlencode(query_items), ""))
 
 
 async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[dict[str, Any]]:
     page_url = _build_list_page_url(base_url, page)
     try:
-        html = await fetch_page(page_url, referer=base_url or BASE_SITE)
+        html, serving_host = await _fetch_with_fallback(page_url, referer=BASE_SITE)
     except Exception:
         return []
 
+    fetched_url = _swap_host(page_url, serving_host)
     soup = BeautifulSoup(html, "lxml")
     root = _list_root(soup, base_url)
     if root is None:
@@ -718,7 +951,7 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
     for a in root.select("a[href]"):
         if len(items) >= limit:
             break
-        href = _normalize_video_href(a.get("href") or "")
+        href = _normalize_video_href(a.get("href") or "", fetched_url)
         if not href or href in seen:
             continue
 
@@ -728,13 +961,25 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
         if not thumb:
             continue
 
-        title = a.get("title") or (img.get("alt") if img else None) or a.get_text(" ", strip=True)
+        title_el = a.select_one("strong.title, .title")
+        title = (
+            a.get("title")
+            or (img.get("alt") if img else None)
+            or (title_el.get_text(" ", strip=True) if title_el else None)
+            or a.get_text(" ", strip=True)
+        )
         title = _clean_title(title) or "Unknown Video"
 
-        ctext = container.get_text(" ", strip=True) if container else ""
-        duration = _extract_duration(ctext)
-        views = _views_from_eye_icon(a) or _views_from_eye_icon(container)
+        duration = _duration_from_container(a) or _duration_from_container(container)
+        if not duration:
+            ctext = a.get_text(" ", strip=True)
+            duration = _extract_duration(ctext)
+
+        views = _views_from_container(a) or _views_from_eye_icon(a) or _views_from_eye_icon(container)
         if not views:
+            views = _views_from_container(container)
+        if not views:
+            ctext = (container.get_text(" ", strip=True) if container else "") or ""
             views = _extract_views(ctext)
 
         seen.add(href)

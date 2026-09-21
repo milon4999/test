@@ -1892,45 +1892,50 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://zeenite.com/videos/
 
 ## 85PO Implementation Notes
 
-[85PO](https://www.85po.com/) is a KVS-style tube site (Chinese UI). Video pages use `/v/{id}/{slug}/` and expose progressive MP4 via same-origin `/get_file/...` URLs (often `_720p`, `_1080p`, and a basename `source` tier).
+[85PO](https://www.85ro.com/en/) is a KVS-style tube site (Chinese/English UI). Video pages use `/{lang}/video/{id}/{slug}/` and expose progressive MP4 via same-origin `/{lang}/get_file/...` URLs (often `_720p`, `_1080p`, and a basename `source` tier, usually with a `?v-acctoken=` token).
 
 Use `zeenite` and `pimpbunny` as close implementation references (module folder name is `po85` because Python identifiers cannot start with a digit).
 
-### Host aliases
+### Host aliases (verified 2026-09)
 
-- `85po.com`
-- `www.85po.com`
+- `85ro.com` — working mirror, but serves an **expired TLS certificate** (fetch with `ssl=False` through the aiohttp pool)
+- `85po.net` — working mirror, valid TLS
+- `85po.com` — original domain, now **Cloudflare-blocked (403)** for server traffic; kept as last-resort fallback only
 
-Example:
+`_fetch_with_fallback()` tries the URL's own host first (unless it is `85po.com`, which is tried last) and then the other mirrors. All returned video URLs stay on the mirror that actually served the page.
 
-```python
-def can_handle(host: str) -> bool:
-    h = (host or "").lower().split(":")[0]
-    if h.startswith("www."):
-        h = h[4:]
-    return h == "85po.com" or h.endswith(".85po.com")
-```
+### Languages
+
+- `/en/` and `/ja/` prefixes; zh is served from bare paths
+- The server redirects bare URLs to `/en/` when `Accept-Language` is en-US, so fetching any mirror page with the scraper's headers lands on `/en/` pages
 
 ### Listing and pagination (`list_videos`)
 
-- Video URLs: `https://www.85po.com/v/{id}/{slug}/`
-- Embed player: `https://www.85po.com/embed/{id}` (iframe shell; also exposes `/get_file/` MP4 tiers inside)
-- Parse only the main list block (not the â€œwatching nowâ€ sidebar):
+- Video URLs: `https://www.{host}/{lang}/video/{id}/{slug}/` (legacy `/v/{id}/{slug}/` URLs redirect to `/en/v/...` and 404; `_legacy_to_video_url()` rewrites them)
+- Embed player: `https://www.{host}/{lang}/embed/{id}` (also exposes `/get_file/` MP4 tiers inside)
+- Parse only the main list block (not the "watching now" sidebar):
   - home / default: `#list_videos_most_recent_videos`
-  - `/4k/`: `#list_videos_latest_videos_list`
-  - `/tags/...`: `#list_videos_common_videos_list`
-- Pagination uses query param `from` (page 2 â†’ `?from=2`), not `?page=`. AJAX `#more` blocks exist but GET `?from={n}` is sufficient for the API list endpoint.
+  - `/latest-updates/`: `#list_videos_latest_videos_list`
+  - `/top-rated/`, `/most-popular/`, `/tags/...`, `/categories/...`: `#list_videos_common_videos_list`
+  - `/search/{q}/`: `#list_videos_videos_list_search_result`
+- The `/4k/` page no longer exists (404); do not reference it
+- Pagination:
+  - `latest-updates` / `top-rated` / `most-popular`: path based (`/en/latest-updates/2/`)
+  - homepage page > 1 maps to `/en/latest-updates/{page}/`
+  - tag pages: KVS async block `?mode=async&function=get_block&block_id=list_videos_common_videos_list&sort_by=post_date&from={page}`
+  - search pages: KVS async block `?mode=async&function=get_block&block_id=list_videos_videos_list_search_result&q={q}&from_videos={page}` (note `from_videos`, not `from` — `from` does not advance)
+  - `/categories/{slug}/` pages have no pagination block (page > 1 returns [])
 
 ### Metadata and streams (`scrape`)
 
-- Metadata: `og:*`, `h1`, visible duration (`mm:ss` / `hh:mm:ss`), views from `svg.icon-eye` parent (`.thumb-item` on cards, `.count-item` on detail).
-- Streams: inline `/get_file/.../*.mp4` links in HTML; filter screenshot/preview assets (`preview_preview.mp4.jpg`, `/contents/videos_screenshots/`).
-- Resolve each `get_file` URL with the video page as `Referer` (HEAD/GET + `Range`) to the signed CDN redirect before returning `video.streams` (same pattern as Zeenite).
+- Metadata: `og:*`, `h1`, visible duration (`mm:ss` / `hh:mm:ss`), views from the `.views` div on cards and detail (legacy `svg.icon-eye` lookup kept as fallback).
+- Streams: inline `<a href>` and script-embedded `/{lang}/get_file/.../*.mp4` links; filter screenshot/preview assets (`preview_preview.mp4.jpg`, `/contents/videos_screenshots/`).
+- Resolve each `get_file` URL with the video page as `Referer` (HEAD/GET + `Range`) to the signed CDN redirect (`pvsa*.ppxdd.com/remote_control.php?...`) before returning `video.streams`. Tokenized variants (`?v-acctoken=`, `download=true&download_filename=`) resolve the same way.
 - Prefer highest `NNNp` MP4 as `video.default`.
 
 ### Categories (`get_categories`)
 
-Seed `categories.json` from public nav: Home, 4K (`/4k/`), Tags (`/tags/`), Random (`/random_video.php`).
+Seed `categories.json` from public nav on the working mirror: Latest (`/en/latest-updates/`), Top Rated (`/en/top-rated/`), Most Popular (`/en/most-popular/`), and the community categories (`/en/categories/{slug}/`: ri-ben, zhong-guo, tai-wan, ma-lai-xi-ya, xin-jia-po, xiang-gang).
 
 ### Registration checklist for 85PO
 
@@ -1945,9 +1950,9 @@ Besides creating `backend/app/scrapers/po85/`, update all of these:
 - `backend/app/services/video_streaming.py`
   - scraper selection branch
   - supported-host/unsupported-host help text
-  - stream quality map host checks for `85po.com`
+  - stream quality map host checks for `85ro.com` / `85po.net` / `85po.com`
 - `backend/app/api/endpoints/explore.py`
-  - add `ExploreSourceResponse` entry (`sourceId="po85"`)
+  - add `ExploreSourceResponse` entry (`sourceId="po85"`, `baseUrl="https://www.85ro.com/en/"`)
 
 If request URL validation still uses explicit host allowlists in your branch, also update:
 
@@ -1960,13 +1965,13 @@ If request URL validation still uses explicit host allowlists in your branch, al
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
   -H "Content-Type: application/json" \
-  -d "{\"url\":\"https://www.85po.com/v/30261/zi-cuo-ri--5/\"}"
+  -d "{\"url\":\"https://www.85ro.com/en/video/35747/xi-men-da-nai-mu-gou-tuo-yi-zi-pai/\"}"
 
-curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.85po.com/&page=1&limit=20"
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.85ro.com/en/&page=1&limit=20"
 
 curl "http://127.0.0.1:8000/api/v1/categories?source=po85"
 
-curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.85po.com/v/30261/zi-cuo-ri--5/"
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.85ro.com/en/video/35747/xi-men-da-nai-mu-gou-tuo-yi-zi-pai/"
 ```
 
 ## CosXplay Implementation Notes
