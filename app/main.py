@@ -595,7 +595,7 @@ async def get_categories(source: str) -> list[CategoryItem]:
         if s == "milfporn8" or s == "milf8" or s == "milfporn": return [_category_item(c) for c in milfporn8.get_categories()]
         if s == "indianporn365" or s == "indianporn": return [_category_item(c) for c in indianporn365.get_categories()]
         if s == "mmsbro": return [_category_item(c) for c in mmsbro.get_categories()]
-        if s == "kamababa": return [_category_item(c) for c in kamababa.get_categories()]
+        if s in ("kamababa", "mykamababa", "mykamababa.com", "www.mykamababa.com", "kamababa1.com", "thekamababa.com"): return [_category_item(c) for c in kamababa.get_categories()]
         if s == "desimms2" or s == "desimms": return [_category_item(c) for c in desimms2.get_categories()]
         if s == "desiporn" or s == "desipornone": return [_category_item(c) for c in desiporn.get_categories()]
         if s == "thotsporn" or s == "thots": return [_category_item(c) for c in thotsporn.get_categories()]

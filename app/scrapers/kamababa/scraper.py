@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
@@ -9,19 +10,37 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
 
-from app.core.pool import fetch_html as pool_fetch_html
+BASE_SITE = "https://www.mykamababa.com/"
+CANONICAL_HOST = "www.mykamababa.com"
+SITE_DOMAINS = frozenset(
+    {
+        "mykamababa.com",
+        "kamababa1.com",
+        "thekamababa.com",
+        "kamababax.com",
+    }
+)
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": BASE_SITE,
+}
 
-BASE_SITE = "https://www.kamababa1.com/"
+
+def _host_key(host: str) -> str:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h
 
 
 def can_handle(host: str) -> bool:
-    h = (host or "").lower()
-    return (
-        h == "kamababa1.com"
-        or h.endswith(".kamababa1.com")
-        or h == "kamababax.com"
-        or h.endswith(".kamababax.com")
-    )
+    h = _host_key(host)
+    return h in SITE_DOMAINS or any(h.endswith("." + domain) for domain in SITE_DOMAINS)
 
 
 def get_categories() -> list[dict]:
@@ -34,14 +53,27 @@ def get_categories() -> list[dict]:
         return []
 
 
+def _fetch_html_sync(url: str) -> str:
+    from curl_cffi.requests import Session
+
+    last_error: Exception | None = None
+    for impersonate in ("chrome136", "chrome131", "chrome"):
+        try:
+            with Session(impersonate=impersonate) as client:
+                resp = client.get(url, headers=_HEADERS, timeout=25.0, allow_redirects=True)
+            if resp.status_code in (403, 429, 503):
+                last_error = RuntimeError(f"HTTP {resp.status_code}")
+                continue
+            resp.raise_for_status()
+            return resp.text or ""
+        except Exception as e:
+            last_error = e
+            continue
+    raise last_error or RuntimeError(f"Failed to fetch {url}")
+
+
 async def fetch_page(url: str) -> str:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": BASE_SITE,
-    }
-    return await pool_fetch_html(url, headers=headers)
+    return await asyncio.to_thread(_fetch_html_sync, url)
 
 
 def _first_non_empty(*values: Optional[str]) -> Optional[str]:
@@ -218,12 +250,12 @@ def _normalize_video_href(href: str) -> Optional[str]:
     if href.startswith("//"):
         href = f"https:{href}"
     elif href.startswith("/"):
-        href = f"https://www.kamababa1.com{href}"
+        href = f"{BASE_SITE.rstrip('/')}{href}"
     if not href.startswith("http"):
         return None
 
     parsed = urlparse(href)
-    if "kamababa1.com" not in parsed.netloc.lower() and "kamababax.com" not in parsed.netloc.lower():
+    if not can_handle(parsed.netloc):
         return None
     if any(
         x in parsed.path.lower()
@@ -238,7 +270,7 @@ def _normalize_video_href(href: str) -> Optional[str]:
     if not _is_probable_video_post(parsed):
         return None
     slug = parsed.path.strip("/").split("/", 1)[0]
-    return urlunparse(("https", "www.kamababa1.com", f"/{slug}/", "", "", ""))
+    return urlunparse(("https", CANONICAL_HOST, f"/{slug}/", "", "", ""))
 
 
 def _extract_inline_urls(html: str) -> list[str]:
@@ -268,7 +300,7 @@ def _slug_tokens_from_url(page_url: str) -> set[str]:
 
 def _candidate_url_score(stream_url: str, slug_tokens: set[str]) -> tuple[int, int]:
     low = (stream_url or "").lower()
-    cdn_score = 2 if "cdn.kamababax.com" in low or "cdn.kamababa" in low else 0
+    cdn_score = 2 if "cdn.mykamababa.com" in low or "cdn.kamababa" in low else 0
     token_hits = sum(1 for t in slug_tokens if t in low)
     return (cdn_score + min(token_hits, 3), token_hits)
 
@@ -459,17 +491,25 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
 
 
 async def scrape(url: str) -> dict[str, Any]:
-    html = await fetch_page(url)
-    return parse_video_page(html, url)
+    canonical = _canonical_page_url(url)
+    html = await fetch_page(canonical)
+    return parse_video_page(html, canonical)
+
+
+def _canonical_page_url(url: str) -> str:
+    parsed = urlparse(url if "://" in (url or "") else f"https://{url.lstrip('/')}")
+    if not can_handle(parsed.netloc or CANONICAL_HOST):
+        return url
+    return urlunparse(("https", CANONICAL_HOST, parsed.path or "/", parsed.params, parsed.query, parsed.fragment))
 
 
 def _build_list_page_url(base_url: str, page: int) -> str:
     raw = (base_url or "").strip()
     if not raw.startswith("http"):
         raw = "https://" + raw.lstrip("/")
-    parsed = urlparse(raw)
+    parsed = urlparse(_canonical_page_url(raw))
     scheme = parsed.scheme or "https"
-    netloc = parsed.netloc or "www.kamababa1.com"
+    netloc = parsed.netloc or CANONICAL_HOST
     path = parsed.path or "/"
     query_items = dict(parse_qsl(parsed.query, keep_blank_values=True))
 
