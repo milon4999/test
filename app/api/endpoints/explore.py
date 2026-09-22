@@ -453,7 +453,7 @@ EXPLORE_SOURCES = [
     ),
     ExploreSourceResponse(
         baseUrl="https://p4455.com/",
-        nickname="Mydesi P4455",
+        nickname="P4455",
         favicon="https://raw.githubusercontent.com/freelancermilonid132bd-ui/apphub/refs/heads/main/logo/mydasi.webp",
         accentColor="#26A69A",
         category="porn",
