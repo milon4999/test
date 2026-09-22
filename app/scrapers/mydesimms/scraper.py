@@ -4,17 +4,21 @@ import base64
 import json
 import os
 import re
+import ssl
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
+import certifi
 from bs4 import BeautifulSoup
 
 from app.core.pool import fetch_html as pool_fetch_html
 
-BASE_URL = "https://mydesix10.watch/"
-CANONICAL_HOST = "mydesix10.watch"
+BASE_URL = "https://mydesi2.com.co/"
+CANONICAL_HOST = "mydesi2.com.co"
 _SUPPORTED_HOSTS = frozenset(
     {
+        "mydesi2.com.co",
+        "www.mydesi2.com.co",
         "mydesi2.dev",
         "www.mydesi2.dev",
         "mydesimms.watch",
@@ -23,6 +27,10 @@ _SUPPORTED_HOSTS = frozenset(
     }
 )
 _MYDESI_WATCH_RE = re.compile(r"^mydesi[a-z0-9]+\.watch$")
+# mydesi2.com.co uses a brand-new Let's Encrypt "Root YE" hierarchy that is
+# missing from many stale system CA stores (aiohttp does not use certifi by
+# default), causing CERTIFICATE_VERIFY_FAILED. Pin the certifi bundle instead.
+_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
 def _normalize_host(host: str) -> str:
@@ -58,7 +66,7 @@ async def fetch_page(url: str) -> str:
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": BASE_URL,
     }
-    return await pool_fetch_html(url, headers=headers)
+    return await pool_fetch_html(url, headers=headers, ssl=_SSL_CONTEXT)
 
 
 def _first_non_empty(*values: Optional[str]) -> Optional[str]:
