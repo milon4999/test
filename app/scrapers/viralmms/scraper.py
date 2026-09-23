@@ -534,6 +534,13 @@ def _build_list_page_url(base_url: str, page: int) -> str:
     if m:
         return urlunparse((scheme, netloc, f"{m.group(1)}/{page}", "", urlencode(query_items), ""))
 
+    m = re.match(r"^(/explore)/\d+$", clean_path)
+    if m:
+        return urlunparse((scheme, netloc, f"/explore/{page}", "", urlencode(query_items), ""))
+
+    if clean_path == "/explore":
+        return urlunparse((scheme, netloc, f"/explore/{page}", "", urlencode(query_items), ""))
+
     if clean_path in ("/", ""):
         return urlunparse((scheme, netloc, f"/page/{page}", "", urlencode(query_items), ""))
 

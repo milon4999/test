@@ -8674,7 +8674,7 @@ def can_handle(host: str) -> bool:
 
 ### Categories (`get_categories`)
 
-`categories.json` is seeded from the live `/channels` index (15 channels): Bhabhi ki Chudai, Desi Punjab Porn, Viral Porn Kand, Indian MMS Porn, Sassy Poonam, Indian Actress Nude Hub, Desi Pakistan Porn, Desihub, XXX Leaked Tapes, Aqsa Pervaiz, Aditi Mistry, Bongbooty, Meetii Kalher, Ashwitha, Jasneet Kaur. Schema matches the other scraper folders so `/api/v1/categories?source=viralmms` returns valid `CategoryItem` entries.
+`categories.json` includes **Home** (`/`) and **Explore** (`/explore`) browse entries plus all 15 channels from the live `/channels` index: Bhabhi ki Chudai, Desi Punjab Porn, Viral Porn Kand, Indian MMS Porn, Sassy Poonam, Indian Actress Nude Hub, Desi Pakistan Porn, Desihub, XXX Leaked Tapes, Aqsa Pervaiz, Aditi Mistry, Bongbooty, Meetii Kalher, Ashwitha, Jasneet Kaur (17 total). All home-page "What to watch" / card channels are included. Schema matches the other scraper folders so `/api/v1/categories?source=viralmms` returns valid `CategoryItem` entries.
 
 ### Registration checklist for Viral MMS
 
