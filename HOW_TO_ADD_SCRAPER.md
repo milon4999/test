@@ -8546,3 +8546,83 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=mydesico"
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://mydesi.com.co/videos/desi-gf-leaked-blowjob-video"
 ```
 
+## Viralchut Implementation Notes
+
+[Viralchut](https://viralchut.com/) is a WordPress **kolortube**-theme desi tube site (same family as viralkand / mmsbro / indianporn365). Video posts live at `/{post-slug}/`, categories under `/category/{slug}/`, and the home page uses WordPress path pagination.
+
+### Host aliases
+
+- `viralchut.com`
+- `www.viralchut.com`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("viralchut.com", "www.viralchut.com") or h.endswith(".viralchut.com")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Cards link to `https://viralchut.com/{post-slug}/` (single path segment). Keep only same-domain post URLs and skip utility/legal paths: `/category/`, `/categories/`, `/tag/`, `/tags/`, `/page/`, `/wp-content/`, `/wp-json/`, `/wp-admin/`, `/18-u-s-c-2257`, `/dmca`, `/terms-of-use`, `/contact`, `/privacy`, `/about-us`.
+- Title: anchor `title`, image `alt`, then visible text. Strip ` - Viralchut` / ` | Viralchut` suffixes.
+- Thumbnail: `data-src`, `data-lazy-src`, `data-original`, `srcset`, then `src` (posters live under `/wp-content/uploads/...`).
+- The card markup does not render duration or view badges — `list_videos()` returns `duration` and `views` as `None` (expected, not an error).
+- Page 1 should use `base_url` unchanged.
+- For page > 1, WordPress path pagination: `/page/{n}/` (e.g. `/page/2/`); under a category it becomes `/category/{slug}/page/{n}/`. Preserve existing query params (`?filter=`, `?s=`) when adding the page segment.
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image`
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. JSON-LD `VideoObject`
+  4. visible `h1` / page `<title>` (strip ` - Viralchut` suffixes)
+- Streams: the player is a `<video id="wpst-video">` with a direct `<source src="https://cdn.desisex.store/.../{file}.mp4" type="video/mp4">`. `_extract_streams` picks up `<video src>` / `<source src>`, inline `.mp4` / `.m3u8` script URLs (unescape `\\/` -> `/`), and ad-filtered iframe embeds as fallback.
+- Build `video.streams` with the direct MP4 (`format="mp4"`, `quality="source"` since the URL carries no resolution marker) plus any embeds; set `video.default` to the direct MP4 and `video.has_video=True`.
+
+### Categories (`get_categories`)
+
+`categories.json` is seeded from the live `/categories/` index (17 categories): Desi Sex Scandal, Leaked Sex MMS, Indian Sex Videos, GF BF Sex, Bhabhi Sex Video, Big Boobs, Viral Sex Video, Big Ass, Village Sex Videos, Tamil Sex Video, Pakistani Sex Video, Hidden Sex Video, Aunty, Outdoor Sex Videos, Bangladeshi Sex Video, Muslim Sex Video, Assamese Sex Video. Schema matches the other scraper folders so `/api/v1/categories?source=viralchut` returns valid `CategoryItem` entries.
+
+### Registration checklist for Viralchut
+
+Besides creating `backend/app/scrapers/viralchut/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` (`from . import viralchut` + `__all__`)
+- `backend/app/main.py`
+  - import list (`..., mydesi10, mydesico, viralchut`)
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=viralchut` or `source=viralchut.com`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif viralchut.can_handle(host):`)
+  - unsupported-host help text (`viralchut.com`)
+  - stream quality map host checks (both `parsed_url.netloc` and `host_l` chains) for `viralchut.com` and the `cdn.desisex.store` CDN host
+- `backend/app/models/schemas.py`
+  - both URL allowlists (`viralchut.com`, `www.viralchut.com`)
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`sourceId=viralchut`)
+
+### Viralchut verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://viralchut.com/first-time-sex-video-with-hot-vergin-girl-tight-pussy-fucking/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://viralchut.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://viralchut.com/page/2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://viralchut.com/category/desi-sex-scandal/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=viralchut"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://viralchut.com/first-time-sex-video-with-hot-vergin-girl-tight-pussy-fucking/"
+```
+
