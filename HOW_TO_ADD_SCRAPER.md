@@ -8454,3 +8454,95 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=mydesi10"
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://mydesi10.com/amateur-desi-gf-railed-from-behind-homemade-doggy-style-sex-video/"
 ```
 
+## MyDesi.com.co Implementation Notes
+
+[MyDesi](https://mydesi.com.co/) is a **Next.js (SSR)** tube site — a different codebase from the WordPress `mydesi10.com`. Video pages live under `/videos/{slug}`, listing under `/videos` and the home page, with direct MP4 files served from the CDN host `cdn.aamchor.com`.
+
+### Host aliases
+
+- `mydesi.com.co`
+- `www.mydesi.com.co`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("mydesi.com.co", "www.mydesi.com.co") or h.endswith(".mydesi.com.co")
+```
+
+### TLS note
+
+`mydesi.com.co` currently serves an **expired TLS certificate**, so the shared connection pool fails verification. `fetch_page()` passes `ssl=False` to `pool_fetch_html` (same workaround pattern as the `mydesimms` scraper). Revisit once the site renews its cert.
+
+### Listing and pagination (`list_videos`)
+
+- Video cards link to `https://mydesi.com.co/videos/{slug}` (exactly two path segments: `videos` + slug). Skip `/page/`, `/categories/`, `/videos/filter/`, `/_next/`, `/api/`, `/contact-us`, `/privacy-policy`, `/dmca`.
+- Title: anchor `title`, image `alt`, then visible text. Strip ` - MyDesi` / ` | MyDesi` suffixes.
+- Thumbnail: card images use the Next.js image proxy `/_next/image?url=<urlencoded>`; decode the `url` query param with `_normalize_thumb()` to get the real `https://cdn.aamchor.com/thumbnails/...` URL.
+- Duration: `mm:ss` regex from card text (`1:01`, `5:30` badges).
+- Views: compact counters only (`323.2K`, `141.7K`) or an explicit `N views` pattern.
+- **Pagination is route-specific** (this is the tricky part):
+  - home `/` → page > 1 is `/page/{n}`
+  - `/videos` (Most Recent) → `/videos/filter/recent/all/{n}`
+  - length filters `/videos/filter/recent/{short|medium|long}/1` → replace trailing number with `{n}`
+  - Most Viewed `/videos/filter/views/all/1` → replace trailing number (may only expose one page)
+  - categories `/categories/{slug}` → `/categories/{slug}/{n}`
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image`
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. JSON-LD `VideoObject`
+  4. visible `h1` / page `<title>`
+- Thumbnail: `og:image` / `twitter:image`, run through `_normalize_thumb()`.
+- Streams (single direct MP4): the playable file is exposed as the `Download` link `https://cdn.aamchor.com/videos/{category}/{slug}-{id}.mp4` and also appears in inline scripts and `<video>`/`<source>`. The MP4 has no resolution marker in the URL, so `quality` is `"source"` and `format="mp4"`.
+- Trim trailing `\` / `,` / `;` / `)` from inline-matched URLs so the same MP4 (one appearing with a trailing backslash in a JS string) doesn't produce a duplicate stream entry.
+- Set `video.default` to that MP4 and `video.has_video=True`.
+- The detail page does not render the main video's own view count or duration in stable markup; duration/view extraction from page text is best-effort.
+
+### Categories (`get_categories`)
+
+`categories.json` is seeded from the live `/categories` index (16 categories): Amateur, Big Tits, Blowjob, MILF, Big Ass, Solo, Teen, Asian, Bengali, Threesome, Anal, Punjabi, Pakistan, Group Sex, Lesbian, Interracial. Schema matches the other scraper folders so `/api/v1/categories?source=mydesico` returns valid `CategoryItem` entries.
+
+### Registration checklist for MyDesi.com.co
+
+Besides creating `backend/app/scrapers/mydesico/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` (`from . import mydesico` + `__all__`)
+- `backend/app/main.py`
+  - import list (`..., mydesi10, mydesico`)
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=mydesico` or `source=mydesi.com.co`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif mydesico.can_handle(host):`)
+  - unsupported-host help text (`mydesi.com.co`)
+  - stream quality map host checks (both `parsed_url.netloc` and `host_l` chains) for `mydesi.com.co` and the `cdn.aamchor.com` CDN host
+- `backend/app/models/schemas.py`
+  - both URL allowlists (`mydesi.com.co`, `www.mydesi.com.co`)
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`sourceId=mydesico`)
+
+### MyDesi.com.co verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://mydesi.com.co/videos/desi-gf-leaked-blowjob-video\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://mydesi.com.co/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://mydesi.com.co/videos&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://mydesi.com.co/categories/blowjob&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=mydesico"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://mydesi.com.co/videos/desi-gf-leaked-blowjob-video"
+```
+
