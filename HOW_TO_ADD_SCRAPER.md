@@ -8367,3 +8367,90 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=p4455"
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://p4455.com/sister-nude-captured-secretly-2/"
 ```
 
+## MyDesi10 Implementation Notes
+
+[MyDesi HD](https://mydesi10.com/) is a WordPress-style desi tube (WP-Script-like theme, same family as KamaBaba). Video posts live under `/{post-slug}/`, categories under `/category/{slug}/`, tags under `/tag/{slug}/`, and search via `?s={query}`.
+
+### Host aliases
+
+- `mydesi10.com`
+- `www.mydesi10.com`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("mydesi10.com", "www.mydesi10.com") or h.endswith(".mydesi10.com")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Parse video-post links from card anchors; keep only same-domain single-segment URLs and skip utility/legal paths (`/category/`, `/categories/`, `/tag/`, `/tags/`, `/page/`, `/wp-content/`, `/contact`, `/about-us`, `/privacy-policy`, `/content-complaint`, `/18-u-s-c-2257-compliance`).
+- Prefer metadata in this order:
+  - title: anchor `title`, image `alt`, then visible text
+  - thumbnail: `data-src`, `data-lazy-src`, `data-original`, `srcset`, then `src` (posters live under `/poster/{slug}.jpg`)
+  - duration: `mm:ss` / `hh:mm:ss` regex from card text (`HD 02:47` badges)
+  - views: **compact counters only** (`25K`, `1.2M`) or an explicit `N views` pattern. A bare-number fallback would capture the first half of the duration badge (`02` from `02:47`), so it must not be used.
+- Page 1 should use `base_url` unchanged.
+- For page > 1, append/replace `/page/{n}/` (path-based pagination like `/page/2/`).
+- Sort tabs are query params on the home page: `?filter=latest`, `?filter=popular`, `?filter=most-viewed`, `?filter=longest`, `?filter=random`. Preserve them when paginating.
+- Search: `https://mydesi10.com/?s={query}`.
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image`
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. JSON-LD `VideoObject`
+  4. visible `h1` / page `<title>` (strip ` - MyDesi HD` suffixes)
+- Stream extraction order:
+  1. `<video src>` / `<video><source src>`
+  2. inline script URLs matching `.mp4` / `.m3u8` — direct files are served from `cdn2.mydesi8.com` (no resolution marker in URL, so `quality` stays `"source"`)
+  3. `iframe[src]` embeds as fallback (site-local `/wp-content/plugins/clean-tube-player/public/player...` iframe and third-party hosts)
+- Filter ad iframes: `googlesyndication`, `doubleclick`, `adservice`, `trafficjunky`, `exoclick`, `juicyads`, `mgid.com`, `propellerads`, `adsterra`, `hilltopads`, `zoneid=`, `/delivery/`, etc.
+- Build `video.streams` with direct media (`format="mp4"` / `format="hls"`) and embeds (`format="embed"`, `Server 1`, ...).
+- Set `video.default` preference: highest-quality direct MP4, then HLS, then first playable embed. Live inspection shows most pages expose a direct MP4 plus the local clean-tube-player iframe.
+
+### Categories (`get_categories`)
+
+`categories.json` is seeded from the live `/categories/` index (Actress, Anal, Assamese Sex, Aunty, Bangla, Bangladeshi Sex, Bhabhi, Blowjobs, College Girl, Couples, Desi Mms, Doggy Style, Hardcore, Pakistani Sex, South Indian, ...) plus the home-page sort filters (`?filter=latest|popular|most-viewed|longest|random`). Schema matches the other scraper folders so `/api/v1/categories?source=mydesi10` returns valid `CategoryItem` entries.
+
+### Registration checklist for MyDesi10
+
+Besides creating `backend/app/scrapers/mydesi10/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` (`from . import mydesi10` + `__all__`)
+- `backend/app/main.py`
+  - import list (`..., nuvid, p4455, mydesi10`)
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=mydesi10` or `source=mydesi10.com`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif mydesi10.can_handle(host):`)
+  - unsupported-host help text (`mydesi10.com`)
+  - stream quality map host checks (both `parsed_url.netloc` and `host_l` chains) for `mydesi10.com` and the `cdn2.mydesi8.com` CDN host
+- `backend/app/models/schemas.py`
+  - both URL allowlists (`mydesi10.com`, `www.mydesi10.com`)
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`sourceId=mydesi10`)
+
+### MyDesi10 verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://mydesi10.com/amateur-desi-gf-railed-from-behind-homemade-doggy-style-sex-video/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://mydesi10.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://mydesi10.com/category/desi-mms/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=mydesi10"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://mydesi10.com/amateur-desi-gf-railed-from-behind-homemade-doggy-style-sex-video/"
+```
+

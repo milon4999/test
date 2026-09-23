@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import httpx
 from contextlib import asynccontextmanager
@@ -33,7 +33,7 @@ from app.api.endpoints import hls, media, explore, thumbnails, one_xbet, ads, do
 from fastapi import APIRouter
 
 # Scrapers & Models
-from app.scrapers import masa49, xhamster, xnxx, xvideos, pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rule34video, haho, hanime, hanime1, hentaihaven, animeidhentai, hentaicity, hentaimama, hentaibros, henvids, muchohentai, underhentai, hentaiocean, hentaverse, hstream, anibd, rouvideo, cg51, oppai, xmoviesforyou, tnaflix, hornysimp, pimpbunny, hentaiser, bollywoodmaal, viralkand, blowjobspro, blackporn24, lesbianporn8, leslez, milfporn8, indianporn365, mmsbro, kamababa, desimms2, desiporn, thotsporn, leakedamateurporn, zeenite, uncutmaza, mydesimms, po85, cosxplay, memojav, hohoj, ggjav, porn87, goodav, kanav, missav, jable, tianmei, bindasmood, eporner, dotmaal, uncutmasti, zmaal, ulluwebseries, desithothub, motherless, youjizz, pornone, threemovs, porndig, txxx, hotmovs, shemalez, okxxx, pornhoarder, yesporn, justporn, porngo, oneporn, thepornbang, pornhd3x, javfun, pornhd4k, pornhouse, porn91, letsporn, teamskeettube, sosalkino, tubepornclassic, xxxdan, pornxxx, sxyprn, latestpornvideo, youperv, perverzija, bigwank, blackporntube, sxyland, camcaps, koreanpornmovie, fullporner, superporn, siska, hdporn92, shyfap, porndos, joysporn, fullxcinema, filmadult, pornhits, pornmz, fpoxxx, watchporn, helloporn, homoxxx, perfectgirls, exeporn, xozilla, xmilf, hdzog, analdin, nuvid, p4455
+from app.scrapers import masa49, xhamster, xnxx, xvideos, pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rule34video, haho, hanime, hanime1, hentaihaven, animeidhentai, hentaicity, hentaimama, hentaibros, henvids, muchohentai, underhentai, hentaiocean, hentaverse, hstream, anibd, rouvideo, cg51, oppai, xmoviesforyou, tnaflix, hornysimp, pimpbunny, hentaiser, bollywoodmaal, viralkand, blowjobspro, blackporn24, lesbianporn8, leslez, milfporn8, indianporn365, mmsbro, kamababa, desimms2, desiporn, thotsporn, leakedamateurporn, zeenite, uncutmaza, mydesimms, po85, cosxplay, memojav, hohoj, ggjav, porn87, goodav, kanav, missav, jable, tianmei, bindasmood, eporner, dotmaal, uncutmasti, zmaal, ulluwebseries, desithothub, motherless, youjizz, pornone, threemovs, porndig, txxx, hotmovs, shemalez, okxxx, pornhoarder, yesporn, justporn, porngo, oneporn, thepornbang, pornhd3x, javfun, pornhd4k, pornhouse, porn91, letsporn, teamskeettube, sosalkino, tubepornclassic, xxxdan, pornxxx, sxyprn, latestpornvideo, youperv, perverzija, bigwank, blackporntube, sxyland, camcaps, koreanpornmovie, fullporner, superporn, siska, hdporn92, shyfap, porndos, joysporn, fullxcinema, filmadult, pornhits, pornmz, fpoxxx, watchporn, helloporn, homoxxx, perfectgirls, exeporn, xozilla, xmilf, hdzog, analdin, nuvid, p4455, mydesi10
 from app.models.schemas import ScrapeResponse, VideoInfoResponse, ListItem, CategoryItem, ScrapeRequest, ListRequest
 
 logging.basicConfig(level=logging.INFO)
@@ -265,6 +265,7 @@ async def _scrape_dispatch(url: str, host: str) -> dict[str, Any]:
     if analdin.can_handle(host): return await analdin.scrape(url)
     if nuvid.can_handle(host): return await nuvid.scrape(url)
     if p4455.can_handle(host): return await p4455.scrape(url)
+    if mydesi10.can_handle(host): return await mydesi10.scrape(url)
     raise HTTPException(status_code=400, detail="Unsupported host")
 
 async def _list_dispatch(base_url: str, host: str, page: int, limit: int) -> list[dict[str, Any]]:
@@ -404,6 +405,7 @@ async def _list_dispatch(base_url: str, host: str, page: int, limit: int) -> lis
     if analdin.can_handle(host): return await analdin.list_videos(base_url=base_url, page=page, limit=limit)
     if nuvid.can_handle(host): return await nuvid.list_videos(base_url=base_url, page=page, limit=limit)
     if p4455.can_handle(host): return await p4455.list_videos(base_url=base_url, page=page, limit=limit)
+    if mydesi10.can_handle(host): return await mydesi10.list_videos(base_url=base_url, page=page, limit=limit)
     raise HTTPException(status_code=400, detail="Unsupported host")
 
 async def _crawl_dispatch(base_url: str, host: str, start_page: int, max_pages: int, per_page_limit: int, max_items: int) -> list[dict[str, Any]]:
@@ -432,7 +434,7 @@ async def create_scrape(request: Request, body: ScrapeRequestV1) -> ScrapeRespon
     cache_key = f"scrape:{str(body.url)}"
     cached_result = await cache.get(cache_key)
     if cached_result:
-        logging.info(f"âš¡ Cache HIT for scrape {body.url}")
+        logging.info(f"⚡ Cache HIT for scrape {body.url}")
         return ScrapeResponse(**cached_result)
     try:
         data = await _scrape_dispatch(str(body.url), body.url.host or "")
@@ -474,7 +476,7 @@ async def list_videos(request: Request, base_url: str, page: int = 1, limit: int
     cache_key = f"list:{base_url}:p{page}:l{limit}"
     cached_items = await cache.get(cache_key)
     if cached_items:
-        logging.info(f"âš¡ Cache HIT for list {base_url} page {page}")
+        logging.info(f"⚡ Cache HIT for list {base_url} page {page}")
         return [ListItem(**it) for it in cached_items]
 
     try:
@@ -681,6 +683,7 @@ async def get_categories(source: str) -> list[CategoryItem]:
         if s in ("analdin", "analdin.com", "www.analdin.com"): return [_category_item(c) for c in analdin.get_categories()]
         if s in ("nuvid", "nuvid.club", "www.nuvid.club", "nuvid.com", "www.nuvid.com"): return [_category_item(c) for c in nuvid.get_categories()]
         if s in ("p4455", "p4455.com", "www.p4455.com"): return [_category_item(c) for c in p4455.get_categories()]
+        if s in ("mydesi10", "mydesi10.com", "www.mydesi10.com"): return [_category_item(c) for c in mydesi10.get_categories()]
         raise HTTPException(status_code=400, detail="Unknown source")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load categories: {str(e)}")
