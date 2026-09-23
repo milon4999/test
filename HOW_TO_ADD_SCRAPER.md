@@ -8626,3 +8626,91 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=viralchut"
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://viralchut.com/first-time-sex-video-with-hot-vergin-girl-tight-pussy-fucking/"
 ```
 
+## Viral MMS Implementation Notes
+
+[Viral MMS](https://viralmms.com/) is a **Next.js (SSR)** site (different from the WordPress desi-tube family) for channel-style desi content. Video posts live under `/post/{slug}`, channels (categories) under `/channels/{slug}`, and there is an `/explore` page.
+
+### Host aliases
+
+- `viralmms.com`
+- `www.viralmms.com`
+- Video CDN: `vms.viralmms.net` (direct MP4s, allowlisted for passthrough)
+- Thumbnail CDN: `images.downloaddirect.xyz` (served through the Next.js image proxy)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("viralmms.com", "www.viralmms.com") or h.endswith(".viralmms.com")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Cards link to `https://viralmms.com/post/{slug}` (exactly two path segments: `post` + slug). Skip `/page/`, `/channels/`, `/explore`, `/_next/`, `/api/`, `/dmca`, `/privacy-policy`, `/contact-us`.
+- **Title gotcha**: each card has two `/post/` links — the thumbnail-wrapper anchor (whose `img[alt]` is the generic `"Video thumbnail"`) and the real title link. `_extract_card_title()` walks the card container for a meaningful title (heading, non-generic post-title anchor, `title` attr) and only falls back to `img[alt]` when it is not the generic placeholder, so real titles are returned.
+- Thumbnail: card images use the Next.js image proxy `/_next/image?url=<urlencoded>`; decode the `url` query param with `_normalize_thumb()` to get the real `https://images.downloaddirect.xyz/...` URL.
+- Page 1 should use `base_url` unchanged.
+- Pagination:
+  - home `/` → `/page/{n}`
+  - channel `/channels/{slug}` → `/channels/{slug}/{n}` (replace an existing trailing numeric segment)
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image`
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. JSON-LD `VideoObject` (`name`, `description`, `thumbnailUrl`, `duration`, `datePublished`, `author`)
+  4. visible `h1` / page `<title>` (strip ` - Viral MMS` suffixes)
+- Thumbnail: `og:image` / `twitter:image` / JSON-LD `thumbnailUrl`, run through `_normalize_thumb()`.
+- Uploader: JSON-LD `VideoObject.author.name` (the channel name, e.g. `Bhabhi ki Chudai`).
+- **Streams — JSON-LD `contentUrl` is authoritative.** The page's inline HTML also contains the direct MP4s of *related* videos (all on `vms.viralmms.net`), so a naive inline scan returns the wrong URLs. The scraper:
+  1. Reads the main video's `contentUrl` (a `vms.viralmms.net/*.mp4`) from the JSON-LD `VideoObject` and treats it as the preferred stream (`format="mp4"`, `quality="source"`).
+  2. Collects `<video>`/`<source>`, inline `.mp4`/`.m3u8`, and ad-filtered iframe embeds as fallbacks.
+  3. **Filters out the related-video MP4s** so only the current video's direct link is exposed.
+- Set `video.default` to the preferred `contentUrl` and `video.has_video=True`.
+
+### Categories (`get_categories`)
+
+`categories.json` is seeded from the live `/channels` index (15 channels): Bhabhi ki Chudai, Desi Punjab Porn, Viral Porn Kand, Indian MMS Porn, Sassy Poonam, Indian Actress Nude Hub, Desi Pakistan Porn, Desihub, XXX Leaked Tapes, Aqsa Pervaiz, Aditi Mistry, Bongbooty, Meetii Kalher, Ashwitha, Jasneet Kaur. Schema matches the other scraper folders so `/api/v1/categories?source=viralmms` returns valid `CategoryItem` entries.
+
+### Registration checklist for Viral MMS
+
+Besides creating `backend/app/scrapers/viralmms/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` (`from . import viralmms` + `__all__`)
+- `backend/app/main.py`
+  - import list (`..., viralchut, viralmms`)
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=viralmms` or `source=viralmms.com`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif viralmms.can_handle(host):`)
+  - unsupported-host help text (`viralmms.com`)
+  - stream quality map host checks (both `parsed_url.netloc` and `host_l` chains) for `viralmms.com` and the `vms.viralmms.net` CDN host
+- `backend/app/models/schemas.py`
+  - both URL allowlists (`viralmms.com`, `www.viralmms.com`)
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`sourceId=viralmms`)
+
+### Viral MMS verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://viralmms.com/post/horny-bhabhi-big-boobs-vibrator-pussy-tease-d40g\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://viralmms.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://viralmms.com/page/2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://viralmms.com/channels/bhabhi_chudai&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=viralmms"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://viralmms.com/post/horny-bhabhi-big-boobs-vibrator-pussy-tease-d40g"
+```
+
