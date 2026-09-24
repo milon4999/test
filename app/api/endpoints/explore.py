@@ -1962,6 +1962,20 @@ EXPLORE_SOURCES = [
         pageSize=40,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://www.vrsmash.com/all/",
+        nickname="VRSmash",
+        favicon="https://www.vrsmash.com/favicon.ico",
+        accentColor="#DD066D",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://www.vrsmash.com/search/?s={query}",
+        sourceId="vrsmash",
+        disable=False,
+        pageSize=32,
+        hasRelatedVideos=False,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

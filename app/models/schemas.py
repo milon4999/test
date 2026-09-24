@@ -428,11 +428,12 @@ class ScrapeRequest(BaseModel):
             "vkuser.net",
             "privatehost.com",
             "cdn.privatehost.com",
+            "vrsmash.com",
+            "www.vrsmash.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
         raise ValueError(f"Only {', '.join(allowed_domains)} URLs are allowed")
-
 
 class ScrapeResponse(BaseModel):
     url: HttpUrl
@@ -814,6 +815,8 @@ class ListRequest(BaseModel):
             "m.nuvid.club",
             "nuvid.com",
             "www.nuvid.com",
+            "vrsmash.com",
+            "www.vrsmash.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v

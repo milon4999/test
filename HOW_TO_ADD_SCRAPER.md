@@ -9156,3 +9156,104 @@ Expected behaviour:
 - `GET /api/v1/videos?base_url=https://www.mydesi2.fit/category/amateur/` -> category archive listing works.
 - `GET /api/v1/categories?source=mydesi2` (also `mydesi2.fit` / `www.mydesi2.fit`) -> the seeded category list.
 - `GET /api/v1/videos/stream` -> resolves the `go/?file=` / direct `myd-cdn.com` stream.
+
+
+## VRSmash Implementation Notes
+
+[VRSmash](https://www.vrsmash.com/) is a **Nuxt 3 (Vue) SSR** VR-porn tube. Detail pages live at `/video/{slug}/`, listing pages at `/all/`, `/tag/{slug}/`, `/studio/{slug}/`, `/pornstars/{slug}/`, and search at `/search/?s={query}`. Categories are exposed as `/tag/{slug}/` routes. `vrsmash` is implemented as an **HTML/JSON-LD** scraper (no hidden API dependency).
+
+### Host aliases
+
+- `vrsmash.com`
+- `www.vrsmash.com`
+- Any `.vrsmash.com` subdomain (CDNs `cdn-pub`, `cdn-tk`, `freevideos`, `content` are subdomains and are matched too)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h == "vrsmash.com" or h.endswith(".vrsmash.com")
+```
+
+### Metadata and streams (`scrape`)
+
+The video page is the canonical source:
+
+- **Stream:** the page exposes exactly **one** playable URL via `<meta property="og:video">` — a signed progressive MP4 on `https://cdn-tk.vrsmash.com/old_video/{md5}.mp4?expires=...&token=...`. There is **no HLS manifest and no multi-quality array** in the SSR HTML (the delight-vr player fetches extra variants at runtime via `/proxy/api`, which needs auth/cookies). Build one stream entry (`format="mp4"`, `quality="source"`) and set it as `video.default`.
+- **Duration:** `<meta property="og:video:duration">` (integer seconds) or the JSON-LD ISO `PT...` duration.
+- **Metadata fallback:** `og:title` / `og:description` / `og:image`, then the JSON-LD `VideoObject` (`mainEntity` inside the `entity-type:contentJsonLd` script) for `name`, `description`, `thumbnailUrl`, `uploadDate`, `genre` (comma-separated tags), `producer.name` / `publisher.name` (studio ? `uploader_name`).
+- **Views / date:** the body renders `span.ui-player-title__sub-text` items; views is the one whose sibling `svg` has `aria-label="Views"` (e.g. `5.1K`). The date is also available as JSON-LD `uploadDate`.
+- Strip the `- VRSmash.com` suffix from `og:title` before returning.
+
+Set `video.has_video=True` only when `og:video` is present (premium/removed pages return no stream).
+
+### Listing and pagination (`list_videos`)
+
+- Parse rendered cards `article.ui-video-card`:
+  - URL: `a[href^="/video/"]` ? normalize to `https://www.vrsmash.com/video/{slug}/`
+  - Thumbnail: `img.ui-video-card__cover` `src` (strip the Cloudflare `cdn-cgi/image/.../` prefix to get the raw `cdn-pub.vrsmash.com` URL)
+  - Duration: `div.ui-time.ui-video-card__time span` (`MM:SS` / `H:MM:SS`)
+  - Views: the `span.ui-video-card__text` whose text matches `^\d+(\.\d+)?[KMB]?$` (e.g. `4.9K`, `30`)
+  - Uploader: `a.ui-video-card__studio-link` `title`
+- **Enrich from JSON-LD:** the `VideoGallery.associatedMedia` `VideoObject` array (same 32-item set as the page) provides clean `name`, raw `thumbnailUrl`, `uploadDate`, and `publisher.name`. Merge by canonical URL for better titles/thumbnails.
+- If no cards parse (theme change), fall back to `associatedMedia` directly.
+- **Pagination:** page 1 = `base_url` unchanged; page *n* > 1 = append query param `?p={n}` (e.g. `/all/?p=2`). 32 videos/page, ~877 pages.
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from the `/categories/` index. Each category is a tag route:
+
+- `https://www.vrsmash.com/all/`
+- `https://www.vrsmash.com/tag/{slug}/` for e.g. `teens`, `big-tits`, `anal`, `asian`, `milf`, `hentai`, `cuckold`, `orgy`, `latina`, `cosplay`, `big-ass`, `compilation`, `mature`, `threesomes`, `creampie`, `gangbang`, `ebony`, `bbw`, `feet`, `blowjobs`, `lesbian`, `japanese`, `squirt`, `solo`
+
+Keep the same `{id, name, url}` shape as other scraper folders so `/api/v1/categories?source=vrsmash` returns valid `CategoryItem` entries.
+
+### Registration checklist for VRSmash
+
+Besides creating `backend/app/scrapers/vrsmash/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` — import + `__all__`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=vrsmash`, `vrsmash.com`, `vrsmashcom`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif vrsmash.can_handle(host)`)
+  - unsupported-host help text (`vrsmash.com`)
+  - `available_qualities` host list (`vrsmash.com`) so `/videos/stream` returns flat quality fields
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`vrsmash.com`, `www.vrsmash.com`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="vrsmash"`, `baseUrl="https://www.vrsmash.com/all/"`, `searchUrlTemplate="https://www.vrsmash.com/search/?s={query}"`, `accentColor="#DD066D"`, `pageSize=32`)
+
+### VRSmash verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.vrsmash.com/video/get-her-pussy-only-for-yourself/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.vrsmash.com/all/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.vrsmash.com/tag/anal/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=vrsmash"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.vrsmash.com/video/get-her-pussy-only-for-yourself/"
+```
+
+Expected behaviour:
+
+- `POST /api/v1/scrapes` -> `title` (suffix stripped), `duration` (`1:04:06`), `views` (`5.1K`), `uploader_name` (studio, e.g. `WankzVR`), `tags` (from `genre`), `upload_date`, and `video.has_video=true` with the signed `cdn-tk.vrsmash.com` MP4 as default.
+- `GET /api/v1/videos` -> items per page with canonical `/video/{slug}/` URLs, thumbnails, durations, view counts, and uploader; page 2 via `?p=2` must not repeat items.
+- `GET /api/v1/videos?base_url=https://www.vrsmash.com/tag/anal/` -> tag/category archive listing works.
+- `GET /api/v1/categories?source=vrsmash` (also `vrsmash.com`) -> the seeded category list.
+- `GET /api/v1/videos/stream` -> returns the direct MP4 stream.
+
+> Note: the `og:video` MP4 URL is **signed and short-lived** (`expires` + `token`). The backend caches scrapes for ~2h, so an old cached URL can expire. This is inherent to the site — extra quality variants are only served to the authenticated runtime player via `/proxy/api`, not to the public HTML.
