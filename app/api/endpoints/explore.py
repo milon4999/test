@@ -387,7 +387,7 @@ EXPLORE_SOURCES = [
         pageSize=30,
     ),
     ExploreSourceResponse(
-        baseUrl="https://xanimeporn.com/?filtre=date&cat=0",
+        baseUrl="https://xanimeporn.com/",
         nickname="X Anime Porn",
         favicon="https://xanimeporn.com/wp-content/uploads/2018/01/favicon.png",
         accentColor="#A51D65",
