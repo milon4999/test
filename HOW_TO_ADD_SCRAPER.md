@@ -8934,3 +8934,118 @@ Expected behaviour:
 - `GET /api/v1/categories?source=mydesirest` (also `mydesi.rest` / `www.mydesi.rest`) -> the seeded category list.
 - `GET /api/v1/videos/stream` (`quality=default`) -> `stream_url` on `tdn.mydesi.rest` with `format="mp4"`, `quality="source"`.
 
+## MyDesi.sbs Implementation Notes
+
+[MyDesi.sbs](https://mydesi.sbs/) is a WordPress `kolortube`-theme tube site (branded "Mydesi.net") that follows the same family as `mydesirest` / `viralkand` / `mmsbro`:
+
+- homepage and category card grids of `.video-block` cards
+- canonical post URLs at `https://mydesi.sbs/<post-slug>/`
+- category archives at `/category/<slug>/`
+- numbered pagination via `/page/{n}/`
+- search via `/?s={query}`
+- detail pages expose playable sources (often direct MP4 on a CDN such as `cdn.desibp.cam`) either in `<video>`/inline script URLs or embedded players
+
+Use the existing `mydesirest` scraper as the closest implementation reference (the two sites are nearly identical in structure).
+
+### Host aliases
+
+- `mydesi.sbs`
+- `www.mydesi.sbs`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower()
+    return h == "mydesi.sbs" or h.endswith(".mydesi.sbs")
+```
+
+Thumbnails / media are served from a separate CDN host under `cdn.mydesi.sbs`; playable MP4 files may come from third-party CDNs (e.g. `cdn.desibp.cam`), so the scraper normalizes thumbnail URLs but keeps playable stream URLs as-is.
+
+### Listing and pagination (`list_videos`)
+
+- Parse `.video-block` cards: canonical links are `https://mydesi.sbs/<post-slug>/`.
+- Skip utility/legal/nav paths (`/wp-content/`, `/wp-json/`, `/category/`, `/categories/`, `/tag/`, `/page/`, `/author/`, `/feed/`, `/contact`, `/privacy`, `/dmca`, `/18-u-s-c-2257`, `/terms`, `/about`, `/search`) and any URL carrying a query string.
+- Prefer metadata in this order:
+  - title: anchor `title`, image `alt`, then visible text; strip ` - Mydesi.net` / ` - Mydesi` / ` - MyDesi` suffixes
+  - thumbnail: `data-src`, `data-lazy-src`, `data-original`, `srcset` first URL, then `src`
+  - duration: regex for `mm:ss` / `hh:mm:ss` from card text
+  - views: optional compact counters
+- Page 1 uses `base_url` unchanged. Page *n* > 1 uses `/page/{n}/`; for search URLs (`?s=`), add `paged={n}`.
+
+Useful list base URLs:
+
+- `https://mydesi.sbs/`
+- `https://mydesi.sbs/category/<category-slug>/`
+- `https://mydesi.sbs/?s=<query>`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image`
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. JSON-LD `VideoObject`
+  4. visible `h1` / page `<title>`
+- Stream extraction order:
+  - `<video src>` and `<video><source src>`
+  - inline script URLs matching `.mp4` / `.m3u8` (unescape `\\/` -> `/`, `\\u0026` -> `&`)
+  - iframe embeds as fallback (ad iframes filtered out)
+- Set `video.default` preference: highest-priority direct MP4, then HLS, then first playable embed.
+- The playable MP4 is often a direct file on a third-party CDN (e.g. `cdn.desibp.cam`), so `GET /api/v1/videos/stream` resolves and streams it directly with `format="mp4"`, `quality="source"`.
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from the site's public category navigation (e.g. `desi-hidden-sex`, `scandel`, `bhabi`, `paki`, `big-boobs`, `desi-porn`, `leaked`, `aunty`, `village-sex-videos`), using `/category/<slug>/` URLs, and keep schema aligned with existing scraper folders so `/api/v1/categories?source=mydesisbs` returns valid `CategoryItem` entries.
+
+### Registration checklist for MyDesi.sbs
+
+Besides creating `backend/app/scrapers/mydesisbs/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` - add `from . import mydesisbs` and `'mydesisbs'` to `__all__`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=mydesisbs`, also `mydesi.sbs` / `www.mydesi.sbs`)
+- `backend/app/services/video_streaming.py`
+  - scraper import list
+  - scraper selection branch
+  - unsupported-host help text
+  - host checks for stream/info passthrough (add `mydesi.sbs` to all four netloc/host blocks)
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`sourceId="mydesisbs"`, `baseUrl="https://mydesi.sbs/"`, `searchUrlTemplate="https://mydesi.sbs/?s={query}"`, `pageSize=24`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`mydesi.sbs`, `www.mydesi.sbs`)
+  - list/base URL allowlist (`mydesi.sbs`, `www.mydesi.sbs`)
+
+### MyDesi.sbs verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://mydesi.sbs/viral-sex-video-of-an-indian-gf-outdoor-fucking/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://mydesi.sbs/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://mydesi.sbs/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://mydesi.sbs/category/bhabi/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=mydesisbs"
+
+curl "http://127.0.0.1:8000/api/v1/videos/info?url=https://mydesi.sbs/viral-sex-video-of-an-indian-gf-outdoor-fucking/"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://mydesi.sbs/viral-sex-video-of-an-indian-gf-outdoor-fucking/"
+```
+
+Expected behaviour:
+
+- `POST /api/v1/scrapes` -> `title` is the cleaned post title, `thumbnail_url` on `cdn.mydesi.sbs`, `duration` (`mm:ss`), `video.has_video=true` with the direct MP4 stream.
+- `GET /api/v1/videos` -> items per page on the home page, each with a canonical `/{slug}/` URL, thumbnail, and `duration`; consecutive pages must not repeat items.
+- `GET /api/v1/videos?base_url=https://mydesi.sbs/category/bhabi/` -> category archive listing works.
+- `GET /api/v1/categories?source=mydesisbs` (also `mydesi.sbs` / `www.mydesi.sbs`) -> the seeded category list.
+- `GET /api/v1/videos/stream` (`quality=default`) -> `stream_url` on the resolved CDN with `format="mp4"`, `quality="source"`.
+
+
