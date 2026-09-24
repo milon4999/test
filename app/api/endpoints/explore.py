@@ -812,7 +812,7 @@ EXPLORE_SOURCES = [
         hasCategories=True,
         searchUrlTemplate="https://siska.tv/search.php?s={query}",
         sourceId="siska",
-        disable=False,
+        disable=True,
         pageSize=24,
     ),
     ExploreSourceResponse(
@@ -1202,7 +1202,7 @@ EXPLORE_SOURCES = [
         hasCategories=True,
         searchUrlTemplate="https://www.1porn.tv/search/{query}/",
         sourceId="oneporn",
-        disable=False,
+        disable=True,
         pageSize=24,
     ),
     ExploreSourceResponse(
@@ -1293,7 +1293,7 @@ EXPLORE_SOURCES = [
         hasCategories=True,
         searchUrlTemplate="https://www.teamskeettube.com/?s={query}",
         sourceId="teamskeettube",
-        disable=False,
+        disable=True,
         pageSize=24,
     ),
     ExploreSourceResponse(
