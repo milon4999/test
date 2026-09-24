@@ -8826,3 +8826,111 @@ Expected behaviour:
 - `GET /api/v1/categories?source=xanimeporn` (also `xanimeporn.com` / `xap`) -> 20 categories.
 
 
+
+## MyDesi.rest Implementation Notes
+
+[MyDesi.rest](https://mydesi.rest/) is a WordPress "kolortube" theme tube: the home page and category/search pages expose a responsive card grid, and detail pages live under `https://mydesi.rest/{post-slug}/`. Thumbnails and playable media are served from the `tdn.mydesi.rest` CDN host.
+
+The scraper lives in `backend/app/scrapers/mydesirest/` (`sourceId="mydesirest"`). Use the existing `mydesimms`, `mydesi10`, and `viralkand` scrapers as the closest implementation references.
+
+### Host aliases
+
+- `mydesi.rest`
+- `www.mydesi.rest`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower()
+    return h == "mydesi.rest" or h.endswith(".mydesi.rest")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Parse candidate links from the card grid; each card is a `div.video-block.thumbs-rotation` with a thumbnail anchor (`a.thumb`) and an info anchor (`a.infos`).
+- Prefer metadata in this order:
+  - title: `a[title]`, then image `alt`, then visible text
+  - thumbnail: `data-src`, `data-lazy-src`, `data-original`, `srcset` first URL, then `src`
+  - duration: `mm:ss` / `hh:mm:ss` regex from the card text (many cards expose `09:50`-style values in `span.duration`)
+  - views/uploader: optional (`None` if not present in card markup)
+- Keep only same-domain detail URLs and skip utility/legal paths (`/wp-content/`, `/wp-json/`, `/category/`, `/categories/`, `/tag/`, `/tags/`, `/page/`, `/author/`, `/feed/`, `/contact`, `/privacy`, `/dmca`, `/18-u-s-c-2257`, `/terms`, `/about`, `/search`).
+- Page 1 uses `base_url` unchanged. For page > 1 follow the WordPress pager: `/page/{n}/`. For search URLs (`?s=query`) use `?paged={n}` while preserving existing query params.
+
+Useful list base URLs:
+
+- `https://mydesi.rest/`
+- `https://mydesi.rest/category/<category-slug>/` (category archives)
+- `https://mydesi.rest/?s=<query>` (site search)
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image`
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. JSON-LD `VideoObject` (`name`, `description`, `thumbnailUrl`, `duration`)
+  4. visible `h1` / page `<title>`
+- Stream extraction order:
+  - `<video src>` / `<video><source src>`
+  - inline script URLs matching `.mp4` / `.m3u8` (unescape `\\/` -> `/`, `\\u0026` -> `&`)
+  - same-origin/CDN `.mp4` anchor links
+  - iframe embeds as fallback (ad iframes are filtered)
+- Build `video.streams` with:
+  - direct media: `format="mp4"` / `format="hls"`
+  - embeds: `format="embed"` with quality labels from the embed host
+- Set `video.default` preference: highest-priority direct MP4, then HLS, then first playable embed.
+
+The playable MP4 is often a direct file on `tdn.mydesi.rest` (e.g. `.../wp-content/uploads/<year>/<month>/<slug>.mp4`), so `GET /api/v1/videos/stream` resolves and streams it directly with `format="mp4"`.
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from the site's public category navigation/archive list, using `/category/<slug>/` URLs, and keep schema aligned with existing scraper folders so `/api/v1/categories?source=mydesirest` returns valid `CategoryItem` entries.
+
+### Registration checklist for MyDesi.rest
+
+Besides creating `backend/app/scrapers/mydesirest/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` - add `from . import mydesirest` and `'mydesirest'` to `__all__`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=mydesirest`, also `mydesi.rest` / `www.mydesi.rest`)
+- `backend/app/services/video_streaming.py`
+  - scraper import list
+  - scraper selection branch
+  - unsupported-host help text
+  - host checks for stream/info passthrough (add `mydesi.rest` to all four netloc/host blocks)
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`sourceId="mydesirest"`, `baseUrl="https://mydesi.rest/"`, `searchUrlTemplate="https://mydesi.rest/?s={query}"`, `pageSize=24`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`mydesi.rest`, `www.mydesi.rest`)
+  - list/base URL allowlist (`mydesi.rest`, `www.mydesi.rest`)
+
+### MyDesi.rest verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://mydesi.rest/marathi-sex-video-of-a-couple-fucking-with-spanking-and-moaning/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://mydesi.rest/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://mydesi.rest/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=mydesirest"
+
+curl "http://127.0.0.1:8000/api/v1/videos/info?url=https://mydesi.rest/marathi-sex-video-of-a-couple-fucking-with-spanking-and-moaning/"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://mydesi.rest/marathi-sex-video-of-a-couple-fucking-with-spanking-and-moaning/"
+```
+
+Expected behaviour:
+
+- `POST /api/v1/scrapes` -> `title` is the cleaned post title, `thumbnail_url` on `tdn.mydesi.rest`, `duration` (`mm:ss`), `video.has_video=true` with the direct MP4 stream.
+- `GET /api/v1/videos` -> 20 items per page on the home page, each with a canonical `/{slug}/` URL, thumbnail, and `duration`; consecutive pages must not repeat items.
+- `GET /api/v1/categories?source=mydesirest` (also `mydesi.rest` / `www.mydesi.rest`) -> the seeded category list.
+- `GET /api/v1/videos/stream` (`quality=default`) -> `stream_url` on `tdn.mydesi.rest` with `format="mp4"`, `quality="source"`.
+
