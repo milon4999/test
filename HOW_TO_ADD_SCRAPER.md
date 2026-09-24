@@ -9049,3 +9049,110 @@ Expected behaviour:
 - `GET /api/v1/videos/stream` (`quality=default`) -> `stream_url` on the resolved CDN with `format="mp4"`, `quality="source"`.
 
 
+
+## MyDesi2 Implementation Notes
+
+[MyDesi2](https://www.mydesi2.fit/) is a WordPress **kolortube**-theme tube site (same family as `mydesi10`, `mydesico`, `mydesirest`, `mydesisbs`). Canonical video pages use root-level slugs (`https://www.mydesi2.fit/{post-slug}/`). The home/category pages expose a `.video-block` card grid with pagination, and the detail pages carry a `VideoObject` microdata block plus a custom `mydesi-player` (`mdp-`) HTML5 player.
+
+### Host aliases
+
+- `mydesi2.fit`
+- `www.mydesi2.fit` (canonical, matches the site canonicals)
+- CDN: `server*.myd-cdn.com` (direct MP4s, e.g. `https://server4.myd-cdn.com/2167085_480p.mp4`) — allowlisted in `video_streaming.py` / `schemas.py` for passthrough
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower()
+    return h in ("mydesi2.fit", "www.mydesi2.fit") or h.endswith(".mydesi2.fit")
+```
+
+> Note: `mydesi2.com.co` and `mydesi2.dev` are different, unrelated domains already handled elsewhere — `mydesi2.fit` is a distinct host.
+
+### Listing and pagination (`list_videos`)
+
+- Parse `a[href]` cards and keep only same-domain post URLs matching `/{slug}/` (single segment). Skip utility/legal/index paths: `/wp-content/`, `/wp-json/`, `/category/`, `/categories/`, `/tag/`, `/tags/`, `/page/`, `/author/`, `/feed/`, `/contact`, `/privacy`, `/dmca`, `/18-u-s-c-2257`, `/about-us`, `/content-complaint`, and the filter slugs (`newest`, `popular`, `most-viewed`, `longest`, `random`).
+- Prefer metadata in this order:
+  - title: anchor `title`, image `alt`, then visible anchor text
+  - thumbnail: `data-src` (the kolortube cards use lazy `data-src` on `img.video-img`), then `src`
+  - duration: `.duration` span, then `mm:ss` / `hh:mm:ss` regex
+  - views: `.views-number` span (raw digits, e.g. `25275` — returned verbatim), then compact-counter regex
+- Page 1 should use `base_url` unchanged.
+- For page > 1, WordPress path pagination is used: `https://www.mydesi2.fit/page/{n}/` (confirmed by `<link rel="next">`); category paths become `/category/{slug}/page/{n}/`. Search URLs (`?s=`) use `?paged={n}`. Existing query params are preserved.
+- Search: `https://www.mydesi2.fit/?s={query}` (Rank Math SearchAction).
+- Sort/filter tabs are query params on the home URL: `?filter=latest`, `?filter=popular`, `?filter=most-viewed`, `?filter=longest`, `?filter=random`.
+
+Useful list base URLs:
+
+- `https://www.mydesi2.fit/`
+- `https://www.mydesi2.fit/?filter=most-viewed`
+- `https://www.mydesi2.fit/category/{slug}/`
+- `https://www.mydesi2.fit/?s=<query>`
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image`
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. JSON-LD `BlogPosting` / `VideoObject` (name, headline, description, thumbnailUrl, datePublished, keywords, articleSection, author)
+  4. **VideoObject microdata** on the player block — `meta[itemprop="name"]`, `meta[itemprop="duration"]`, `meta[itemprop="thumbnailUrl"]`, `meta[itemprop="uploadDate"]`, `meta[itemprop="contentURL"]`, `meta[itemprop="author"]`
+  5. visible `h1` / `<title>` fallback
+- Duration: the player exposes `<meta itemprop="duration" content="P0DT0H7M0S">` (ISO 8601 `PnDTnHnMnS`). The `_normalize_duration` helper handles this format (`P0DT0H7M0S` -> `7:00`). **Gotcha:** the plain `PT...` regex misses the `P0DT...` form, and the player's `0:00` time-display span is a false-positive duration in the text blob — guard against it.
+- Streams: the custom player emits `<video><source src="https://www.mydesi2.fit/go/?file={Title}.mp4">`, and the page also carries `<meta itemprop="contentURL" content="https://www.mydesi2.fit/go/?file=...mp4">`. Extraction order:
+  - `video` / `video source[src]` tags
+  - inline-script `.mp4` / `.m3u8` URLs
+  - the microdata `contentURL` (passed into `_extract_streams` as an extra URL so the `go/?file=` link is kept even if the player markup changes)
+  - iframe embeds (ad iframes filtered)
+- The `go/?file=` URL ends in `.mp4` so it is returned as `format="mp4"`, `quality="source"`; some posts embed direct `server*.myd-cdn.com/..._{quality}p.mp4` URLs which are picked up with their real quality (e.g. `480p`).
+- Build `video.streams` and set `video.default` to the best MP4 (mp4 > hls > embed).
+- Views: not present in the player meta; `_extract_views_text` may pick a `{n}`-style count from the text blob — keep optional.
+
+### Categories (`get_categories`)
+
+`categories.json` seeds the sort filters plus the visible category archive list (Amateur, Desi Porn, Desi Mms, Desi Bhabi Fucked, Desi Sex, Sex Mms, Desi Models, Indian Teen Sex, Village, Beautiful, Bfvideo, Bhabhi, App Video, Bengali, Bhabi, and the Webseries categories like Aappy TV, Babbullu, Besharams, ...). Schema matches the other scraper folders so `/api/v1/categories?source=mydesi2` returns valid `CategoryItem` entries.
+
+### Registration checklist for MyDesi2
+
+Besides creating `backend/app/scrapers/mydesi2/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` (import + `__all__`)
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=mydesi2`, `mydesi2.fit`, `www.mydesi2.fit`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif mydesi2.can_handle(host)`)
+  - unsupported-host help text (`mydesi2.fit`)
+  - `available_qualities` / per-source flat-fields host lists (`mydesi2.fit`, `myd-cdn.com`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`mydesi2.fit`, `www.mydesi2.fit`)
+  - list base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="mydesi2"`, `baseUrl="https://www.mydesi2.fit/"`, `searchUrlTemplate="https://www.mydesi2.fit/?s={query}"`, `accentColor="#1D73C0"`)
+
+### MyDesi2 verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.mydesi2.fit/girlfriend-ki-chut-mein-botal-dali-cumshot-bus-mein-hot-action/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.mydesi2.fit/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.mydesi2.fit/category/amateur/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=mydesi2"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.mydesi2.fit/girlfriend-ki-chut-mein-botal-dali-cumshot-bus-mein-hot-action/"
+```
+
+Expected behaviour:
+
+- `POST /api/v1/scrapes` -> `title` is the cleaned post title, `duration` (`mm:ss` from the `P0DT...` microdata), `category`, `tags`, `upload_date`, `uploader_name` ("Mydesi Team"), and `video.has_video=true` with the `https://www.mydesi2.fit/go/?file=...mp4` stream as default.
+- `GET /api/v1/videos` -> items per page with canonical `/{slug}/` URLs, thumbnails, durations, and verbatim view counts; page 2 via `/page/2/` must not repeat items.
+- `GET /api/v1/videos?base_url=https://www.mydesi2.fit/category/amateur/` -> category archive listing works.
+- `GET /api/v1/categories?source=mydesi2` (also `mydesi2.fit` / `www.mydesi2.fit`) -> the seeded category list.
+- `GET /api/v1/videos/stream` -> resolves the `go/?file=` / direct `myd-cdn.com` stream.

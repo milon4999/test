@@ -48,7 +48,7 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
         }
     """
     # Import here to avoid circular dependency
-    from app.scrapers import xnxx, xhamster, xvideos, masa49, pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rule34video, haho, hanime, hanime1, hentaihaven, animeidhentai, hentaicity, hentaimama, hentaibros, henvids, muchohentai, underhentai, hentaiocean, hentaverse, hstream, anibd, rouvideo, cg51, oppai, xmoviesforyou, tnaflix, hornysimp, pimpbunny, hentaiser, bollywoodmaal, viralkand, blowjobspro, blackporn24, lesbianporn8, leslez, milfporn8, indianporn365, mmsbro, kamababa, desimms2, desiporn, thotsporn, leakedamateurporn, zeenite, uncutmaza, mydesimms, po85, cosxplay, memojav, hohoj, ggjav, porn87, goodav, kanav, missav, jable, tianmei, bindasmood, eporner, dotmaal, uncutmasti, zmaal, ulluwebseries, desithothub, motherless, youjizz, pornone, threemovs, porndig, txxx, hotmovs, shemalez, okxxx, pornhoarder, yesporn, justporn, porngo, oneporn, thepornbang, pornhd3x, javfun, pornhd4k, pornhouse, porn91, letsporn, teamskeettube, sosalkino, tubepornclassic, xxxdan, pornxxx, sxyprn, latestpornvideo, youperv, perverzija, bigwank, blackporntube, sxyland, camcaps, koreanpornmovie, fullporner, superporn, siska, shyfap, hdporn92, porndos, joysporn, fullxcinema, filmadult, pornhits, pornmz, fpoxxx, watchporn, helloporn, homoxxx, perfectgirls, exeporn, xozilla, xmilf, hdzog, analdin, nuvid, p4455, mydesi10, mydesico, mydesirest, mydesisbs, viralchut, viralmms, xanimeporn
+    from app.scrapers import xnxx, xhamster, xvideos, masa49, pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rule34video, haho, hanime, hanime1, hentaihaven, animeidhentai, hentaicity, hentaimama, hentaibros, henvids, muchohentai, underhentai, hentaiocean, hentaverse, hstream, anibd, rouvideo, cg51, oppai, xmoviesforyou, tnaflix, hornysimp, pimpbunny, hentaiser, bollywoodmaal, viralkand, blowjobspro, blackporn24, lesbianporn8, leslez, milfporn8, indianporn365, mmsbro, kamababa, desimms2, desiporn, thotsporn, leakedamateurporn, zeenite, uncutmaza, mydesimms, po85, cosxplay, memojav, hohoj, ggjav, porn87, goodav, kanav, missav, jable, tianmei, bindasmood, eporner, dotmaal, uncutmasti, zmaal, ulluwebseries, desithothub, motherless, youjizz, pornone, threemovs, porndig, txxx, hotmovs, shemalez, okxxx, pornhoarder, yesporn, justporn, porngo, oneporn, thepornbang, pornhd3x, javfun, pornhd4k, pornhouse, porn91, letsporn, teamskeettube, sosalkino, tubepornclassic, xxxdan, pornxxx, sxyprn, latestpornvideo, youperv, perverzija, bigwank, blackporntube, sxyland, camcaps, koreanpornmovie, fullporner, superporn, siska, shyfap, hdporn92, porndos, joysporn, fullxcinema, filmadult, pornhits, pornmz, fpoxxx, watchporn, helloporn, homoxxx, perfectgirls, exeporn, xozilla, xmilf, hdzog, analdin, nuvid, p4455, mydesi2, mydesi10, mydesico, mydesirest, mydesisbs, viralchut, viralmms, xanimeporn
     from app.api.endpoints import thumbnails
     from urllib.parse import urlparse
     
@@ -332,6 +332,8 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
         scraper_module = nuvid
     elif p4455.can_handle(host):
         scraper_module = p4455
+    elif mydesi2.can_handle(host):
+        scraper_module = mydesi2
     elif mydesi10.can_handle(host):
         scraper_module = mydesi10
     elif mydesico.can_handle(host):
@@ -349,7 +351,7 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported host: {host}. Supported: xnxx, xhamster, xvideos, masa49 (.org/.com/.cam), pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, urshort.live (embed), pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rou.video, 51cg/chigua, oppai.stream, xmoviesforyou.com, tnaflix.com, hornysimp.com, pimpbunny.com, hentaiser.app, bollywoodmaal.com, viralkand.com, blowjobs.pro, blackporn24.com, blackporn.tube, lesbianporn8.net, milfporn8.net, indianporn365.xyz, mmsbro.com, mykamababa.com, desimms2.site, desiporn.one, thotsporn.com, leakedamateurporn.xyz, zeenite.com, uncutmazaa.com (uncutmaza.com/.cc rewrite), mydesi2.com.co, mydesi2.dev, mydesimms.watch, p4455.com, 85po.com (mirrors: 85ro.com, 85po.net), mydesi10.com, mydesi.com.co, mydesi.rest, mydesi.sbs, viralchut.com, viralmms.com, xanimeporn.com, cosxplay.com, memojav.com, hohoj.tv, ggjav.com, porn87.com, goodav17.com, kanav.ad, missav.ai, jable.tv, 94mt.cc, bindasmood.com, eporner.com, dotmaal.com, uncutmasti.com, zmaal.net, ulluwebseries.one, desithothub.com, motherless.com, youjizz.com, pornone.com, 3movs.com, porndig.com, hotmovs.tube, shemalez.com, txxx.com, ok.xxx, pornhoarder.tw, yesporn.vip, justporn.com, porngo.com, 1porn.tv, thepornbang.com, letsporn.com, teamskeettube.com, sosalkino.guru, tubepornclassic.com, xxxdan.com, pornxxx.tube, sxyprn.com, latestpornvideo.com, youperv.com, tube.perverzija.com, bigwank.com, sp2026.dev (91porn), 91porn.com, 9p9.xyz, sxyland.com, camcaps.tv, koreanpornmovie.com, fullporner.com, superporn.com, siska.tv, shyfap.net, hdporn92.com, porndos.com, joysporn.io, fullxcinema.com, film-adult.video, pornhits.tv, pornmz.net, fpo.xxx, watchporn.to, hello.porn, homo.xxx, perfectgirls.xxx, exeporn.net, xozilla.com, xmilf.com, hdzog.com, analdin.com, nuvid.club"
+            detail=f"Unsupported host: {host}. Supported: xnxx, xhamster, xvideos, masa49 (.org/.com/.cam), pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, urshort.live (embed), pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rou.video, 51cg/chigua, oppai.stream, xmoviesforyou.com, tnaflix.com, hornysimp.com, pimpbunny.com, hentaiser.app, bollywoodmaal.com, viralkand.com, blowjobs.pro, blackporn24.com, blackporn.tube, lesbianporn8.net, milfporn8.net, indianporn365.xyz, mmsbro.com, mykamababa.com, desimms2.site, desiporn.one, thotsporn.com, leakedamateurporn.xyz, zeenite.com, uncutmazaa.com (uncutmaza.com/.cc rewrite), mydesi2.com.co, mydesi2.dev, mydesi2.fit, mydesimms.watch, p4455.com, 85po.com (mirrors: 85ro.com, 85po.net), mydesi10.com, mydesi.com.co, mydesi.rest, mydesi.sbs, viralchut.com, viralmms.com, xanimeporn.com, cosxplay.com, memojav.com, hohoj.tv, ggjav.com, porn87.com, goodav17.com, kanav.ad, missav.ai, jable.tv, 94mt.cc, bindasmood.com, eporner.com, dotmaal.com, uncutmasti.com, zmaal.net, ulluwebseries.one, desithothub.com, motherless.com, youjizz.com, pornone.com, 3movs.com, porndig.com, hotmovs.tube, shemalez.com, txxx.com, ok.xxx, pornhoarder.tw, yesporn.vip, justporn.com, porngo.com, 1porn.tv, thepornbang.com, letsporn.com, teamskeettube.com, sosalkino.guru, tubepornclassic.com, xxxdan.com, pornxxx.tube, sxyprn.com, latestpornvideo.com, youperv.com, tube.perverzija.com, bigwank.com, sp2026.dev (91porn), 91porn.com, 9p9.xyz, sxyland.com, camcaps.tv, koreanpornmovie.com, fullporner.com, superporn.com, siska.tv, shyfap.net, hdporn92.com, porndos.com, joysporn.io, fullxcinema.com, film-adult.video, pornhits.tv, pornmz.net, fpo.xxx, watchporn.to, hello.porn, homo.xxx, perfectgirls.xxx, exeporn.net, xozilla.com, xmilf.com, hdzog.com, analdin.com, nuvid.club"
         )
     
     try:
@@ -577,6 +579,8 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "uncutmaza.gg" in parsed_url.netloc.lower() or
         "mydesi2.com.co" in parsed_url.netloc.lower() or
         "mydesi2.dev" in parsed_url.netloc.lower() or
+        "mydesi2.fit" in parsed_url.netloc.lower() or
+        "myd-cdn.com" in parsed_url.netloc.lower() or
         "mydesimms.watch" in parsed_url.netloc.lower() or
         "mydesix10.watch" in parsed_url.netloc.lower() or
         "mydesi.rest" in parsed_url.netloc.lower() or
@@ -742,6 +746,8 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "analdin.com" in parsed_url.netloc.lower() or
         "vcdn.analdin.com" in parsed_url.netloc.lower() or
         "p4455.com" in parsed_url.netloc.lower() or
+        "mydesi2.fit" in parsed_url.netloc.lower() or
+        "myd-cdn.com" in parsed_url.netloc.lower() or
         "mydesi10.com" in parsed_url.netloc.lower() or
         "mydesi.com.co" in parsed_url.netloc.lower() or
         "mydesi.rest" in parsed_url.netloc.lower() or
@@ -845,6 +851,8 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "uncutmaza.gg" in host_l
             or "mydesi2.com.co" in host_l
             or "mydesi2.dev" in host_l
+            or "mydesi2.fit" in host_l
+            or "myd-cdn.com" in host_l
             or "mydesimms.watch" in host_l
             or "mydesix10.watch" in host_l
             or "mydesi.rest" in host_l
@@ -1012,6 +1020,8 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "analdin.com" in host_l
             or "vcdn.analdin.com" in host_l
             or "p4455.com" in host_l
+            or "mydesi2.fit" in host_l
+            or "myd-cdn.com" in host_l
             or "mydesi10.com" in host_l
             or "mydesi.com.co" in host_l
             or "mydesi.rest" in host_l
