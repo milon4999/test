@@ -1963,7 +1963,7 @@ EXPLORE_SOURCES = [
         hasRelatedVideos=True,
     ),
     ExploreSourceResponse(
-        baseUrl="https://www.vrsmash.com/all/",
+        baseUrl="https://www.vrsmash.com/",
         nickname="VRSmash",
         favicon="https://www.vrsmash.com/favicon.ico",
         accentColor="#DD066D",
