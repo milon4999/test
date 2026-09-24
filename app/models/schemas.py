@@ -114,6 +114,9 @@ class ScrapeRequest(BaseModel):
             "www.viralchut.com",
             "viralmms.com",
             "www.viralmms.com",
+            "xanimeporn.com",
+            "www.xanimeporn.com",
+
             "85ro.com",
             "85po.net",
             "85po.com",
@@ -526,6 +529,9 @@ class ListRequest(BaseModel):
             "www.viralchut.com",
             "viralmms.com",
             "www.viralmms.com",
+            "xanimeporn.com",
+            "www.xanimeporn.com",
+
             "85ro.com",
             "85po.net",
             "85po.com",

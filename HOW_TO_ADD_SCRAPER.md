@@ -8714,3 +8714,115 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=viralmms"
 curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://viralmms.com/post/horny-bhabhi-big-boobs-vibrator-pussy-tease-d40g"
 ```
 
+## XAnimePorn Implementation Notes
+
+[XAnimePorn](https://xanimeporn.com/) is a **WordPress** hentai site (custom *novavideon* theme, WP Rocket lazy-load, Rank Math schema) with a single-segment permalink per episode (`/{slug}/`). Genres are taxonomy archives (`/big-tits/`, `/yuri/`, ...), search is `?s={query}`, and the full archive is the `?filtre=date&cat=0` listing (104 pages at the time of writing).
+
+### Host aliases
+
+- `xanimeporn.com`
+- `www.xanimeporn.com`
+- Player host: `watch.xanimeporn.com` (signed, expiring MP4s - the file the site player uses)
+- Download host: `videos.xanimeporn.com` (per-quality MP4 ladder)
+
+Example:
+
+```python
+SITE_HOST = "xanimeporn.com"
+
+def can_handle(host: str) -> bool:
+    h = (host or "").lower()
+    return h == SITE_HOST or h.endswith(f".{SITE_HOST}")
+```
+
+### Listing and pagination (`list_videos`)
+
+- **Scope parsing to `#content ul.listing-tube`.** The footer widgets (*Most Viewed*, *Top Rated*, *Random*) reuse the exact same `ul.listing-tube` / `li` / `div.views-infos` markup as the main listing. Scanning `ul.listing-tube li` globally mixes footer items into every page (the *Random* widget also changes per request, so results were non-deterministic). `MAIN_LISTING_SELECTOR = "#content ul.listing-tube"` (with a first-match fallback) keeps only the real archive/category/search listing - e.g. `page=1&limit=100` on `/action/` now returns the page's 24 items instead of 24 + 15 footer items.
+- Cards expose `img[data-lazy-src]` (WP Rocket placeholder in `src`), so thumbnails are read with the `data-lazy-src` -> `data-src` -> `data-original` -> `srcset` -> `src` order.
+- Title: `a[title]` -> `img[alt]` -> anchor text, with the `" | X Anime Porn"` suffix stripped.
+- Duration: `div.time-infos` (`mm:ss` / `hh:mm:ss` regex). Views: `div.views-infos` (`5,538` -> `5538`).
+- Only single-segment canonical slugs are accepted; skip `/page/`, `/wp-content/`, `/wp-json/`, `/author/`, `/feed/`, `/tag/`, links with a query string (the *See all* cards point to `?filtre=...`), and utility slugs (`hentai-series`, `hentai-list`, `top-10`, `contact-us`, `privacy-policy`, `dmca`, `about`, `category`, `categories`, `search`, `feed`, `censored`, `uncensored`).
+- Page 1 uses `base_url` unchanged. Pagination:
+  - archive/category: `/action/` -> `/action/page/2/` (numeric segment, verified)
+  - search / query listings: `?s=maid` -> `?s=maid&paged=2` (verified: WordPress also accepts the `/page/2/?s=maid` form)
+  - `?filtre=date&cat=0` -> `?filtre=date&cat=0&paged=2` (verified: *Page 2 of 104*)
+- **Front-page caveat:** `https://xanimeporn.com/` is a static front page whose *New Hentai Videos* widget always renders the same 12 latest episodes, so `/page/2/` repeats page 1. The explore entry therefore browses the paginated archive `https://xanimeporn.com/?filtre=date&cat=0` (`pageSize=24`) instead of the bare homepage.
+
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image`
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. JSON-LD `BlogPosting` / `VideoObject` (`name`/`headline`, `description`, `thumbnailUrl`, `datePublished`, `articleSection`, `author.name`)
+  4. visible `h1 span` / `h1` / `<title>` (strip `" | X Anime Porn"`)
+- Extra fields: `views` from the first `div.views-infos` (the video header block, which precedes the related-video cards), `duration` from `div.time-infos`, tags from `#cat-tag ul li a[rel="tag"]`, `category` from `article:section` (`Censored`), `uploader_name` from the JSON-LD author.
+- **Streams - two sources, both returned:**
+  1. **Downloads tab quality ladder** (`div.su-tabs-pane[data-title="Downloads"] a[href*="download.php"]`, with a global `a[href*='download.php']` fallback) -> `https://videos.xanimeporn.com/download.php?id=<id>&quality=<1080p|720p|480p|240p>&name=...`. These are permanent direct MP4s (`Content-Type: video/mp4`, `Accept-Ranges: bytes`) and are sorted high -> low; `video.default` is the highest quality (1080p).
+  2. **Signed player stream** (`quality="source"`). The detail page ships an empty `<video id='xanimeporn-video'><source src='' type='video/mp4'/>`; `scripts/ajax.js` fills it from `wp-admin/admin-ajax.php` with `action=get_video_url` + `idpost=<post_id>` (post id read from the inline `ajax_object` / `wpPostViewsV10n` / `data-post_id` markup). `resolve_player_stream()` performs that form POST through the shared connection pool and validates the response (must be an `http(s)` URL on `xanimeporn.com`, ending in `.mp4`/`.m3u8`/`.webm`) before exposing it as an extra stream. The signed URL (`https://watch.xanimeporn.com/<token>/<expiry>/videos/<id>.mp4`, ~90 min TTL) is appended **after** the quality ladder so `video.default` stays the permanent 1080p file; it acts as a fallback if the Downloads markup changes.
+- Both helpers never raise: a failed AJAX call, or a page without download links, just yields fewer streams. `video.has_video` is `True` when at least one stream was found; HLS is detected via `.m3u8`.
+- No `<video>`/`<source>`/inline `.mp4` is present in the static HTML (skip scanning it), and ad iframes are ignored.
+
+### Categories (`get_categories`)
+
+`categories.json` lists the 20 genres from the site's *See all Genres* widget - Action, Betrayal, Big Tits, Censored, Comedy, Domination, Futanari, Harem, Incest, Maid, Monsters, Nurse, Romance, School, Shotacon, Small Tits, Tentacles, Uncensored, Yaoi, Yuri - each verified `200` on `https://xanimeporn.com/<id>/`. Schema matches the other scraper folders so `/api/v1/categories?source=xanimeporn` returns valid `CategoryItem` objects.
+
+
+### Registration checklist for XAnimePorn
+
+Besides creating `backend/app/scrapers/xanimeporn/` (`scraper.py`, `__init__.py`, `categories.json`), update all of these:
+
+- `backend/app/scrapers/__init__.py` (`from . import xanimeporn` + `__all__`)
+- `backend/app/main.py`
+  - import list (`..., viralchut, viralmms, xanimeporn`)
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=xanimeporn`, `source=xanimeporn.com`, alias `xap`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif xanimeporn.can_handle(host):`)
+  - unsupported-host help text (`xanimeporn.com`)
+  - stream quality map host checks (both `parsed_url.netloc` and `host_l` chains) for `xanimeporn.com`, so `/api/v1/videos/stream` returns flat per-quality fields (`1080p`, `720p`, `480p`, `240p`, `source`) plus `<quality>_format` entries
+- `backend/app/models/schemas.py`
+  - both URL allowlists (`xanimeporn.com`, `www.xanimeporn.com`) - without this `/api/v1/scrapes` and `/api/v1/videos` reject the host with `422`
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="xanimeporn"`, `baseUrl="https://xanimeporn.com/?filtre=date&cat=0"`, `searchUrlTemplate="https://xanimeporn.com/?s={query}"`, `pageSize=24`)
+
+### XAnimePorn verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://xanimeporn.com/sare-tsuma-wa-ubawaretai-episode-1-sub-eng/\"}"
+
+# base_url values containing "?"/"&" must be percent-encoded (the Flutter client's
+# ApiConfig.joinUri does this automatically); %3F = ?, %26 = &
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https%3A%2F%2Fxanimeporn.com%2F%3Ffiltre%3Ddate%26cat%3D0&page=1&limit=24"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https%3A%2F%2Fxanimeporn.com%2F%3Ffiltre%3Ddate%26cat%3D0&page=2&limit=24"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://xanimeporn.com/action/&page=2&limit=24"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https%3A%2F%2Fxanimeporn.com%2F%3Fs%3Dmaid&page=2&limit=24"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=xanimeporn"
+
+curl "http://127.0.0.1:8000/api/v1/videos/info?url=https://xanimeporn.com/sare-tsuma-wa-ubawaretai-episode-1-sub-eng/"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://xanimeporn.com/sare-tsuma-wa-ubawaretai-episode-1-sub-eng/"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://xanimeporn.com/sare-tsuma-wa-ubawaretai-episode-1-sub-eng/&quality=720p"
+
+curl "http://127.0.0.1:8000/api/v1/videos/download?url=https://xanimeporn.com/sare-tsuma-wa-ubawaretai-episode-1-sub-eng/"
+```
+
+Expected behaviour:
+
+- `POST /api/v1/scrapes` (metadata only - `ScrapeResponse` has no `video` block) -> `title` = `Sare Tsuma wa Ubawaretai Episode 1 [Sub-ENG]`, `category` = `Censored`, `tags` = `["Censored", "Big Tits"]`, `views` = `4288`, `duration` = `24:16`, `uploader_name` = `fcolaci`.
+- `GET /api/v1/videos/info` -> `playable: true`, `video.has_video: true`, `video.default` = `videos.xanimeporn.com/download.php?...quality=1080p...`, `video.streams` = `1080p`, `720p`, `480p`, `240p` (+ signed `source`).
+- `GET /api/v1/videos/stream` (`quality=default`) -> `quality="1080p"`, `format="mp4"` plus flat fields `1080p`, `720p`, `480p`, `240p`, `source` and `<quality>_format`; an unknown quality (`2160p`) silently falls back to the 1080p default.
+- `GET /api/v1/videos/download` -> 5 MP4 links (`1080p`, `720p`, `480p`, `240p`, `source`).
+- `GET /api/v1/videos` -> 24 items per archive/category/search page (12 on the bare homepage widget), each with a canonical `/{slug}/` URL, `240x162` thumbnail, `duration` (`mm:ss`) and `views`; consecutive pages must not repeat items and must not include footer-widget videos.
+- `GET /api/v1/categories?source=xanimeporn` (also `xanimeporn.com` / `xap`) -> 20 categories.
+
+
