@@ -376,7 +376,7 @@ EXPLORE_SOURCES = [
     ExploreSourceResponse(
         baseUrl="https://viralmms.com/",
         nickname="ViralMMS",
-        favicon="https://viralmms.com/wp-content/uploads/2026/05/viralmms.png",
+        favicon="https://images.downloaddirect.xyz/1765179647512-346868389.webp",
         accentColor="#E91E63",
         category="porn",
         isVerified=False,
