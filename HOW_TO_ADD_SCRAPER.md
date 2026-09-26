@@ -2265,7 +2265,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://ggjav.com/main/vide
 - Home: `https://porn87.com/`
 - Latest: `https://porn87.com/main/tag?lineup=create_time`
 - Popular: `https://porn87.com/main/tag?lineup=recent_views`
-- Tag browse: `https://porn87.com/main/tag?name={tag}` (e.g. `é«˜æ¸…æ—¥æœ¬AV`, `ä¸­æ¸¯å°`)
+- Tag browse: `https://porn87.com/main/tag?name={tag}` (e.g. `é«˜æ¸…æ—¥æœ¬AV`, `ä¸­æ¸¯å°`)
 - Text search: `https://porn87.com/main/search?name={query}`
 - Parse cards in `div.chunk > a[href*="/main/html?id="]`; thumb `img.video_thumbnail`, duration `.video_time`, views/likes via `fi-eye` / `fi-heart`
 - Pagination: query param `page` is **1-based** (UI page 2 â†’ `page=2`; API `page=1` omits the param)
@@ -2279,7 +2279,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://ggjav.com/main/vide
 
 ### Categories (`get_categories`)
 
-Seed from nav: Home, Latest, Popular, HD Japanese AV, Asian Homemade (ä¸­æ¸¯å°), All Tags, Actresses.
+Seed from nav: Home, Latest, Popular, HD Japanese AV, Asian Homemade (ä¸­æ¸¯å°), All Tags, Actresses.
 
 ### Registration checklist for Porn87
 
@@ -2411,7 +2411,7 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=http://goodav17.com/html/20
 
 ### Categories (`get_categories`)
 
-Seed from nav type links: Home, ä¸­æ–‡å­—å¹• (id=1), æ—¥éŸ©æœ‰ç , æ—¥éŸ©æ— ç , å›½äº§AV, etc.
+Seed from nav type links: Home, ä¸­æ–‡å­—å¹• (id=1), æ—¥éŸ©æœ‰ç , æ—¥éŸ©æ— ç , å›½äº§AV, etc.
 
 ### Registration checklist for KanAV
 
@@ -4440,7 +4440,7 @@ curl "http://127.0.0.1:8000/api/v1/categories?source=pornhouse"
 
 - Home: `https://hanime1.me/`
 - Search/browse: `https://hanime1.me/search?sort=æœ€æ–°ä¸Šå¸‚`, `?sort=æœ€æ–°ä¸Šå‚³`, `?sort=ä»–å€‘åœ¨çœ‹`
-- Genre filters: `https://hanime1.me/search?genre=è£ç•ª`, `?genre=3DCG`, etc.
+- Genre filters: `https://hanime1.me/search?genre=è£ç•ª`, `?genre=3DCG`, etc.
 - Text search: `https://hanime1.me/search?query={query}`
 - Parse `div.video-item-container` cards (`a.video-link`, `img.main-thumb`, `div.duration`, stats) or fallback `a[href*='watch?v=']`
 - Pagination: `?page=N` query parameter (page 1 omits `page`)
@@ -5678,8 +5678,8 @@ def can_handle(host: str) -> bool:
   - Response `video` object has `title`, `dir`, `duration` (`7:47` style), `post_date`, `statistics.viewed`, `user.username`, `thumb`/`thumbsrc`, plus `categories`/`tags`/`models` dicts keyed by numeric id.
 - **Streams:** `GET /api/videofile.php?video_id={id}&lifetime=8640000`
   - Returns a list like `[{"format": "_sd.mp4", "is_default": 1, "video_url": "<encoded>"}]`.
-  - `video_url` is encoded with a custom base64 whose alphabet is `АВСDЕFGHIJKLМNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,~`
-    (the lookalikes `А` `В` `С` `Е` `М` are **Cyrillic** U+0410/U+0412/U+0421/U+0415/U+041C), with `~` (index 64) acting as `=` padding.
+  - `video_url` is encoded with a custom base64 whose alphabet is `НВСDЕFGHIJKLМNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,~`
+    (the lookalikes `Н` `В` `С` `Е` `М` are **Cyrillic** U+0410/U+0412/U+0421/U+0415/U+041C), with `~` (index 64) acting as `=` padding.
   - Decoded value is a KVS-style path: `/get_file/1/{hash}/{bucket_m}/{bucket_k}/{id}_sd.mp4/?d=..&br=..&ti=..` on the site origin.
   - A GET on that path 302-redirects to the signed CDN URL (`https://ahcdn.blackporn.tube/key=.../c1/videos/...`). Resolution happens per request, so returned links are always fresh; tokens expire quickly.
 - **Categories:** `GET /api/json/categories/14400/str.all.en.json` -- array of `{category_id, title, dir, total_videos}` (`total_videos` is a string).
@@ -7949,7 +7949,7 @@ def can_handle(host: str) -> bool:
 - **Search:** `GET /api/videos2.php?params=86400/str/relevance/{count}/search.0.{page}.all.all.all&s={query}`
 - **Video detail:** `GET /api/json/video/86400/{id//1e6 * 1e6}/{id//1000 * 1000}/{id}.json` (e.g. `1173421` → `1000000/1173000/1173421.json`). Follow redirects if the unpadded form is used.
 - **Streams:** `GET /api/videofile.php?video_id={id}&lifetime=8640000`
-  - Same Magma base164 alphabet as BlackPornTube (`АВСDЕFGHIJKLМNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,~`).
+  - Same Magma base164 alphabet as BlackPornTube (`НВСDЕFGHIJKLМNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,~`).
   - Decoded path is `/get_file/.../{id}_sd.mp4/?d=..&br=..&ti=..`.
   - GET + `Range` on that path 302s to `https://ahcdn.xmilf.com/key=.../{id}_sd.mp4` then to `https://ip*.ahcdn.com/...` (`video/mp4`, 206). Resolve at scrape time; do not emit embed URLs.
 - **Categories:** `GET /api/json/categories/14400/str.all.en.json`
@@ -9375,3 +9375,101 @@ Expected behaviour:
 - `GET /api/v1/videos/stream` -> returns the embed stream with flat per-quality fields (`playmogo`, `playmogo_format`, `vidara`, `vidara_format`).
 
 > Note: the site is behind Cloudflare. The scraper first attempts `curl_cffi` with browser impersonation (chrome120/chrome110/safari15_3) and falls back to the shared `app.core.pool.fetch_html` client, so plain `httpx` should not be used directly for the initial fetch.
+
+## MyPornerLeak Implementation Notes
+
+[MyPornerLeak](https://mypornerleak.com/) is a WordPress **retrotube** "OnlyFans leaks" index. Canonical video pages are single-segment post slugs served from a content subdomain (`w8.mypornerleak.com`), e.g. `https://w8.mypornerleak.com/{slug}/`. Detail pages do **not** expose direct `.mp4`/`.m3u8` or `<video>` tags � the player is injected by JS (`58img.top/muliframe.js` + Video.js) and the playable mirrors are declared as `data-embed` attributes on `span.change-video` elements ("Player 01".."Player NN").
+
+Use `hornysimp` / `xxxparodyhd` (embed-first) and `viralkand` / `bollywoodmaal` (retrotube card listing) as the closest references.
+
+### Host aliases
+
+- `mypornerleak.com` (canonical)
+- `www.mypornerleak.com`
+- `w8.mypornerleak.com` and other `*.mypornerleak.com` content subdomains
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    return h == "mypornerleak.com" or h.endswith(".mypornerleak.com")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Cards are `article.loop-video` elements. Canonical links are single-segment post slugs.
+- Keep only same-domain single-segment URLs; skip utility paths and taxonomy roots such as `/actors/`, `/page/`, `/wp-content/`, `/wp-json/`, and the category roots (e.g. `/onlyfans-porn/`).
+- Prefer metadata in this order:
+  - title: `.entry-header span` text, anchor `title`, image `alt`, then visible anchor text
+  - thumbnail: the card `data-main-thumb` on the `<article>`, then `img` `src`
+  - duration: `span.duration` text (or regex `mm:ss` / `hh:mm:ss`)
+  - views/uploader: not exposed on cards; keep `None`
+- Page 1 uses `base_url` unchanged.
+- For page > 1 use WordPress path pagination: home `https://w8.mypornerleak.com/` ? `/page/2/`; category `https://w8.mypornerleak.com/onlyfans-porn/` ? `/onlyfans-porn/page/2/`.
+- Homepage sort tabs use a query filter (`?filter=latest|longest|random`); preserve it when paginating.
+- For search (`?s={query}`) append `paged={n}`.
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image`
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. visible `h1` / page `<title>`
+- Strip the ` - MyPornerLeak` / ` | MyPornerLeak` title suffix.
+- Streams: collect every non-empty `span.change-video[data-embed]` value (skip the empty trailing tab). Expose each as `format="embed"` with `quality` labels `Player 01`, `Player 02`, � matching the UI tabs.
+- Set `video.default` to the first playable embed (the active "Player 01" tab, e.g. `https://luluvids.top/e/...`), `video.hls = None`, and `video.has_video = True` when at least one embed is present.
+- Observed player hosts: `luluvids.top`, `bysezoxexe.com`, `playmogo.com`, `morencius.com`, `turbovidhls.com`, `player.abyssplayer.com`. `playmogo.com` and `morencius.com` are already handled by the streaming service; the others are returned as plain embed URLs.
+
+### Categories (`get_categories`)
+
+The site posts are filed under a single category (`onlyfans-porn` / "OnlyFans Porn"), rewritten to a root path. Seed `categories.json` accordingly (schema-aligned so `/api/v1/categories?source=mypornerleak` returns valid `CategoryItem` entries).
+
+### Registration checklist for MyPornerLeak
+
+Besides creating `backend/app/scrapers/mypornerleak/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=mypornerleak`)
+- `backend/app/services/video_streaming.py`
+  - import list
+  - scraper selection branch
+  - `available_qualities` host check for `mypornerleak.com`
+  - `per_stream_format_keys` block (so flat `*_format` fields are emitted)
+  - unsupported-host help text
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`sourceId="mypornerleak"`, `baseUrl="https://w8.mypornerleak.com/"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist
+  - list/base URL allowlist
+
+### MyPornerLeak verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://w8.mypornerleak.com/erin-moore-accidentally-leaked-new-onlyfans-oiled-bbc-pov-sextape/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://w8.mypornerleak.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://w8.mypornerleak.com/onlyfans-porn/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=mypornerleak"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://w8.mypornerleak.com/erin-moore-accidentally-leaked-new-onlyfans-oiled-bbc-pov-sextape/"
+```
+
+Expected behaviour:
+
+- `POST /api/v1/scrapes` ? `title` (suffix stripped), `thumbnail_url` (from `og:image`, hosted on `58img.top`), and `video.has_video=true` with `video.default` = the first "Player 01" embed plus all other player tabs in `video.streams` (all `format="embed"`).
+- `GET /api/v1/videos` ? items with canonical `/slug/` URLs, thumbnails, and durations; page 2 via `/page/2/` must not repeat items.
+- `GET /api/v1/videos?base_url=https://w8.mypornerleak.com/onlyfans-porn/` ? category archive works, page 2 via `/onlyfans-porn/page/2/`.
+- `GET /api/v1/categories?source=mypornerleak` ? the seeded category list (OnlyFans Porn).
+- `GET /api/v1/videos/stream` ? returns the default embed stream with flat per-quality fields (`Player 01`, `Player 01_format`, �).
+
+> Note: fetch the detail/list pages from a `mypornerleak.com` host (the homepage links to `w8.mypornerleak.com`). Thumbnails are plain static images on `58img.top` and are returned unproxied by `wrap_thumbnail_url`, so no thumbnail-proxy allowlist change is required.
+

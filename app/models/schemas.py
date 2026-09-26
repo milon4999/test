@@ -432,6 +432,8 @@ class ScrapeRequest(BaseModel):
             "cdn.privatehost.com",
             "vrsmash.com",
             "www.vrsmash.com",
+            "mypornerleak.com",
+            "www.mypornerleak.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
@@ -821,6 +823,8 @@ class ListRequest(BaseModel):
             "www.nuvid.com",
             "vrsmash.com",
             "www.vrsmash.com",
+            "mypornerleak.com",
+            "www.mypornerleak.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
