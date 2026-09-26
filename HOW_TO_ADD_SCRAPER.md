@@ -9423,7 +9423,14 @@ def can_handle(host: str) -> bool:
 
 ### Categories (`get_categories`)
 
-The site posts are filed under a single category (`onlyfans-porn` / "OnlyFans Porn"), rewritten to a root path. Seed `categories.json` accordingly (schema-aligned so `/api/v1/categories?source=mypornerleak` returns valid `CategoryItem` entries).
+The site's posts are filed under a single taxonomy (`onlyfans-porn` / "OnlyFans Porn", rewritten to a root path). The homepage also exposes three listing tabs (Latest / Longest / Random videos via `?filter=`). Seed `categories.json` with the real category plus those verified listing views so `/api/v1/categories?source=mypornerleak` returns useful `CategoryItem` entries:
+
+- `onlyfans-porn` ? `https://w8.mypornerleak.com/onlyfans-porn/`
+- `latest` ? `https://w8.mypornerleak.com/`
+- `longest` ? `https://w8.mypornerleak.com/?filter=longest`
+- `random` ? `https://w8.mypornerleak.com/?filter=random`
+
+All four are `list_videos`-friendly (page > 1 works via `/page/{n}/` while preserving the `filter` query).
 
 ### Registration checklist for MyPornerLeak
 
@@ -9443,6 +9450,9 @@ Besides creating `backend/app/scrapers/mypornerleak/`, update all of these:
   - unsupported-host help text
 - `backend/app/api/endpoints/explore.py`
   - add `ExploreSourceResponse` entry (`sourceId="mypornerleak"`, `baseUrl="https://w8.mypornerleak.com/"`)
+- `backend/app/api/endpoints/thumbnails.py`
+  - add `is_mypornerleak` (match `58img.top` / `mypornerleak.com`) to the proxy allowlist check and to `wrap_thumbnail_url`
+  - set the proxy `Referer` to `https://w8.mypornerleak.com/` for those thumbnails
 - `backend/app/models/schemas.py`
   - scrape URL allowlist
   - list/base URL allowlist
@@ -9468,8 +9478,8 @@ Expected behaviour:
 - `POST /api/v1/scrapes` ? `title` (suffix stripped), `thumbnail_url` (from `og:image`, hosted on `58img.top`), and `video.has_video=true` with `video.default` = the first "Player 01" embed plus all other player tabs in `video.streams` (all `format="embed"`).
 - `GET /api/v1/videos` ? items with canonical `/slug/` URLs, thumbnails, and durations; page 2 via `/page/2/` must not repeat items.
 - `GET /api/v1/videos?base_url=https://w8.mypornerleak.com/onlyfans-porn/` ? category archive works, page 2 via `/onlyfans-porn/page/2/`.
-- `GET /api/v1/categories?source=mypornerleak` ? the seeded category list (OnlyFans Porn).
+- `GET /api/v1/categories?source=mypornerleak` ? the seeded category list (OnlyFans Porn, Latest Videos, Longest Videos, Random Videos).
 - `GET /api/v1/videos/stream` ? returns the default embed stream with flat per-quality fields (`Player 01`, `Player 01_format`, …).
 
-> Note: fetch the detail/list pages from a `mypornerleak.com` host (the homepage links to `w8.mypornerleak.com`). Thumbnails are plain static images on `58img.top` and are returned unproxied by `wrap_thumbnail_url`, so no thumbnail-proxy allowlist change is required.
+> Note: fetch the detail/list pages from a `mypornerleak.com` host (the homepage links to `w8.mypornerleak.com`). Thumbnails are static images on `58img.top`; `thumbnails.py` now allows `58img.top` / `mypornerleak.com` and proxies them (with `Referer: https://w8.mypornerleak.com/`), so `wrap_thumbnail_url` wraps them through `/api/v1/thumbnails/proxy`.
 

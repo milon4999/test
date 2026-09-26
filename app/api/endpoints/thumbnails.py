@@ -29,8 +29,9 @@ async def thumbnail_proxy(
     is_hanime = any(x in url_lower for x in ["hanime.tv", "hb00.io", "hanime-cdn.com", "hb01.io", "hb02.io"])
     is_hanime1 = any(x in url_lower for x in ["hanime1.me", "hembed.com"])
     is_porndish = any(x in url_lower for x in ["porndish.com"])
+    is_mypornerleak = any(x in url_lower for x in ["58img.top", "mypornerleak.com"])
 
-    if not (is_hqporner or is_youporn or is_pornhub or is_redtube or is_tube8 or is_hanime or is_hanime1 or is_porndish):
+    if not (is_hqporner or is_youporn or is_pornhub or is_redtube or is_tube8 or is_hanime or is_hanime1 or is_porndish or is_mypornerleak):
         raise HTTPException(status_code=403, detail="Only allowed domains are supported")
         
     if (is_youporn or is_pornhub or is_redtube or is_tube8) and "/plain/" not in url_lower:
@@ -63,6 +64,8 @@ async def thumbnail_proxy(
             headers["Referer"] = "https://hanime1.me/"
         elif is_porndish:
             headers["Referer"] = "https://www.porndish.com/"
+        elif is_mypornerleak:
+            headers["Referer"] = "https://w8.mypornerleak.com/"
 
     try:
         # Per-request client: avoids binding a pooled session to the wrong event loop
@@ -119,8 +122,9 @@ def wrap_thumbnail_url(url: str, api_base_url: str) -> str:
     is_hanime = any(x in url_lower for x in ["hanime.tv", "hb00.io", "hanime-cdn.com", "hb01.io", "hb02.io"])
     is_hanime1 = any(x in url_lower for x in ["hanime1.me", "hembed.com"])
     is_porndish = any(x in url_lower for x in ["porndish.com"])
+    is_mypornerleak = any(x in url_lower for x in ["58img.top", "mypornerleak.com"])
 
-    if not (is_hqporner or is_youporn or is_pornhub or is_redtube or is_tube8 or is_hanime or is_hanime1 or is_porndish):
+    if not (is_hqporner or is_youporn or is_pornhub or is_redtube or is_tube8 or is_hanime or is_hanime1 or is_porndish or is_mypornerleak):
         return url
         
     if is_youporn or is_pornhub or is_redtube or is_tube8:
