@@ -35,11 +35,6 @@ _DEFAULT_HEADERS = {
     "Referer": BASE_SITE,
 }
 
-_VIDEO_HREF_RE = re.compile(
-    r"/videos/(?P<id>\d+)/(?P<slug>[^/?#]+)/?",
-    re.IGNORECASE,
-)
-
 
 def can_handle(host: str) -> bool:
     h = (host or "").lower().split(":")[0]
@@ -58,15 +53,6 @@ def get_categories() -> list[dict]:
             return json.load(f)
     except Exception:
         return []
-
-
-def _normalize_host(host: str) -> str:
-    h = (host or "").lower().split(":")[0]
-    if h.startswith("www."):
-        h = h[4:]
-    if h in SITE_ALIASES or h == "momvids.com" or h.endswith(".momvids.com"):
-        return f"www.{h}" if not h.startswith("www.") else h
-    return SITE_HOST
 
 
 async def fetch_page(url: str, referer: str = BASE_SITE) -> str:
@@ -181,16 +167,6 @@ def _extract_tags(soup: BeautifulSoup) -> list[str]:
     return tags
 
 
-def _extract_video_id(url: str) -> Optional[str]:
-    m = _VIDEO_HREF_RE.search(url or "")
-    return m.group("id") if m else None
-
-
-def _canonical_video_url(video_id: str, slug: str | None, *, host: str = SITE_HOST) -> str:
-    slug_part = (slug or "video").strip("/") or "video"
-    return f"https://{host}/videos/{video_id}/{slug_part}/"
-
-
 def _stream_quality_from_url(url: str, label: str | None = None) -> str:
     if label and str(label).strip():
         low = str(label).strip().lower()
@@ -204,7 +180,7 @@ def _stream_quality_from_url(url: str, label: str | None = None) -> str:
     return "default"
 
 
-def _extract_streams(html: str, url: str, video_id: str) -> dict[str, Any]:
+def _extract_streams(html: str, url: str) -> dict[str, Any]:
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
 
@@ -250,12 +226,6 @@ def _extract_streams(html: str, url: str, video_id: str) -> dict[str, Any]:
             continue
         label = _label_for(s["url"], "video_url") or _label_for(s["url"], "video_alt_url")
         s["quality"] = _stream_quality_from_url(s["url"], label)
-
-    # Add the site-native embed endpoint as a fallback stream.
-    embed = f"https://{SITE_HOST}/embed/{video_id}"
-    if embed not in seen:
-        seen.add(embed)
-        streams.append({"url": embed, "quality": "embed", "format": "embed"})
 
     def _score(item: dict[str, str]) -> tuple[int, int]:
         fmt = (item.get("format") or "").lower()
@@ -407,8 +377,7 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
     if up:
         uploader_name = up.get_text(" ", strip=True) or None
 
-    video_id = _extract_video_id(url)
-    video = _extract_streams(html, url, video_id or "")
+    video = _extract_streams(html, url)
 
     return {
         "url": url,

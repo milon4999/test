@@ -2003,7 +2003,7 @@ EXPLORE_SOURCES = [
         hasRelatedVideos=False,
     ),
     ExploreSourceResponse(
-        baseUrl="https://www.momvids.com/latest-updates/",
+        baseUrl="https://www.momvids.com/",
         nickname="MomVids",
         favicon="https://www.momvids.com/favicon.ico",
         accentColor="#EC407A",

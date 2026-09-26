@@ -9550,8 +9550,9 @@ For detail pages:
   - `video_url` -> `https://www.momvids.com/get_file/{...}/{id}.mp4/?v-acctoken=...` (`video_url_text`, e.g. `480p`)
   - `video_alt_url` -> `.../{id}_720p.mp4/?v-acctoken=...` (`video_alt_url_text`, e.g. `720p`)
 - Scan the page for `get_file` / `.m3u8` URLs (unescaping `\\/` -> `/`, `\\u0026` -> `&`), then resolve each `get_file` redirect with `curl_cffi` (HEAD first, then GET with `Range: bytes=0-0`) to the real CDN playable URL (`*.mjedge.net/...mp4?...`).
-- Build `video.streams` with `format="mp4"` (quality from `video_url_text`/`video_alt_url_text` or a `NNNp` regex) plus the site-native `https://www.momvids.com/embed/{id}` fallback (`format="embed"`).
-- Set `video.default` to the best-quality MP4 (not the embed).
+- Build `video.streams` with `format="mp4"` (quality from `video_url_text`/`video_alt_url_text` or a `NNNp` regex).
+- Set `video.default` to the best-quality MP4.
+- Do **not** add the site-native `/embed/{id}` page as a stream: the embed page is Cloudflare-challenged and returns 403 to automated clients, so it is not a directly playable source.
 
 ### Categories (`get_categories`)
 
@@ -9599,8 +9600,8 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.momvids.com/vid
 
 Expected behaviour:
 
-- `POST /api/v1/scrapes` ? correct `title`, `thumbnail_url` (`preview.jpg` on `mjedge.net`), `views`, `uploader_name`, `duration` (normalized), and `video.has_video=true` with `video.default` = the best resolved MP4 (e.g. `720p`) plus all qualities and the embed fallback in `video.streams`.
+- `POST /api/v1/scrapes` ? correct `title`, `thumbnail_url` (`preview.jpg` on `mjedge.net`), `views`, `uploader_name`, `duration` (normalized), and `video.has_video=true` with `video.default` = the best resolved MP4 (e.g. `720p`) plus all qualities in `video.streams`.
 - `GET /api/v1/videos` ? items with canonical `/videos/{id}/{slug}/` URLs, thumbnails, durations, and views; page 2 via the path segment must not repeat items.
 - `GET /api/v1/categories?source=momvids` ? the seeded category/sort list.
-- `GET /api/v1/videos/stream` ? returns the default MP4 with flat per-quality fields (`720p`, `720p_format`, `480p`, `480p_format`, `embed`, `embed_format`).
+- `GET /api/v1/videos/stream` ? returns the default MP4 with flat per-quality fields (`720p`, `720p_format`, `480p`, `480p_format`).
 
