@@ -2002,6 +2002,20 @@ EXPLORE_SOURCES = [
         pageSize=32,
         hasRelatedVideos=False,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://www.momvids.com/latest-updates/",
+        nickname="MomVids",
+        favicon="https://www.momvids.com/favicon.ico",
+        accentColor="#EC407A",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://www.momvids.com/search/{query}/",
+        sourceId="momvids",
+        disable=False,
+        pageSize=32,
+        hasRelatedVideos=False,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

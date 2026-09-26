@@ -9483,3 +9483,124 @@ Expected behaviour:
 
 > Note: fetch the detail/list pages from a `mypornerleak.com` host (the homepage links to `w8.mypornerleak.com`). Thumbnails are static images on `58img.top`; `thumbnails.py` now allows `58img.top` / `mypornerleak.com` and proxies them (with `Referer: https://w8.mypornerleak.com/`), so `wrap_thumbnail_url` wraps them through `/api/v1/thumbnails/proxy`.
 
+## MomVids Implementation Notes
+
+[MomVids](https://www.momvids.com/) is a mature-tube site in the `mjedge.net` CDN family. Canonical detail pages live under `/videos/{id}/{slug}/`, listing pages under routes like `/latest-updates/`, `/top-rated/`, `/most-popular/`, `/longest/`, `/categories/{slug}/`, and search under `/search/{term}/`.
+
+Use `blowjobspro` and `tnaflix` as the closest implementation references (both are `get_file` -> signed CDN tube scrapers).
+
+### Host aliases
+
+- `momvids.com`
+- `www.momvids.com`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h in ("momvids.com", "www.momvids.com") or h.endswith(".momvids.com")
+```
+
+### Cloudflare / bot protection (important)
+
+MomVids serves both the HTML and the `get_file` media endpoints behind **Cloudflare**. The shared aiohttp connection pool (`app.core.pool.fetch_html`) returns **403** for this host. The scraper must therefore:
+
+- Fetch pages with **`curl_cffi`** browser impersonation (`impersonate="chrome124"`, then `"chrome120"` / `"safari15_3"` fallbacks), falling back to `pool_fetch_html` when `curl_cffi` is unavailable.
+- Resolve `get_file` redirects with `curl_cffi` too, sending the **full URL including the `?v-acctoken=...` query token** (stripping the query breaks authorization).
+
+Add the `WindowsSelectorEventLoopPolicy()` guard at module import (as `hotmovs` does) to silence the Proactor loop warning when `curl_cffi` is used on Windows.
+
+### Listing and pagination (`list_videos`)
+
+Recommended list strategy:
+
+- Parse card anchors matching `/videos/{numeric_id}/{slug}/`; keep only same-domain URLs and skip utility/legal paths (`/terms`, `/dmca`, `/2257`, login/signup/upload pages).
+- Prefer metadata in this order:
+  - title: `.title` inside the card anchor, then anchor `title`, then image `alt`
+  - thumbnail: `img[data-src]` (lazy-loaded) then `src`
+  - duration: `.time` badge (`mm:ss` / `h:mm:ss`); fall back to a regex over card text
+  - views: the first `.count` element (e.g. `243 views`); fall back to a `N views` regex
+  - uploader: `.name` inside the card (skip the literal `Unknown`)
+- Page 1 should use `base_url` unchanged.
+- For page > 1, use a **path segment**: `https://www.momvids.com/latest-updates/2/`, and for categories `https://www.momvids.com/categories/{slug}/{n}/`. Preserve any existing query params.
+
+Useful list base URLs:
+
+- `https://www.momvids.com/latest-updates/`
+- `https://www.momvids.com/top-rated/`
+- `https://www.momvids.com/most-popular/`
+- `https://www.momvids.com/longest/`
+- `https://www.momvids.com/categories/{slug}/`
+- `https://www.momvids.com/search/{term}/`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image` (the `preview.jpg` on the `mjedge.net` CDN)
+  2. `twitter:*` equivalents
+  3. visible `h1` / page `<title>`
+- `video:duration` is in **seconds** (normalize to `H:MM:SS` / `MM:SS`).
+- Views come from `ya:ovs:views_total`; upload date from `ya:ovs:upload_date`; tags from the `keywords` meta or the `/search/{term}/` tag links; uploader from the `/members/{id}/` link.
+- Streams are exposed in the inline `flashvars` player config:
+  - `video_url` -> `https://www.momvids.com/get_file/{...}/{id}.mp4/?v-acctoken=...` (`video_url_text`, e.g. `480p`)
+  - `video_alt_url` -> `.../{id}_720p.mp4/?v-acctoken=...` (`video_alt_url_text`, e.g. `720p`)
+- Scan the page for `get_file` / `.m3u8` URLs (unescaping `\\/` -> `/`, `\\u0026` -> `&`), then resolve each `get_file` redirect with `curl_cffi` (HEAD first, then GET with `Range: bytes=0-0`) to the real CDN playable URL (`*.mjedge.net/...mp4?...`).
+- Build `video.streams` with `format="mp4"` (quality from `video_url_text`/`video_alt_url_text` or a `NNNp` regex) plus the site-native `https://www.momvids.com/embed/{id}` fallback (`format="embed"`).
+- Set `video.default` to the best-quality MP4 (not the embed).
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from the site's public category/dropdown list (Anal, Pornstar/MILF Pornstars, Massage, Vintage, Threesome, Hairy, Big Ass, POV) plus the sort tabs (Latest, Top Rated, Most Viewed, Longest). Keep the schema aligned with the other scraper folders so `/api/v1/categories?source=momvids` returns valid `CategoryItem` entries.
+
+### Registration checklist for MomVids
+
+Besides creating `backend/app/scrapers/momvids/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=momvids`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - supported-host help text
+  - flat `available_qualities` fields (outer gate + `per_stream_format_keys`), same pattern as `blowjobs.pro` / `tnaflix.com`
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`sourceId="momvids"`, `baseUrl="https://www.momvids.com/latest-updates/"`)
+
+The domain allowlists live in `backend/app/models/schemas.py`:
+
+- `ScrapeRequest.validate_domain` scrape URL allowlist
+- `ListRequest.validate_domain` list/base URL allowlist
+
+### MomVids verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.momvids.com/videos/129221/telugu-anu-tango-premium-live-stripchat/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.momvids.com/latest-updates/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.momvids.com/latest-updates/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.momvids.com/categories/anal/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=momvids"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.momvids.com/videos/129221/telugu-anu-tango-premium-live-stripchat/"
+```
+
+Expected behaviour:
+
+- `POST /api/v1/scrapes` ? correct `title`, `thumbnail_url` (`preview.jpg` on `mjedge.net`), `views`, `uploader_name`, `duration` (normalized), and `video.has_video=true` with `video.default` = the best resolved MP4 (e.g. `720p`) plus all qualities and the embed fallback in `video.streams`.
+- `GET /api/v1/videos` ? items with canonical `/videos/{id}/{slug}/` URLs, thumbnails, durations, and views; page 2 via the path segment must not repeat items.
+- `GET /api/v1/categories?source=momvids` ? the seeded category/sort list.
+- `GET /api/v1/videos/stream` ? returns the default MP4 with flat per-quality fields (`720p`, `720p_format`, `480p`, `480p_format`, `embed`, `embed_format`).
+
