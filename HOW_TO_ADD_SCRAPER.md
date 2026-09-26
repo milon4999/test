@@ -9257,3 +9257,121 @@ Expected behaviour:
 - `GET /api/v1/videos/stream` -> returns the direct MP4 stream.
 
 > Note: the `og:video` MP4 URL is **signed and short-lived** (`expires` + `token`). The backend caches scrapes for ~2h, so an old cached URL can expire. This is inherent to the site — extra quality variants are only served to the authenticated runtime player via `/proxy/api`, not to the public HTML.
+
+## Porndish Implementation Notes
+
+[Porndish](https://www.porndish.com/) is a WordPress site using the **Bimber** theme. It aggregates premium-network clips (Brazzers, Realitykings, Teamskeet, Naughty America, Sis Loves Me, Bangbros, etc.) with daily updates.
+
+### Host aliases
+
+- `porndish.com`
+- `www.porndish.com`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h == "porndish.com" or h.endswith(".porndish.com")
+```
+
+### URL structure
+
+- Video detail pages: `https://www.porndish.com/porn/{slug}/` (WordPress posts with `format-video`).
+- Category / network archive routes are taxonomy URLs, e.g. `https://www.porndish.com/brazzers/`, `https://www.porndish.com/realitykings/`, `https://www.porndish.com/teamskeet/`, `https://www.porndish.com/pornnetworks/`.
+- Sort tabs: `/popular/`, `/hot/`, `/trending/`.
+- Search uses WordPress query search: `https://www.porndish.com/?s={query}`.
+
+### Pagination (`list_videos`)
+
+WordPress numeric paging is path-based:
+
+- Home page 1 is `https://www.porndish.com/`, page *n* &gt; 1 is `https://www.porndish.com/page/{n}/`.
+- Category page 1 is `https://www.porndish.com/brazzers/`, page *n* &gt; 1 is `https://www.porndish.com/brazzers/page/{n}/`.
+
+`_build_list_page_url` strips any existing `/page/{n}/` segment, then appends `/page/{n}/`. Page 1 always uses the supplied `base_url` unchanged.
+
+### Listing cards (`list_videos`)
+
+Bimber renders each card as `<article class="entry-tpl-grid ...">` inside `<li class="g1-collection-item ...">`. Parse from:
+
+- Link: `a.g1-frame[href]` (href `/porn/{slug}/`, `title` attribute holds the full title).
+- Thumbnail: lazy `<img>` â€” prefer `data-src`, then `data-original`/`data-lazy-src`/first `srcset` entry/`src`. Skip `data:` placeholders.
+- Duration: `<span class="mace-video-duration">27:20</span>` (mm:ss / hh:mm:ss).
+- Views: `<span class="entry-views"><strong>11.1k</strong><span> Views</span></span>`.
+
+### Metadata and streams (`scrape`)
+
+Metadata fallback order:
+
+1. `og:title`, `og:description`, `og:image`.
+2. `twitter:title`, `twitter:description`, `twitter:image`.
+3. JSON-LD (Yoast `Article` node): `headline`, `description`, `thumbnailUrl`, `keywords` (tags), `datePublished`.
+4. Visible `h1` / `<title>` fallback.
+
+Tags also come from `.entry-tags .entry-tag` links.
+
+**Streams are third-party embed players**, not direct `.mp4`/`.m3u8`. The page embeds each player as an *escaped JS string* inside an inline `<script>` block, gated by `Video Player 1` / `Video Player 2` buttons:
+
+```js
+const doodstreamContent = "<iframe width=\"600\" height=\"480\" src=\"https:\/\/playmogo.com\/e\/xm1avtswetlo\" ...>";
+const streamixContent = "<iframe src=\"https:\/\/vidara.to\/e\/urSilSwNBBnUO\" ...>";
+```
+
+Extraction approach (same idea as `hornysimp` / `xxxparodyhd`):
+
+- Scan the raw HTML for `<iframe ... src="...">` with a regex that tolerates the escaped delimiter (`src=\"...\"`) and `\/`/`\u0026` escapes.
+- Unescape script URLs (`\\/` -> `/`, `\\u0026` -> `&`) and strip a trailing backslash from the escaped closing quote.
+- Filter obvious ad/tracking iframes (whitetrafsa, googlesyndication, doubleclick, taboola, outbrain, cams).
+- Build `video.streams` entries with `format="embed"` and `quality` = short host label (`playmogo`, `vidara`, ...).
+- Set `video.default` to the **Doodstream/playmogo** (Video Player 1) embed when present, else the first embed.
+- `video.has_video` is true when at least one embed is found. Do **not** fabricate direct media URLs.
+
+### Registration checklist for Porndish
+
+Besides creating `backend/app/scrapers/porndish/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=porndish`)
+- `backend/app/services/video_streaming.py`
+  - scraper selection branch
+  - unsupported-host help text
+  - `available_qualities` flat-field block (same pattern as `hornysimp.com`) for `porndish.com`
+  - `per_stream_format_keys` block (so `*_format` fields are included)
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`baseUrl=https://www.porndish.com/`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist
+  - list/base URL allowlist
+
+### Porndish verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.porndish.com/porn/rkprime-mei-cornejo-a-mexican-hottie-in-spain/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.porndish.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.porndish.com/brazzers/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=porndish"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.porndish.com/porn/rkprime-mei-cornejo-a-mexican-hottie-in-spain/"
+```
+
+Expected behaviour:
+
+- `POST /api/v1/scrapes` -> `title` (suffix stripped), `thumbnail_url` (from `og:image`), `description`, `tags`, `upload_date`, `category`, and `video.has_video=true` with the **playmogo** embed as `video.default` plus the vidara embed in `video.streams` (both `format="embed"`).
+- `GET /api/v1/videos` -> items with canonical `/porn/{slug}/` URLs, thumbnails, durations (`27:20`), and view counts; page 2 via `/page/2/` must not repeat items.
+- `GET /api/v1/videos?base_url=https://www.porndish.com/brazzers/` -> category archive listing works, page 2 via `/brazzers/page/2/`.
+- `GET /api/v1/categories?source=porndish` -> the seeded category list (Latest, Popular, Hot, Trending, and the main networks).
+- `GET /api/v1/videos/stream` -> returns the embed stream with flat per-quality fields (`playmogo`, `playmogo_format`, `vidara`, `vidara_format`).
+
+> Note: the site is behind Cloudflare. The scraper first attempts `curl_cffi` with browser impersonation (chrome120/chrome110/safari15_3) and falls back to the shared `app.core.pool.fetch_html` client, so plain `httpx` should not be used directly for the initial fetch.
