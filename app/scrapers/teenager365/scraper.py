@@ -133,6 +133,10 @@ def _is_probable_ad_iframe(src: str) -> bool:
             "adsbygoogle",
             "datacorex9",
             "track.datacorex9.com",
+            "sadbaguette.com",
+            "engine.sadbaguette.com",
+            "ag_custom_vlmcp",
+            "ag_custom_vlmspot",
         )
     )
 

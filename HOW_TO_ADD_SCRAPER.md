@@ -9103,7 +9103,7 @@ Useful list bases:
 - Duration is read from the `Duration:` label, with a visible time fallback.
 - Views, uploader, category, upload date, and article tags are optional and should remain `None` or empty when unavailable.
 - Return the page's player/embed URL as an embed stream. For `/embed/{id}` requests, return that exact URL as the stream so the player page can load its own configuration.
-- Filter known advertising and tracking hosts, including `googlesyndication`, `doubleclick`, `adservice`, `datacorex9`, and `track.datacorex9.com`.
+- Filter known advertising and tracking hosts, including `googlesyndication`, `doubleclick`, `adservice`, `datacorex9`, `track.datacorex9.com`, and `engine.sadbaguette.com` (including `ag_custom_vlmcp` / `ag_custom_vlmspot` ad query markers).
 - Return embed sources as `format="embed"` with `Server N` quality labels. Do not expose direct `.mp4` or `.m3u8` URLs from the player configuration.
 
 ### Categories (`get_categories`)
