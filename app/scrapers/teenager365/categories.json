@@ -1,0 +1,52 @@
+[
+  {
+    "id": "home",
+    "name": "Home",
+    "url": "https://teenager365.to/"
+  },
+  {
+    "id": "latest-updates",
+    "name": "Latest Updates",
+    "url": "https://teenager365.to/latest-updates/"
+  },
+  {
+    "id": "most-popular",
+    "name": "Most Viewed",
+    "url": "https://teenager365.to/most-popular/"
+  },
+  {
+    "id": "categories",
+    "name": "Categories",
+    "url": "https://teenager365.to/categories/"
+  },
+  {
+    "id": "albums",
+    "name": "Albums",
+    "url": "https://teenager365.to/albums/"
+  },
+  {
+    "id": "models",
+    "name": "Models",
+    "url": "https://teenager365.to/members/"
+  },
+  {
+    "id": "trending-today",
+    "name": "Trending Today",
+    "url": "https://teenager365.to/trending-today/"
+  },
+  {
+    "id": "trending-weekly",
+    "name": "Trending Weekly",
+    "url": "https://teenager365.to/trending-weekly/"
+  },
+  {
+    "id": "trending-monthly",
+    "name": "Trending Monthly",
+    "url": "https://teenager365.to/trending-monthly/"
+  },
+  {
+    "id": "premium",
+    "name": "Premium",
+    "url": "https://teenager365.to/premium/"
+  }
+]

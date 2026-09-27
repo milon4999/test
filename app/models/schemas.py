@@ -438,6 +438,10 @@ class ScrapeRequest(BaseModel):
             "www.mypornerleak.com",
             "latestleaks.co",
             "www.latestleaks.co",
+            "teenager365.to",
+            "www.teenager365.to",
+            "teenager365.com",
+            "www.teenager365.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v
@@ -833,6 +837,10 @@ class ListRequest(BaseModel):
             "www.mypornerleak.com",
             "latestleaks.co",
             "www.latestleaks.co",
+            "teenager365.to",
+            "www.teenager365.to",
+            "teenager365.com",
+            "www.teenager365.com",
         ]
         if any(host.endswith(domain) for domain in allowed_domains):
             return v

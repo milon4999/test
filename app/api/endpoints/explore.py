@@ -2029,6 +2029,19 @@ EXPLORE_SOURCES = [
         disable=False,
         pageSize=20,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://teenager365.to/",
+        nickname="Teenager365",
+        favicon="https://teenager365.to/contents/fncydhefhobd/theme/logo.png",
+        accentColor="#F05A7A",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://teenager365.to/search/?q={query}",
+        sourceId="teenager365",
+        disable=False,
+        pageSize=20,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(
