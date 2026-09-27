@@ -180,6 +180,18 @@ def _collect_embed_iframes(soup: BeautifulSoup) -> list[str]:
     return embeds
 
 
+def _canonical_embed_url(url: str) -> Optional[str]:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    match = re.match(r"^/video/(\d+)(?:/|$)", parsed.path, re.IGNORECASE)
+    if match and host:
+        return urlunparse((parsed.scheme or "https", host, f"/embed/{match.group(1)}", "", "", ""))
+    match = re.match(r"^/embed/(\d+)(?:/|$)", parsed.path, re.IGNORECASE)
+    if match and host:
+        return urlunparse((parsed.scheme or "https", host, f"/embed/{match.group(1)}", "", "", ""))
+    return None
+
+
 def parse_video_page(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
     json_ld = _parse_json_ld(soup)
@@ -255,8 +267,9 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
 
     embed_urls = _collect_embed_iframes(soup)
     streams: list[dict[str, str]] = []
-    if "/embed/" in urlparse(url).path.lower():
-        embed_urls.insert(0, url)
+    canonical_embed = _canonical_embed_url(url)
+    if canonical_embed:
+        embed_urls.insert(0, canonical_embed)
     server_idx = 1
     for e in embed_urls:
         if any(s.get("url") == e for s in streams):
