@@ -230,20 +230,6 @@ def _normalize_video_href(href: str) -> Optional[str]:
     return urlunparse(("https", "latestleaks.co", f"/{slug}/", "", "", ""))
 
 
-def _extract_inline_urls(html: str) -> list[str]:
-    unescaped = html.replace("\\/", "/").replace("\\u0026", "&")
-    urls: list[str] = []
-    for pat in (
-        r"https?://[^\s\"'<>]+\.m3u8[^\s\"'<>]*",
-        r"https?://[^\s\"'<>]+\.mp4[^\s\"'<>]*",
-    ):
-        for m in re.finditer(pat, unescaped, flags=re.IGNORECASE):
-            url = m.group(0).strip()
-            if url:
-                urls.append(url)
-    return list(dict.fromkeys(urls))
-
-
 def _is_probable_ad_iframe(src: str) -> bool:
     s = (src or "").lower()
     return any(
@@ -264,34 +250,6 @@ def _is_probable_ad_iframe(src: str) -> bool:
 def _extract_streams(soup: BeautifulSoup, html: str) -> dict[str, Any]:
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
-
-    for video in soup.select("video"):
-        src = (video.get("src") or "").strip()
-        if src:
-            if src.startswith("//"):
-                src = f"https:{src}"
-            elif src.startswith("/"):
-                src = urljoin("https://latestleaks.co/", src)
-            if src.startswith("http") and src not in seen:
-                seen.add(src)
-                streams.append(
-                    {"url": src, "quality": _quality_from_url(src), "format": "hls" if ".m3u8" in src.lower() else "mp4"}
-                )
-        for source in video.select("source[src]"):
-            src = (source.get("src") or "").strip()
-            if not src:
-                continue
-            if src.startswith("//"):
-                src = f"https:{src}"
-            elif src.startswith("/"):
-                src = urljoin("https://latestleaks.co/", src)
-            if not src.startswith("http") or src in seen:
-                continue
-            seen.add(src)
-            streams.append(
-                {"url": src, "quality": _quality_from_url(src), "format": "hls" if ".m3u8" in src.lower() else "mp4"}
-            )
-
     server_idx = 1
     for iframe in soup.select("iframe[src]"):
         src = (iframe.get("src") or "").strip()
