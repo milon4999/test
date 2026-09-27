@@ -9086,7 +9086,7 @@ def can_handle(host: str) -> bool:
 - Prefer thumbnails from lazy attributes (`data-src`, `data-lazy-src`, `data-original`) before `src`.
 - Parse `mm:ss` / `hh:mm:ss` duration labels and compact view counters from card text.
 - Page 1 uses the supplied `base_url` unchanged.
-- Page 2 and later use the site path pattern `/page/{n}/`; search query pages preserve the query and add `page={n}`.
+- Page 2 and later use the site path pattern `/{n}/` (for example `/latest-updates/2/` and `/categories/onlyfans/2/`); search query pages preserve the query and add `page={n}`.
 - Skip external ad cards and non-video utility links.
 
 Useful list bases:
@@ -9102,11 +9102,9 @@ Useful list bases:
 - Metadata fallback order is Open Graph, Twitter metadata, JSON-LD, then visible `h1` / `<title>`.
 - Duration is read from the `Duration:` label, with a visible time fallback.
 - Views, uploader, category, upload date, and article tags are optional and should remain `None` or empty when unavailable.
-- Prefer direct playable media from `<video src>`, `<video><source src>`, and escaped inline `.mp4` / `.m3u8` URLs when present.
-- Use iframe sources from `iframe[src]` as the fallback when direct media is absent.
+- Return the page's player/embed URL as an embed stream. For `/embed/{id}` requests, return that exact URL as the stream so the player page can load its own configuration.
 - Filter known advertising and tracking hosts, including `googlesyndication`, `doubleclick`, `adservice`, `datacorex9`, and `track.datacorex9.com`.
-- Return direct files as `format="mp4"` / `format="hls"`; return iframe sources as `format="embed"` with `Server N` quality labels.
-- Prefer the highest-resolution MP4, then HLS, then an embed. Never fabricate URLs.
+- Return embed sources as `format="embed"` with `Server N` quality labels. Do not expose direct `.mp4` or `.m3u8` URLs from the player configuration.
 
 ### Categories (`get_categories`)
 

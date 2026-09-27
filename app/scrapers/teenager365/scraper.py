@@ -4,7 +4,7 @@ import json
 import os
 import re
 from typing import Any, Optional
-from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
 
@@ -176,65 +176,6 @@ def _collect_embed_iframes(soup: BeautifulSoup) -> list[str]:
     return embeds
 
 
-def _normalize_media_url(value: str, page_url: str) -> Optional[str]:
-    value = (value or "").strip().strip("'\"")
-    if not value or value.startswith("data:"):
-        return None
-    if value.startswith("\\/"):
-        value = value.replace("\\/", "/")
-    if value.startswith("//"):
-        value = f"https:{value}"
-    elif value.startswith("/"):
-        value = urljoin(page_url, value)
-    if not value.startswith(("http://", "https://")):
-        return None
-    return value
-
-
-def _collect_direct_media(soup: BeautifulSoup, html: str, page_url: str) -> list[dict[str, str]]:
-    candidates: list[str] = []
-
-    for video in soup.select("video[src], video source[src]"):
-        src = video.get("src")
-        if src:
-            candidates.append(str(src))
-
-    unescaped = html.replace("\\/", "/").replace("\\u0026", "&")
-    for match in re.finditer(r"https?://[^\s\"'<>\\]+\.(?:mp4|m3u8)(?:\?[^\s\"'<>\\]*)?", unescaped, re.IGNORECASE):
-        candidates.append(match.group(0))
-
-    streams: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for raw in candidates:
-        media_url = _normalize_media_url(raw, page_url)
-        if not media_url or media_url in seen:
-            continue
-        seen.add(media_url)
-        low = media_url.lower()
-        fmt = "hls" if ".m3u8" in low else "mp4"
-        quality_match = re.search(r"(?:^|[_-])(\d{3,4})p(?:[_./?-]|$)", low)
-        quality = f"{quality_match.group(1)}p" if quality_match else ("adaptive" if fmt == "hls" else "source")
-        streams.append({"url": media_url, "quality": quality, "format": fmt})
-    return streams
-
-
-def _score_stream(item: dict[str, str]) -> tuple[int, int]:
-    fmt = (item.get("format") or "").lower()
-    url = item.get("url", "").lower()
-    if fmt == "mp4":
-        quality = re.search(r"(\d{3,4})p", item.get("quality", ""), re.IGNORECASE)
-        return (3, int(quality.group(1)) if quality else 0)
-    if fmt == "hls":
-        return (2, 0)
-    priority = 1
-    if fmt == "embed":
-        if "byseraguci" in url:
-            priority = 2
-        elif "hrnyvid" in url or "lulu" in url:
-            priority = 1
-    return (priority, 0)
-
-
 def parse_video_page(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
     json_ld = _parse_json_ld(soup)
@@ -308,21 +249,20 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
 
     tags = list(dict.fromkeys([t for t in tags if t]))
 
-    streams = _collect_direct_media(soup, html, url)
     embed_urls = _collect_embed_iframes(soup)
+    streams: list[dict[str, str]] = []
+    if "/embed/" in urlparse(url).path.lower():
+        embed_urls.insert(0, url)
     server_idx = 1
     for e in embed_urls:
+        if any(s.get("url") == e for s in streams):
+            continue
         streams.append({"url": e, "quality": f"Server {server_idx}", "format": "embed"})
         server_idx += 1
-
-    streams = list({item["url"]: item for item in streams}.values())
-    streams.sort(key=_score_stream, reverse=True)
 
     default_url = None
     if streams:
         default_url = streams[0].get("url")
-
-    hls_url = next((s.get("url") for s in streams if s.get("format") == "hls"), None)
 
     return {
         "url": url,
@@ -337,7 +277,7 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
         "upload_date": upload_date,
         "video": {
             "streams": streams,
-            "hls": hls_url,
+            "hls": None,
             "default": default_url,
             "has_video": bool(streams),
         },
@@ -364,12 +304,12 @@ def _build_list_page_url(base_url: str, page: int) -> str:
     if page <= 1:
         return urlunparse((scheme, netloc, path, "", urlencode(query_items), ""))
 
-    cleaned_path = re.sub(r"/page/\d+/?$", "/", path)
+    cleaned_path = re.sub(r"/(?:page/)?\d+/?$", "/", path)
     if query_items.get("s"):
         query_items["page"] = str(page)
         return urlunparse((scheme, netloc, cleaned_path or "/", "", urlencode(query_items), ""))
 
-    page_path = cleaned_path.rstrip("/") + f"/page/{page}/"
+    page_path = cleaned_path.rstrip("/") + f"/{page}/"
     return f"{scheme}://{netloc}{page_path}"
 
 
