@@ -2016,6 +2016,19 @@ EXPLORE_SOURCES = [
         pageSize=32,
         hasRelatedVideos=False,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://latestleaks.co/",
+        nickname="LatestLeaks",
+        favicon="https://latestleaks.co/wp-content/uploads/2024/04/cropped-android-chrome-512x512-2-32x32.png",
+        accentColor="#F42261",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://latestleaks.co/?s={query}",
+        sourceId="latestleaks",
+        disable=False,
+        pageSize=20,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

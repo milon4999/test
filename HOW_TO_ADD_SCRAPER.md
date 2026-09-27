@@ -9605,3 +9605,111 @@ Expected behaviour:
 - `GET /api/v1/categories?source=momvids` ? the seeded category/sort list.
 - `GET /api/v1/videos/stream` ? returns the default MP4 with flat per-quality fields (`720p`, `720p_format`, `480p`, `480p_format`).
 
+## LatestLeaks Implementation Notes
+
+[LatestLeaks](https://latestleaks.co/) is a WordPress **Bam** theme clip index (same engine family as `viralkand` / `bollywoodmaal` / `mmsbro`). Detail pages are root-level post slugs (e.g. `/naughty-office-sarah-vandella/`) where the video is played through a **third-party iframe embed** (StreamTape `streamtape.com/e/{code}/`) and the page also lists **k2s.cc premium single-link** plus **frdl.io free RAR parts** (not usable as inline media — treated as download notices, not streams). Thumbnails are lazy-loaded from `t3.pixhost.cc` via `data-src`.
+
+### Host aliases
+
+- `latestleaks.co`
+- `www.latestleaks.co`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower()
+    return h == "latestleaks.co" or h.endswith(".latestleaks.co")
+```
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image` (og:image is on `t3.pixhost.cc`)
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. JSON-LD `BlogPosting` / `VideoObject` (`name`, `description`, `thumbnailUrl`, `datePublished`, `author`)
+  4. visible `h1` / page `<title>` — strip the trailing date suffix (e.g. ` - September 27, 2026`)
+- Duration: the post body prints `Duration: 00:28:34` in plain text — regex on the `Duration:` label first, then a generic `hh:mm:ss` / `mm:ss` fallback.
+- Tags: `meta[property="article:tag"]` (the site repeats the tag list there); category from `article:section`.
+- Stream extraction order:
+  - `<video src>` / `<video><source src>` (rarely present on this site)
+  - inline script `.mp4` / `.m3u8` URLs
+  - `iframe[src]` embeds as the real playable source (StreamTape `streamtape.com/e/{code}/`) -> `format="embed"`, `quality="Server 1"`, ...
+- Unescape inline-script URLs before use (`\\/` -> `/`, `\\u0026` -> `&`).
+- **Important:** the k2s.cc / frdl.io / imagetwist.com links in the post body are download/hosting notices, **not** playable media — they are not `.mp4`/`.m3u8` URLs so the regex scan correctly ignores them.
+- Build `video.streams` with:
+  - direct media: `format="mp4"` / `format="hls"`
+  - embeds: `format="embed"` with `Server N` labels
+- Set `video.default` preference:
+  1. highest-priority direct MP4
+  2. HLS URL
+  3. first playable embed (StreamTape)
+
+If a page exposes only embedded players, return embed streams instead of manufacturing direct media URLs.
+
+### Listing and pagination (`list_videos`)
+
+Recommended list strategy:
+
+- Primary card selector: `article.bam-entry` -> title `h2.entry-title a` (or `.entry-title a`), thumbnail `.post-thumbnail img` (`data-src`).
+- Fallback generic selector when `bam-entry` is absent: any `a[href]` normalizing to a single-segment same-domain post slug.
+- Keep only single-segment post URLs and skip utility/legal paths (`/contact`, `/category/`, `/tag/`, `/page/`, `/author/`, `/feed/`, `/wp-*`, `/xmlrpc.php`, `/search`).
+- Normalize each href to canonical `https://latestleaks.co/{slug}/` (trailing slash, no query).
+- Page 1 should use `base_url` unchanged.
+- For page > 1, follow the WordPress pager: strip any existing `/page/N/` segment, then append `/page/{n}/` (trailing slash required). Search base URLs preserve their `?s=` query and add `paged={n}` instead.
+- Duration/views are not reliably present on listing cards — keep them optional (`None` when absent).
+
+Useful list base URLs:
+
+- `https://latestleaks.co/`
+- `https://latestleaks.co/category/movies/`
+- `https://latestleaks.co/tag/onlyfans/`
+- `https://latestleaks.co/?s=<query>`
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from the site's public nav: Home, Movies (`/category/movies/`), and OnlyFans (`/tag/onlyfans/`). Keep the schema aligned with existing scraper folders so `/api/v1/categories?source=latestleaks` returns valid `CategoryItem` entries.
+
+### Registration checklist for LatestLeaks
+
+Besides creating `backend/app/scrapers/latestleaks/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=latestleaks`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif latestleaks.can_handle(host)`)
+  - unsupported-host help text (`latestleaks.co`)
+  - `available_qualities` host list and `per_stream_format_keys` host list (`latestleaks.co`)
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`sourceId="latestleaks"`, `baseUrl="https://latestleaks.co/"`, `searchUrlTemplate="https://latestleaks.co/?s={query}"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`latestleaks.co`, `www.latestleaks.co`)
+  - list/base URL allowlist (same hosts)
+
+### LatestLeaks verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://latestleaks.co/naughty-office-sarah-vandella/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://latestleaks.co/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=latestleaks"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://latestleaks.co/naughty-office-sarah-vandella/"
+```
+
+Notes from live analysis (2026-09):
+
+- `scrape()` on `/naughty-office-sarah-vandella/`: title `Naughty Office - Sarah Vandella`, thumbnail from `t3.pixhost.cc`, duration `00:28:34`, tags from `article:tag` metas, and one StreamTape `Server 1` embed stream (`video.default` = that embed, `has_video=True`).
+- The k2s.cc "Premium Single Link" and frdl.io "Free Download Links" (RAR parts) are download notices, not playable media, so they are intentionally excluded from `video.streams`.
+- Listings: home page 1 + 2 (`/page/2/` - trailing slash required) parse `article.bam-entry` cards with titles and lazy thumbnails.
+- The playable path is the StreamTape embed, so the app's WebView/embed player renders it; there is no direct MP4/HLS on the post page.
