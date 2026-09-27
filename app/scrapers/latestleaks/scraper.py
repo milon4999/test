@@ -292,14 +292,6 @@ def _extract_streams(soup: BeautifulSoup, html: str) -> dict[str, Any]:
                 {"url": src, "quality": _quality_from_url(src), "format": "hls" if ".m3u8" in src.lower() else "mp4"}
             )
 
-    for src in _extract_inline_urls(html):
-        if src in seen:
-            continue
-        seen.add(src)
-        streams.append(
-            {"url": src, "quality": _quality_from_url(src), "format": "hls" if ".m3u8" in src.lower() else "mp4"}
-        )
-
     server_idx = 1
     for iframe in soup.select("iframe[src]"):
         src = (iframe.get("src") or "").strip()
