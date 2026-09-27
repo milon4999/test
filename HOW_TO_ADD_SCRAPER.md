@@ -9102,9 +9102,11 @@ Useful list bases:
 - Metadata fallback order is Open Graph, Twitter metadata, JSON-LD, then visible `h1` / `<title>`.
 - Duration is read from the `Duration:` label, with a visible time fallback.
 - Views, uploader, category, upload date, and article tags are optional and should remain `None` or empty when unavailable.
-- Extract only playable iframe sources from `iframe[src]`.
+- Prefer direct playable media from `<video src>`, `<video><source src>`, and escaped inline `.mp4` / `.m3u8` URLs when present.
+- Use iframe sources from `iframe[src]` as the fallback when direct media is absent.
 - Filter known advertising and tracking hosts, including `googlesyndication`, `doubleclick`, `adservice`, `datacorex9`, and `track.datacorex9.com`.
-- Return iframe sources as `format="embed"` with `Server N` quality labels. Do not fabricate direct `.mp4` or `.m3u8` URLs.
+- Return direct files as `format="mp4"` / `format="hls"`; return iframe sources as `format="embed"` with `Server N` quality labels.
+- Prefer the highest-resolution MP4, then HLS, then an embed. Never fabricate URLs.
 
 ### Categories (`get_categories`)
 
