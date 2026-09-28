@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -427,9 +428,69 @@ def parse_video_page(html: str, url: str, embed_url: str | None = None) -> dict[
     }
 
 
+async def _resolve_get_file_url(get_file_url: str, *, referer: str) -> Optional[str]:
+    raw = (get_file_url or "").strip()
+    if not raw or "/get_file/" not in raw:
+        return None
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+        "Referer": referer if referer.startswith("http") else "https://viralxxxporn.com/",
+        "Accept": "*/*",
+        "Range": "bytes=0-0",
+    }
+
+    try:
+        from curl_cffi.requests import AsyncSession
+
+        async with AsyncSession(impersonate="chrome", headers=headers, timeout=15.0) as client:
+            resp = await client.get(raw, allow_redirects=False)
+            if resp.status_code in (301, 302, 303, 307, 308):
+                loc = resp.headers.get("Location") or resp.headers.get("location")
+                if loc and loc.startswith("http") and "/get_file/" not in loc.lower():
+                    return loc
+    except Exception:
+        return None
+    return None
+
+
+async def _resolve_video_streams(video: dict[str, Any], *, referer: str) -> None:
+    streams: list[dict[str, str]] = video.get("streams") or []
+    get_file_streams = [
+        s for s in streams if s.get("format") == "mp4" and "/get_file/" in (s.get("url") or "")
+    ]
+    if not get_file_streams:
+        return
+
+    async def _resolve_one(stream: dict[str, str]) -> tuple[dict[str, str], Optional[str]]:
+        return stream, await _resolve_get_file_url(stream["url"], referer=referer)
+
+    try:
+        pairs = await asyncio.wait_for(
+            asyncio.gather(*[_resolve_one(s) for s in get_file_streams]),
+            timeout=25.0,
+        )
+    except Exception:
+        pairs = [(s, None) for s in get_file_streams]
+
+    for stream, resolved in pairs:
+        if resolved:
+            stream["url"] = resolved
+        elif stream in streams:
+            streams.remove(stream)
+
+    mp4 = next((s for s in streams if s.get("format") == "mp4"), None)
+    embed = next((s for s in streams if s.get("format") == "embed"), None)
+    video["default"] = (mp4 or embed or {}).get("url") if (mp4 or embed) else None
+    video["hls"] = None
+    video["has_video"] = bool(streams)
+
+
 async def scrape(url: str) -> dict[str, Any]:
     html = await fetch_page(url)
-    return parse_video_page(html, url, _embed_url(url))
+    result = parse_video_page(html, url, _embed_url(url))
+    await _resolve_video_streams(result["video"], referer=url)
+    return result
 
 
 def _build_list_page_url(base_url: str, page: int) -> str:

@@ -9845,19 +9845,19 @@ def can_handle(host: str) -> bool:
   4. visible `h1` / page `<title>`
 - Streams: progressive MP4 via same-origin `/get_file/{bucket}/{hash}/{id}/{filename}.mp4/` URLs (often `_720p`, `_1080p`, plus a `source` variant, sometimes with `?v-acctoken=`).
 - **Critical: filter `get_file` URLs to the current video id.** The page embeds many `*_preview.mp4` URLs that belong to *related* videos. `_is_current_video()` keeps only URLs whose path contains `/{current_video_id}/` or `/{current_video_id}_`, dropping all preview/related clips.
-- Embed fallback: iframe embeds (ad iframes filtered via `googlesyndication` / `doubleclick` / `vast`, etc.).
+- **Resolve `/get_file/` to a playable CDN URL.** Bare `get_file` links are tokenized redirects and do not play directly. `_resolve_get_file_url()` issues a `GET` with `Range: bytes=0-0` and the watch-page `Referer` (curl_cffi Chrome impersonation) and follows the 302 to the real MP4 on a subdomain CDN (`nude.viralxxxporn.com`, `sextape.viralxxxporn.com`, ...). Streams that fail to resolve are dropped, so only genuinely playable direct MP4s are returned.
+- **Embed URL is always included.** `https://viralxxxporn.com/embed/{id}` is exposed as a `format="embed"` stream (`quality="Embed"`) so WebView/iframe playback always works. `/embed/{id}` is also a valid first-class `scrape()` target — its page carries `og:*` metadata plus the same player config (`video_url` / `video_alt_url`), and `_extract_video_id()` handles `/video/`, `/embed/`, and `/short/` URL shapes.
 - Unescape script URLs before use (`\\/` -> `/`, `\\u0026` -> `&`).
 - Build `video.streams` entries:
-  - direct files: `format="mp4"` / `format="hls"`
-  - embeds: `format="embed"` with `quality` labels (`Server 1`, `Server 2`, ...)
+  - direct files: resolved `format="mp4"` (never a bare `get_file` link)
+  - embeds: `format="embed"` — the site embed URL (`quality="Embed"`) plus any iframe embeds (`Server 1`, `Server 2`, ...)
 - Set `video.default` preference:
-  1. highest-quality direct MP4
-  2. HLS URL
-  3. first playable embed
+  1. highest-quality resolved MP4
+  2. first playable embed
 
 ### Categories (`get_categories`)
 
-Seed `categories.json` from the site's public `/categories/` grid: Blowjob, Babe, Dildo, Sucking dildo, Riding, Riding dildo, Deepthroat, Creampie, Fucking, Blonde, POV, Big Tits, Onlyfans, Tiktok. Schema matches the other scraper folders so `/api/v1/categories?source=viralxxxporn` returns valid `CategoryItem` entries.
+Seed `categories.json` from the site's main feed routes plus the public `/categories/` grid: Latest (`/latest-updates/`), Top Rated (`/top-rated/`), Most Viewed (`/most-popular/`), then genre categories (Blowjob, Babe, Big Tits, Big Ass, Dildo, Deepthroat, Creampie, Anal, Squirt, Wet Pussy, Latina, Brunette, POV, Amateur, Onlyfans, 4K, ...). Schema matches the other scraper folders so `/api/v1/categories?source=viralxxxporn` returns valid `CategoryItem` entries.
 
 ### Registration checklist for ViralXXXPorn
 
