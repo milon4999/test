@@ -2,6 +2,24 @@
 
 This guide matches the current backend layout and registration flow.
 
+## Authorization and Content Safety
+
+Only add a scraper when the site owner or content licensors have authorized the
+collection and redistribution performed by this application. Do not implement
+scrapers for leaked, stolen, private, or otherwise non-consensual intimate
+content, and do not bypass authentication, paywalls, CAPTCHAs, robots rules,
+rate limits, geo-blocks, or other access controls.
+
+Before implementation, record the authorization basis and confirm that the
+requested fields are limited to content the application is permitted to use.
+If authorization is unclear, stop at a documented analysis and do not add the
+host to any dispatcher, allowlist, streaming service, or Explore source list.
+
+The public availability of a page does not by itself establish permission to
+copy or redistribute its media. A scraper should return only metadata and
+media that the project is explicitly licensed or otherwise authorized to
+handle.
+
 ## Current Structure
 
 ```text
@@ -9781,3 +9799,104 @@ Notes from live analysis (2026-09):
 
  
  
+
+
+## ViralXXXPorn Implementation Notes
+
+[ViralXXXPorn](https://viralxxxporn.com/) (rebranded from *ViralPornhub*) is a **KVS-style tube** site for viral clips, OnlyFans/Fansly leaks, and trending HD/4K videos. It is the direct sibling of the existing `viralkand` scraper but with the KVS `/video/{id}/{slug}/` canonical path scheme instead of WordPress slugs.
+
+Use `viralkand`, `watchporn`, and `pornone` as the closest implementation references.
+
+### Host aliases
+
+- `viralxxxporn.com`
+- `www.viralxxxporn.com`
+- Thumbnail CDN: `imgcdn.viralxxxporn.com` (covered by the same host allowlist)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower()
+    return h == "viralxxxporn.com" or h.endswith(".viralxxxporn.com")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Canonical video pages: `https://viralxxxporn.com/video/{id}/{slug}/`
+- Short clips: `https://viralxxxporn.com/short/{id}/` (kept as separate items)
+- Feed routes: `/latest-updates/`, `/top-rated/`, `/most-popular/`, `/categories/{slug}/`, `/tags/{slug}/`, `/models/{slug}/`, `/shorts/`
+- Card metadata:
+  - title: anchor `title`, image `alt`, then visible anchor text
+  - thumbnail: `data-src` / `data-original` / `srcset` first candidate / `src` (`imgcdn.viralxxxporn.com/contents/videos_screenshots/...`)
+  - duration: `mm:ss` / `hh:mm:ss` regex from the card text
+  - views: compact counters (`67K`, `121K`) from card text
+- Page 1 uses `base_url` unchanged.
+- For page > 1, the KVS pager uses a numeric path segment: `/latest-updates/2/`, `/categories/{slug}/2/`, `/video/.../2/`. `_build_list_page_url` strips a trailing numeric segment and appends `/{page}/`.
+- Skip utility/legal/nav paths: `/members/`, `/models/`, `/categories/`, `/tags/`, `/albums/`, `/playlists/`, `/shorts/`, `/dmca/`, `/2257/`, `/terms/`, etc.
+
+### Metadata and streams (`scrape`)
+
+- Canonical page: `https://viralxxxporn.com/video/{id}/{slug}/`
+- Metadata fallback order:
+  1. `og:title`, `og:description`, `og:image`
+  2. `twitter:title`, `twitter:description`, `twitter:image`
+  3. JSON-LD `VideoObject` (`name`, `description`, `thumbnailUrl`, `duration`)
+  4. visible `h1` / page `<title>`
+- Streams: progressive MP4 via same-origin `/get_file/{bucket}/{hash}/{id}/{filename}.mp4/` URLs (often `_720p`, `_1080p`, plus a `source` variant, sometimes with `?v-acctoken=`).
+- **Critical: filter `get_file` URLs to the current video id.** The page embeds many `*_preview.mp4` URLs that belong to *related* videos. `_is_current_video()` keeps only URLs whose path contains `/{current_video_id}/` or `/{current_video_id}_`, dropping all preview/related clips.
+- Embed fallback: iframe embeds (ad iframes filtered via `googlesyndication` / `doubleclick` / `vast`, etc.).
+- Unescape script URLs before use (`\\/` -> `/`, `\\u0026` -> `&`).
+- Build `video.streams` entries:
+  - direct files: `format="mp4"` / `format="hls"`
+  - embeds: `format="embed"` with `quality` labels (`Server 1`, `Server 2`, ...)
+- Set `video.default` preference:
+  1. highest-quality direct MP4
+  2. HLS URL
+  3. first playable embed
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from the site's public `/categories/` grid: Blowjob, Babe, Dildo, Sucking dildo, Riding, Riding dildo, Deepthroat, Creampie, Fucking, Blonde, POV, Big Tits, Onlyfans, Tiktok. Schema matches the other scraper folders so `/api/v1/categories?source=viralxxxporn` returns valid `CategoryItem` entries.
+
+### Registration checklist for ViralXXXPorn
+
+Besides creating `backend/app/scrapers/viralxxxporn/`, update all of these:
+
+- `backend/app/scrapers/__init__.py`
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=viralxxxporn`, `source=viralxxxporn.com`, `source=vxp`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif viralxxxporn.can_handle(host)`)
+  - host checks for stream/info passthrough (`viralxxxporn.com`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`viralxxxporn.com`, `www.viralxxxporn.com`, `imgcdn.viralxxxporn.com`)
+  - list/base URL allowlist (`viralxxxporn.com`, `www.viralxxxporn.com`)
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`sourceId="viralxxxporn"`, `baseUrl="https://viralxxxporn.com/latest-updates/"`, `searchUrlTemplate="https://viralxxxporn.com/search/{query}/"`)
+
+### ViralXXXPorn verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://viralxxxporn.com/video/515124/sophie-rain-rides-her-boyfriend-in-exclusive-nude-scene/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://viralxxxporn.com/latest-updates/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://viralxxxporn.com/categories/blowjob/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=viralxxxporn"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://viralxxxporn.com/video/515124/sophie-rain-rides-her-boyfriend-in-exclusive-nude-scene/"
+```
+
+Notes from live testing (2026-09):
+
+- `scrape()` on `/video/515124/sophie-rain-rides-her-boyfriend-in-exclusive-nude-scene/`: title, thumbnail from `imgcdn.viralxxxporn.com/.../preview.jpg`, duration `5:44`, and 4 direct MP4 streams filtered to the current video (720p x2 + source x2, all `/get_file/.../515124/...`). Related-video `*_preview.mp4` URLs are correctly excluded.
+- Listings: home `/latest-updates/` page 1 returns valid cards (titles, thumbnails, durations, views). `?base_url=.../categories/blowjob/&page=2` paginates via `/categories/blowjob/2/`.
+- The site serves full HTML to the pooled aiohttp fetcher with browser headers; no Cloudflare challenge observed.
