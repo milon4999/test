@@ -506,10 +506,11 @@ def _build_list_page_url(base_url: str, page: int) -> str:
     if page <= 1:
         return urlunparse((scheme, netloc, path, "", urlencode(query_items), ""))
 
-    clean_path = re.sub(r"/(\d+)/?$", "/", path or "/")
-    clean_path = re.sub(r"/page/\d+/?$", "/", clean_path)
+    # Site uses /path/<page>/ format (e.g., /latest-updates/2/), not /page/N/
+    clean_path = re.sub(r"/page/\d+/?$", "/", path or "/")
+    clean_path = re.sub(r"/\d+/?$", "/", clean_path)
 
-    paged_path = clean_path.rstrip("/") + f"/page/{page}/"
+    paged_path = clean_path.rstrip("/") + f"/{page}/"
     return urlunparse((scheme, netloc, paged_path, "", urlencode(query_items), ""))
 
 
