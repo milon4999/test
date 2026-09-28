@@ -572,9 +572,11 @@ def _build_list_page_url(base_url: str, page: int) -> str:
         path = parsed.path or "/search/"
         return urlunparse((parsed.scheme, parsed.netloc, path, "", urlencode(pairs, doseq=True), ""))
 
+    # PornHoarder uses ?page=N query parameter for non-search list pagination
     parts = [p for p in (parsed.path or "/").strip("/").split("/") if p]
     if not parts:
         parts = ["hp"]
+    # Strip trailing numeric page segment (e.g. /trending-videos/2/ -> /trending-videos/)
     if parts and parts[-1].isdigit():
         parts = parts[:-1]
 
