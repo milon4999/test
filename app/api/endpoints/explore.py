@@ -1398,7 +1398,7 @@ EXPLORE_SOURCES = [
         searchUrlTemplate="https://www.whoreshub.com/search/{query}/",
         sourceId="whoreshub",
         disable=False,
-        pageSize=32,
+        pageSize=25,
     ),
     ExploreSourceResponse(
         baseUrl="https://blackporn24.com/",

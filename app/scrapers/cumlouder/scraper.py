@@ -376,6 +376,9 @@ def _best_image_url(img: Any) -> Optional[str]:
     return None
 
 
+_ROOT_INDEX_PATHS = {"/porn/", "/2/", "/"}
+
+
 def _build_list_page_url(base_url: str, page: int) -> str:
     raw = (base_url or "").strip()
     if not raw.startswith("http"):
@@ -387,14 +390,22 @@ def _build_list_page_url(base_url: str, page: int) -> str:
     query = p.query
 
     host = netloc.lower().split(":")[0].removeprefix("www.")
-    # The bare root is a series/category grid, not a video listing; the
-    # site's newest-videos index lives at /series/newest/ (paginates as
-    # /series/newest/{n}/).
-    if host == _HOST and path in ("", "/") and not query:
-        path = "/series/newest/"
 
     if page <= 1:
+        # The bare root is a category grid, not a video listing, so it has
+        # no usable pagination of its own.
+        if host == _HOST and path in ("/", "") and not query:
+            path = "/porn/"
         return urlunparse((scheme, netloc, path, "", query, ""))
+
+    # Root-level video indices (/porn/ = "All", /2/ = "CumLouder") paginate
+    # at the bare root as /2/, /3/, /4/, ... rather than appending to the
+    # path. The CumLouder index (/2/) itself is the second page of the root
+    # sequence, so its page counter is offset by one.
+    if host == _HOST and path in _ROOT_INDEX_PATHS:
+        if path == "/2/":
+            page += 1
+        return urlunparse((scheme, netloc, f"/{page}/", "", "", ""))
 
     clean_path = _PAGE_SEGMENT_RE.sub("/", path)
     clean_path = clean_path if clean_path.endswith("/") else clean_path + "/"
