@@ -324,7 +324,7 @@ EXPLORE_SOURCES = [
     ExploreSourceResponse(
         baseUrl="https://viralkand.com/",
         nickname="Viralkand",
-        favicon="https://raw.githubusercontent.com/freelancermilonid132bd-ui/apphub/refs/heads/main/logo/viralkand.png",
+        favicon="https://media.tenor.com/K5wSW-CGK9wAAAAj/maintenance-under-maintenance.gif",
         accentColor="#C2185B",
         category="porn",
         isVerified=False,
@@ -753,7 +753,7 @@ EXPLORE_SOURCES = [
     ExploreSourceResponse(
         baseUrl="https://sxyland.com/",
         nickname="SxyLand",
-        favicon="https://sxyland.com/wp-content/uploads/2026/08/cropped-ms-icon-310x310-3-32x32.png",
+        favicon="https://media.tenor.com/K5wSW-CGK9wAAAAj/maintenance-under-maintenance.gif",
         accentColor="#FFA500",
         category="porn",
         isVerified=False,
@@ -766,7 +766,7 @@ EXPLORE_SOURCES = [
     ExploreSourceResponse(
         baseUrl="https://camcaps.tv/",
         nickname="CamCaps",
-        favicon="https://camcaps.tv/images/favicons/favicon-32x32.png",
+        favicon="https://media.tenor.com/K5wSW-CGK9wAAAAj/maintenance-under-maintenance.gif",
         accentColor="#7B1FA2",
         category="porn",
         isVerified=False,
