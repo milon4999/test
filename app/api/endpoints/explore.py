@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter
 from app.models.explore_models import ExploreConfigResponse, ExploreConfigData, ExploreCategoryResponse, ExploreSourceResponse
+from app.core.site_monitor import MAINTENANCE_FAVICON, get_unhealthy_source_ids
 
 router = APIRouter()
 
@@ -2097,7 +2098,17 @@ async def get_explore_config() -> ExploreConfigResponse:
     """
     # Filter sources to only include those not disabled
     enabled_sources = [source for source in EXPLORE_SOURCES if not source.disable]
-    
+
+    # Swap in the maintenance favicon for any source flagged dead/moved/blocked.
+    unhealthy = get_unhealthy_source_ids()
+    if unhealthy:
+        enabled_sources = [
+            source.model_copy(update={"favicon": MAINTENANCE_FAVICON})
+            if source.sourceId in unhealthy
+            else source
+            for source in enabled_sources
+        ]
+
     # Create a copy of the config with only enabled sources
     filtered_config = ExploreConfigData(
         title=EXPLORE_CONFIG.title,
