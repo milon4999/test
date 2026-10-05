@@ -2,8 +2,9 @@ import re
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Body
 from app.models.explore_models import ExploreConfigResponse, ExploreConfigData, ExploreCategoryResponse, ExploreSourceResponse
+from app.core import site_monitor
 from app.core.site_monitor import MAINTENANCE_FAVICON, get_unhealthy_source_ids
 
 router = APIRouter()
@@ -2120,3 +2121,40 @@ async def get_explore_config() -> ExploreConfigResponse:
         status="success",
         data=filtered_config
     )
+
+
+@router.post("/explore/monitor/run", tags=["Explore"])
+async def run_site_monitor() -> dict[str, Any]:
+    """Manually trigger a full health probe of all enabled sources."""
+    await site_monitor.run_all_checks()
+    state = site_monitor.load_state()
+    unhealthy = site_monitor.get_unhealthy_source_ids()
+    return {
+        "status": "ok",
+        "probed": len(state),
+        "unhealthy": sorted(unhealthy),
+    }
+
+
+@router.get("/explore/monitor/status", tags=["Explore"])
+async def site_monitor_status() -> dict[str, Any]:
+    """Return the current per-source health state."""
+    state = site_monitor.load_state()
+    unhealthy = site_monitor.get_unhealthy_source_ids()
+    return {
+        "status": "ok",
+        "total": len(state),
+        "unhealthy": sorted(unhealthy),
+        "state": state,
+    }
+
+
+@router.post("/explore/monitor/clear", tags=["Explore"])
+async def site_monitor_clear(source_ids: list[str] | None = Body(default=None)) -> dict[str, Any]:
+    """Mark one or more sources healthy again (clears strikes). Omit body to clear all."""
+    state = site_monitor.load_state()
+    ids = source_ids if source_ids else list(state.keys())
+    for sid in ids:
+        site_monitor.update_state(state, sid, ok=True, status=200, reason="")
+    site_monitor.save_state(state)
+    return {"status": "ok", "cleared": ids}
