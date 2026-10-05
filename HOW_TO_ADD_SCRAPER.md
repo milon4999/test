@@ -9900,3 +9900,148 @@ Notes from live testing (2026-09):
 - `scrape()` on `/video/515124/sophie-rain-rides-her-boyfriend-in-exclusive-nude-scene/`: title, thumbnail from `imgcdn.viralxxxporn.com/.../preview.jpg`, duration `5:44`, and 4 direct MP4 streams filtered to the current video (720p x2 + source x2, all `/get_file/.../515124/...`). Related-video `*_preview.mp4` URLs are correctly excluded.
 - Listings: home `/latest-updates/` page 1 returns valid cards (titles, thumbnails, durations, views). `?base_url=.../categories/blowjob/&page=2` paginates via `/categories/blowjob/2/`.
 - The site serves full HTML to the pooled aiohttp fetcher with browser headers; no Cloudflare challenge observed.
+
+## CumLouder Implementation Notes
+
+[CumLouder](https://www.cumlouder.com/) is a Spanish-language production tube with:
+
+- series/category grid on the bare root (/) - **not** a video listing
+- newest-videos index at /series/newest/ (paginates as /series/newest/{n}/)
+- canonical video pages under /porn-video/{slug}/
+- tag/category archives under /porn-videos/{slug}/ (paginate as /porn-videos/{slug}/{n}/)
+- series archives under /series/{slug}/ (same card layout, same pagination)
+- a native HTML5 player exposing a signed MP4, plus an /embed/{numericId}/ page
+
+robots.txt **disallows /search/* and /buscar/*** (both return 403), so this
+scraper intentionally ships **no on-site search**; the Explore entry falls back
+to a Google site: search template like other no-search sources.
+
+### Host aliases
+
+- cumlouder.com
+- www.cumlouder.com
+- mediacdnst.cumlouder.com (video CDN, covered by the substring check)
+- im0.imgcm.com / im*.imgcm.com (thumbnail CDN)
+
+Example:
+
+`python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h == "cumlouder.com" or h.endswith(".cumlouder.com")
+`
+
+### Listing and pagination (list_videos)
+
+- Video cards are .muestra-escena anchors whose href matches /porn-video/{slug}/.
+  Cards that link to /series/... or external webcam promos are skipped, as are
+  base64 lazy placeholders (only data-src / src values starting with http count).
+- Card fields:
+  - title: h2 text, then anchor 	itle, then image lt
+  - thumbnail: img[data-src] (lazy; src is a 1px gif), fallbacks like other scrapers
+  - duration: .minutos text (47:57 m) parsed with the mm:ss regex
+  - views: .vistas text (60516 views)
+- Page 1 should use ase_url unchanged, **except the bare root**: the domain root
+  is a series grid with zero video cards, so _build_list_page_url rewrites
+  https://www.cumlouder.com/ (and https://www.cumlouder.com) to
+  https://www.cumlouder.com/series/newest/ before fetching.
+- For page > 1, strip any trailing /{n}/ segment and append /{n}/:
+  - root / /series/newest/ -> /series/newest/{n}/
+  - /porn-videos/{slug}/ -> /porn-videos/{slug}/{n}/
+  - /series/{slug}/ -> /series/{slug}/{n}/
+- The Explore entry keeps aseUrl="https://www.cumlouder.com/" (domain only);
+  the root-to-/series/newest/ rewrite above makes that list-friendly.
+
+### Metadata and streams (scrape)
+
+Video pages have **no og:/	witter: meta tags**, so metadata comes from page
+markup directly:
+
+1. title: .video-top h1 (icon <span> contributes no text), fallback <h1>,
+   then <title> minus the  | Cumlouder.com suffix
+2. duration: .video-top .duracion (43:28 m)
+3. tags: .video-top ul.tags a.tag-link labels
+4. thumbnail: ideo[poster], fallback to the inline ar urlImg = '...' JS var
+5. views: not exposed for the current video (only on related cards), stays None
+
+Stream extraction order:
+
+1. <video id="cum_player"><source src="...mp4?secure=..." type="video/mp4" label="1080p" res="720">
+   - quality comes from the label attribute (falls back to es, then the URL)
+2. inline scripts for direct .mp4/.m3u8 URLs (unescaped \\/ -> /, \u0026 -> &)
+3. external iframe[src] embeds (ad-network iframes filtered)
+4. native embed https://www.cumlouder.com/embed/{id}/ (id from
+   /track_video.php?s={id}, /embed/{id}/, or /rate_video.php?s={id})
+
+The MP4 ?secure=... token is short-lived and IP-bound; scrape() returns the
+freshly signed URL from the current fetch. If the main page yields no direct
+stream (geo/AB layouts), the scraper re-fetches the native /embed/{id}/ page,
+which exposes the same signed MP4, and uses that instead.
+
+ideo.default prefers the highest-resolution MP4, then HLS, then the native
+embed.
+
+### Categories (get_categories)
+
+categories.json seeds 54 curated categories whose slugs were verified against
+https://www.cumlouder.com/sitemap.categories.xml (899 /porn-videos/{slug}/
+entries exist; the curated list keeps /api/v1/categories?source=cumlouder
+compact). Add more slugs from that sitemap as needed.
+
+### Registration checklist for CumLouder
+
+Besides creating ackend/app/scrapers/cumlouder/, update all of these:
+
+- ackend/app/scrapers/__init__.py
+  - rom . import cumlouder + "cumlouder" in __all__
+- ackend/app/main.py
+  - top-level import list (rom app.scrapers import cumlouder)
+  - _scrape_dispatch (if cumlouder.can_handle(host): ...)
+  - _list_dispatch
+  - /api/v1/categories source mapping (source=cumlouder, source=cumlouder.com)
+- ackend/app/services/video_streaming.py
+  - import list inside get_video_info
+  - scraper selection branch (elif cumlouder.can_handle(host))
+  - host check in the get_stream_url available-qualities chain (cumlouder.com,
+    substring-matches www. and mediacdnst.cumlouder.com)
+  - per_stream_format_keys chain (cumlouder.com) for flat {quality}_format fields
+- ackend/app/models/schemas.py
+  - scrape URL allowlist (cumlouder.com, www.cumlouder.com, mediacdnst.cumlouder.com)
+  - list/base URL allowlist (cumlouder.com, www.cumlouder.com, mediacdnst.cumlouder.com)
+- ackend/app/api/endpoints/explore.py
+  - add ExploreSourceResponse entry (sourceId="cumlouder",
+    aseUrl="https://www.cumlouder.com/" - domain root only, the scraper maps
+    it to /series/newest/ internally, searchUrlTemplate uses a Google
+    site: template because /search/* is robots-disallowed)
+
+### CumLouder verification examples
+
+`ash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.cumlouder.com/porn-video/tigerr-boobs/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.cumlouder.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.cumlouder.com/porn-videos/handjob/&page=3&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=cumlouder"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.cumlouder.com/porn-video/tigerr-boobs/"
+`
+
+Notes from live testing (2026-10):
+
+- list_videos on the bare root: page 1 resolves to /series/newest/ and
+  returns 25-card pages; page 2 fetches /series/newest/2/; category
+  ?base_url=.../porn-videos/handjob/&page=3 fetches /porn-videos/handjob/3/.
+- scrape() on /porn-video/tigerr-boobs/ returns title Tigerr Boobs,
+  duration 43:28, 6 tags, poster thumbnail, a signed 1080p MP4 on
+  mediacdnst.cumlouder.com as the default stream, and the native
+  /embed/5367/ embed as fallback.
+- /embed/{id}/ also serves the same signed MP4, so the embed fallback works
+  when the main page hides the player.
+- Search routes /search/* and /buscar/* return 403 (robots-disallowed); do
+  not add on-site search for this source.
