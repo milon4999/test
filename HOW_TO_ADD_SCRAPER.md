@@ -10045,3 +10045,152 @@ Notes from live testing (2026-10):
   when the main page hides the player.
 - Search routes /search/* and /buscar/* return 403 (robots-disallowed); do
   not add on-site search for this source.
+
+## WhoresHub Implementation Notes
+
+[WhoresHub](https://www.whoreshub.com/) is a KVS (Kernel Video Sharing) tube with:
+
+- homepage whose listing section (list_videos_most_recent_videos) paginates to /latest-updates/{n}/
+- canonical video pages under /videos/{numericId}/{slug}/
+- category archives /categories/{slug}/ and tag archives /tags/{slug}/ (paginate as .../{slug}/{n}/)
+- model pages under /models/{slug}/, member/uploader pages under /members/{id}/
+- sitewide search at /search/{query}/ (robots-allowed and live-verified; paginate as /search/{query}/{n}/)
+- KVS lashvars exposing plain signed MP4s (no license-protected unction/... URLs observed)
+
+### Site quirks (important)
+
+- The www. edge **intermittently times out and serves an expired TLS
+  certificate**; the apex whoreshub.com has a valid cert. The scraper keeps
+  the canonical www. URLs and survives flaky TLS via a fetch chain:
+  pooled aiohttp fetch (3 retries + UA rotation) -> direct httpx retry ->
+  one last attempt with TLS verification disabled (this host only, logged).
+- /embed/* is robots-disallowed - the scraper never fetches embed pages.
+- View counts are lazy-aggregated by KVS: brand-new uploads can legitimately
+  report userInteractionCount: "0" on their own page while the listing card
+  shows live numbers. The scraper reports what the page says.
+
+### Host aliases
+
+- whoreshub.com
+- www.whoreshub.com
+- wh.cdntrex.com (media/thumbnail CDN; allowlisted in schemas + streaming host chains)
+
+Example:
+
+`python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h == "whoreshub.com" or h.endswith(".whoreshub.com")
+`
+
+### Listing and pagination (list_videos)
+
+- Video cards: .item anchors whose href matches /videos/{numericId}/{slug}/
+  (KVS .thumb > .box > a.item + sibling ul.info).
+- Card fields:
+  - title: anchor 	itle, then .description, then image lt
+  - thumbnail: img.img[data-src] (//wh.cdntrex.com/contents/videos_screenshots/...),
+    src is a lazy 1px gif placeholder; protocol-relative URLs get https: prefix
+  - duration: span.duration (24:18)
+  - views: first ul.info li.item direct span.text (NOT the nested
+    span.rating percent); numbers may be space-grouped (7 376 -> 7376)
+- Page 1 uses ase_url unchanged; the bare root rewrites to
+  /latest-updates/ for pages > 1 (matching the homepage pager links).
+- Page > 1: strip any trailing /{n}/ segment and append /{n}/
+  (KVS path convention for home, latest-updates, categories, tags, models, search).
+
+### Metadata and streams (scrape)
+
+Metadata fallback order:
+
+1. title: og:title, JSON-LD VideoObject.name, .video-info h1, flashvars
+   ideo_title, <title>
+2. description: og:description, JSON-LD description, .text-description
+3. thumbnail: og:image / JSON-LD 	humbnailUrl (protocol-relative fixed)
+4. duration: JSON-LD ISO-8601 (PT0H24M18S -> 24:18), then #tab1 .list-info
+5. views: JSON-LD interactionCount, then nested
+   interactionStatistic[].userInteractionCount (WatchAction), then the
+   #icon-view row of #tab1 .list-info
+6. tags: flashvars ideo_tags + ideo_categories, then .tags-list a.btn
+7. uploader: .info-top a.username
+
+Stream extraction (KVS flashvars):
+
+- Parse ar flashvars = {...}; qualities come from ideo_url /
+  ideo_alt_url{,2,3,...} with display labels in the matching *_text
+  keys (480p, 720p HD, 1080p FHD -> normalized 480p/720p/1080p).
+- Only plain https://... values are kept; license-protected
+  unction/...-style KVS values are skipped (not present on this site).
+- <video><source> tags and non-ad iframe embeds are added as fallback
+  streams; known ad/banner iframes (gsrv.dev, anner.go, spaceid=,
+  exoclick, 	scprts.com, ...) are filtered out.
+- ideo.default prefers the highest-resolution MP4, then HLS, then embeds.
+- Stream URLs are signed get_file/...?v-acctoken=... links; tokens rotate
+  per fetch, so scrape() always returns freshly fetched URLs.
+
+### Categories (get_categories)
+
+categories.json seeds 33 categories collected from the live /categories/
+index, homepage nav, and video-page tag lists. Category URLs follow
+/categories/{slug}/. Extend the list from the live index as needed.
+
+### Registration checklist for WhoresHub
+
+Besides creating ackend/app/scrapers/whoreshub/, update all of these:
+
+- ackend/app/scrapers/__init__.py
+  - rom . import whoreshub + "whoreshub" in __all__
+- ackend/app/main.py
+  - top-level import list (rom app.scrapers import whoreshub)
+  - _scrape_dispatch (if whoreshub.can_handle(host): ...)
+  - _list_dispatch
+  - /api/v1/categories source mapping (source=whoreshub, source=whoreshub.com)
+- ackend/app/services/video_streaming.py
+  - import list inside get_video_info
+  - scraper selection branch (elif whoreshub.can_handle(host))
+  - host checks in the get_stream_url available-qualities chain
+    (whoreshub.com, wh.cdntrex.com)
+  - per_stream_format_keys chain (whoreshub.com, wh.cdntrex.com)
+- ackend/app/models/schemas.py
+  - scrape URL allowlist (whoreshub.com, www.whoreshub.com, wh.cdntrex.com)
+  - list/base URL allowlist (whoreshub.com, www.whoreshub.com, wh.cdntrex.com)
+- ackend/app/api/endpoints/explore.py
+  - add ExploreSourceResponse entry (sourceId="whoreshub",
+    aseUrl="https://www.whoreshub.com/" - domain root only, the scraper
+    maps pages > 1 to /latest-updates/{n}/ internally,
+    searchUrlTemplate="https://www.whoreshub.com/search/{query}/")
+
+### WhoresHub verification examples
+
+`ash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.whoreshub.com/videos/742688/84lc0ny-fuck/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.whoreshub.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.whoreshub.com/categories/big-tits/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.whoreshub.com/search/anal/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=whoreshub"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.whoreshub.com/videos/742688/84lc0ny-fuck/"
+`
+
+Notes from live testing (2026-10):
+
+- list_videos on the bare root: page 1 returns full KVS cards (titles,
+  CDN thumbnails, durations, view counts); page 2 fetches
+  /latest-updates/2/; ?base_url=.../categories/big-tits/&page=2 fetches
+  /categories/big-tits/2/; search base /search/anal/ works.
+- scrape() on /videos/742688/84lc0ny-fuck/: title, unicode description,
+  preview thumbnail, 12 tags, uploader, upload date, and three signed MP4
+  streams (480p/720p/1080p) with the 1080p as ideo.default. On the
+  established video /videos/271822/... the JSON-LD view count scraped as
+  7374 and ISO duration converted to 34:17.
+- The site's flaky TLS edge (expired cert on some www. responses) is fully
+  absorbed by the pool retry -> httpx -> verify=False fallback chain; every
+  live request in testing ultimately succeeded without surfacing an error.

@@ -50,6 +50,7 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
     # Import here to avoid circular dependency
     from app.scrapers import xnxx, xhamster, xvideos, masa49, pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rule34video, haho, hanime, hanime1, hentaihaven, animeidhentai, hentaicity, hentaimama, hentaibros, henvids, muchohentai, underhentai, hentaiocean, hentaverse, hstream, anibd, rouvideo, cg51, oppai, xmoviesforyou, tnaflix, hornysimp, pimpbunny, hentaiser, bollywoodmaal, viralkand, blowjobspro, blackporn24, lesbianporn8, leslez, milfporn8, indianporn365, mmsbro, kamababa, desimms2, desiporn, thotsporn, leakedamateurporn, zeenite, uncutmaza, mydesimms, po85, cosxplay, memojav, hohoj, ggjav, porn87, goodav, kanav, missav, jable, tianmei, bindasmood, eporner, dotmaal, uncutmasti, zmaal, ulluwebseries, desithothub, motherless, youjizz, pornone, threemovs, porndig, txxx, hotmovs, shemalez, okxxx, pornhoarder, yesporn, justporn, porngo, oneporn, thepornbang, pornhd3x, javfun, pornhd4k, pornhouse, porn91, letsporn, teamskeettube, sosalkino, tubepornclassic, xxxdan, pornxxx, sxyprn, latestpornvideo, youperv, perverzija, bigwank, blackporntube, sxyland, camcaps, koreanpornmovie, fullporner, superporn, siska, shyfap, hdporn92, porndos, joysporn, fullxcinema, filmadult, pornhits, pornmz, fpoxxx, watchporn, helloporn, homoxxx, perfectgirls, exeporn, xozilla, xmilf, hdzog, analdin, nuvid, p4455, mydesi2, mydesi10, mydesico, mydesirest, mydesisbs, viralchut, viralmms, xanimeporn, vrsmash, porndish, mypornerleak, momvids, latestleaks, teenager365, viralxxxporn
     from app.scrapers import cumlouder
+    from app.scrapers import whoreshub
     from app.api.endpoints import thumbnails
     from urllib.parse import urlparse
     
@@ -157,6 +158,8 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
         scraper_module = blowjobspro
     elif cumlouder.can_handle(host):
         scraper_module = cumlouder
+    elif whoreshub.can_handle(host):
+        scraper_module = whoreshub
     elif blackporn24.can_handle(host):
         scraper_module = blackporn24
     elif lesbianporn8.can_handle(host):
@@ -571,6 +574,8 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "viralxxxporn.com" in parsed_url.netloc.lower() or
         "blowjobs.pro" in parsed_url.netloc.lower() or
         "cumlouder.com" in parsed_url.netloc.lower() or
+        "whoreshub.com" in parsed_url.netloc.lower() or
+        "wh.cdntrex.com" in parsed_url.netloc.lower() or
         "blackporn24.com" in parsed_url.netloc.lower() or
         "blackporn.tube" in parsed_url.netloc.lower() or
         "bptn.m3pd.com" in parsed_url.netloc.lower() or
@@ -855,6 +860,8 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "viralxxxporn.com" in host_l
             or "blowjobs.pro" in host_l
             or "cumlouder.com" in host_l
+            or "whoreshub.com" in host_l
+            or "wh.cdntrex.com" in host_l
             or "blackporn24.com" in host_l
             or "blackporn.tube" in host_l
             or "bptn.m3pd.com" in host_l
