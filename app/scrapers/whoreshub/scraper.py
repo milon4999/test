@@ -27,10 +27,9 @@ _ISO_DURATION_RE = re.compile(
 )
 _NUMBER_TEXT_RE = re.compile(r"[\d][\d\s,\.]*")
 _FLASHVARS_RE = re.compile(r"var\s+flashvars\s*=\s*\{([\s\S]*?)\};")
-_JS_PAIR_RE = re.compile(
-    r"((?:video_alt_url\d*|video_url\d*)(?:_text)?)\s*:\s*('(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")"
+_JS_KV_RE = re.compile(
+    r"(\w+)\s*:\s*('(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")"
 )
-_PROTO_REL_RE = re.compile(r"^//")
 
 
 def can_handle(host: str) -> bool:
@@ -188,30 +187,12 @@ def _parse_flashvars(html: str) -> dict[str, str]:
         return {}
     body = m.group(1)
     pairs: dict[str, str] = {}
-    for km, vm in _JS_PAIR_RE.findall(body):
+    for km, vm in _JS_KV_RE.findall(body):
         key, raw = km, vm
         val = raw[1:-1]
         val = val.replace("\\/", "/").replace("\\u0026", "&").replace("\\'", "'").replace('\\"', '"')
         pairs[key] = val.strip()
     return pairs
-
-
-def _stream_quality_from_url(url: str) -> str:
-    low = (url or "").lower()
-    m = re.search(r"([1-9]\d{2,3})p", low)
-    if m:
-        return f"{m.group(1)}p"
-    if low.endswith(".m3u8") or ".m3u8?" in low:
-        return "adaptive"
-    return "source"
-
-
-def _normalize_quality_label(label: str | None, url: str) -> str:
-    if label:
-        m = re.search(r"(\d{3,4})p", label, flags=re.IGNORECASE)
-        if m:
-            return f"{m.group(1)}p"
-    return _stream_quality_from_url(url)
 
 
 def _is_probable_ad_iframe(src: str) -> bool:
@@ -251,67 +232,9 @@ def _extract_video_id(html: str, video_url: str) -> Optional[str]:
     return None
 
 
-async def _resolve_get_file(get_file_url: str, *, referer: str) -> Optional[str]:
-    """
-    WhoresHub get_file URLs 302-redirect to a signed CDN
-    `origin*-direct.cdntrex.com/remote_control.php?...` link. Resolve and
-    return the final playable URL.
-    """
-    ref = referer if referer.strip().startswith("http") else f"https://www.{_HOST}/"
-    headers = {
-        "User-Agent": _USER_AGENT,
-        "Referer": ref,
-        "Accept": "*/*",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(20.0),
-            follow_redirects=False,
-            verify=False,
-            headers=headers,
-        ) as client:
-            resp = await client.get(get_file_url)
-    except Exception:
-        return None
-    if resp.status_code in (301, 302, 303, 307, 308):
-        loc = resp.headers.get("Location")
-        if loc and "remote_control.php" in loc:
-            return loc
-    return None
-
-
 async def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> dict[str, Any]:
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
-
-    flashvars = _parse_flashvars(html)
-    # KVS exposes qualities as video_url (+video_url_text) and numbered
-    # video_alt_url{,2,3,...} (+ *_text). Only plain http(s) URLs are usable;
-    # license-protected `function/...` values are skipped.
-    url_keys = sorted(
-        [k for k in flashvars if re.fullmatch(r"video_alt_url\d*|video_url\d*", k)],
-        key=lambda k: (len(k), k),
-    )
-    for k in url_keys:
-        url = _absolute_url(flashvars.get(k), video_url)
-        if not url:
-            continue
-        text_key = f"{k}_text"
-        quality = _normalize_quality_label(flashvars.get(text_key), url)
-        fmt = "hls" if url.lower().split("?")[0].endswith(".m3u8") else "mp4"
-        if url in seen:
-            continue
-        seen.add(url)
-        streams.append({"url": url, "quality": quality, "format": fmt})
-
-    for source in soup.select("video source[src]"):
-        src = _absolute_url(source.get("src"), video_url)
-        if not src or src in seen:
-            continue
-        seen.add(src)
-        fmt = "hls" if src.lower().split("?")[0].endswith(".m3u8") else "mp4"
-        streams.append({"url": src, "quality": _stream_quality_from_url(src), "format": fmt})
 
     for iframe in soup.select("iframe[src]"):
         src = _absolute_url(iframe.get("src"), video_url)
@@ -319,23 +242,6 @@ async def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> di
             continue
         seen.add(src)
         streams.append({"url": src, "quality": "embed", "format": "embed"})
-
-    # get_file URLs must be resolved to their signed CDN remote_control.php
-    # target, otherwise they 302 in the client and do not play.
-    get_file_mp4 = [s for s in streams if s.get("format") == "mp4" and "get_file" in (s.get("url") or "")]
-    if get_file_mp4:
-        import asyncio
-
-        async def _resolve_one(stream: dict[str, str]) -> tuple[dict[str, str], Optional[str]]:
-            resolved = await _resolve_get_file(stream["url"], referer=video_url)
-            return stream, resolved
-
-        resolved_pairs = await asyncio.gather(*[_resolve_one(s) for s in get_file_mp4])
-        for stream, resolved in resolved_pairs:
-            if resolved:
-                stream["url"] = resolved
-            else:
-                streams.remove(stream)
 
     # Native embed page as a fallback stream (site's own KVS player).
     video_id = _extract_video_id(html, video_url)
@@ -346,28 +252,19 @@ async def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> di
 
     def _score(item: dict[str, str]) -> tuple[int, int]:
         fmt = (item.get("format") or "").lower()
-        q = re.search(r"(\d{3,4})", item.get("quality") or "")
-        qnum = int(q.group(1)) if q else 0
-        if fmt == "mp4":
-            return (3, qnum)
-        if fmt == "hls":
-            return (2, qnum)
-        if fmt == "embed" and native_embed and (item.get("url") or "") == native_embed:
-            return (1, 1)
-        return (1, 0)
+        native_url = native_embed or ""
+        if fmt == "embed" and (item.get("url") or "") == native_url:
+            return (2, 0)
+        if fmt == "embed":
+            return (1, 0)
+        return (0, 0)
 
     uniq = list(dict.fromkeys((json.dumps(s, sort_keys=True) for s in streams)))
     materialized = [json.loads(s) for s in uniq]
     materialized.sort(key=_score, reverse=True)
 
-    default_url = None
-    for preferred in ("mp4", "hls", "embed"):
-        m = next((s for s in materialized if s.get("format") == preferred), None)
-        if m:
-            default_url = m.get("url")
-            break
-
-    hls_url = next((s.get("url") for s in materialized if s.get("format") == "hls"), None)
+    default_url = next((s.get("url") for s in materialized if s.get("format") == "embed"), None)
+    hls_url = None
     return {
         "streams": materialized,
         "hls": hls_url,
@@ -419,20 +316,17 @@ async def parse_video_page(html: str, url: str) -> dict[str, Any]:
 
     duration = _first_non_empty(
         _duration_from_iso(video_obj.get("duration")),
-        _extract_duration(
-            soup.select_one("#tab1 .list-info li.wrap .value").get_text(" ", strip=True)
-            if soup.select_one("#tab1 .list-info li.wrap .value")
-            else None
-        ),
     )
-    duration = _first_non_empty(
-        _duration_from_iso(video_obj.get("duration")),
-        _extract_duration(
-            soup.select_one("#tab1 .list-info li.wrap .value").get_text(" ", strip=True)
-            if soup.select_one("#tab1 .list-info li.wrap .value")
-            else None
-        ),
-    )
+    if duration is None:
+        for li in soup.select("#tab1 .list-info li.wrap"):
+            use_el = li.select_one("svg use")
+            href = use_el.get("xlink:href") or use_el.get("href") or ""
+            if any(icon in href for icon in ("#icon-duration", "#icon-clock", "#icon-time")):
+                val_el = li.select_one(".value")
+                if val_el:
+                    duration = _extract_duration(val_el.get_text(" ", strip=True))
+                    if duration:
+                        break
     views = _first_non_empty(
         _extract_views(str(video_obj.get("interactionCount")) if video_obj.get("interactionCount") else None),
     )
@@ -446,12 +340,15 @@ async def parse_video_page(html: str, url: str) -> dict[str, Any]:
                 if views:
                     break
     if views is None:
-        li_items = soup.select("#tab1 .list-info li.wrap")
-        for li in li_items:
+        for li in soup.select("#tab1 .list-info li.wrap"):
             use_el = li.select_one("svg use")
-            if use_el and "#icon-view" in (use_el.get("xlink:href") or use_el.get("href") or ""):
-                views = _extract_views(li.select_one(".value").get_text(" ", strip=True) if li.select_one(".value") else None)
-                break
+            href = use_el.get("xlink:href") or use_el.get("href") or "" if use_el else ""
+            if "#icon-view" in href:
+                val_el = li.select_one(".value")
+                if val_el:
+                    views = _extract_views(val_el.get_text(" ", strip=True))
+                    if views:
+                        break
     upload_date = _first_non_empty(video_obj.get("uploadDate"))
 
     uploader_name = None
