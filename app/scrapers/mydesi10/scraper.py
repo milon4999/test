@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import ssl
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
@@ -10,11 +11,13 @@ from bs4 import BeautifulSoup
 
 from app.core.pool import fetch_html as pool_fetch_html
 
-BASE_URL = "https://mydesi10.com/"
-CANONICAL_HOST = "mydesi10.com"
+BASE_URL = "https://mydesi12.com/"
+CANONICAL_HOST = "mydesi12.com"
 
 _SUPPORTED_HOSTS = frozenset(
     {
+        "mydesi12.com",
+        "www.mydesi12.com",
         "mydesi10.com",
         "www.mydesi10.com",
     }
@@ -50,7 +53,12 @@ async def fetch_page(url: str) -> str:
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": BASE_URL,
     }
-    return await pool_fetch_html(url, headers=headers)
+    # mydesi12.com serves an expired TLS certificate; the domain is otherwise
+    # live, so skip verification rather than failing every request.
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+    return await pool_fetch_html(url, headers=headers, ssl=ssl_ctx)
 
 
 def _first_non_empty(*values: Optional[str]) -> Optional[str]:
