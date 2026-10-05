@@ -10073,7 +10073,7 @@ Notes from live testing (2026-10):
 
 - whoreshub.com
 - www.whoreshub.com
-- wh.cdntrex.com (media/thumbnail CDN; allowlisted in schemas + streaming host chains)
+- wh.cdntrex.com and origin*-direct.cdntrex.com (media/thumbnail CDN; allowlisted in schemas + streaming host chains)
 
 Example:
 
@@ -10122,19 +10122,28 @@ Stream extraction (KVS flashvars):
   ideo_alt_url{,2,3,...} with display labels in the matching *_text
   keys (480p, 720p HD, 1080p FHD -> normalized 480p/720p/1080p).
 - Only plain https://... values are kept; license-protected
-  unction/...-style KVS values are skipped (not present on this site).
+  function/...-style KVS values are skipped (not present on this site).
+- **get_file URLs 302-redirect to the real CDN**: each MP4
+  (get_file/.../?v-acctoken=...) resolves to a signed
+  origin*-direct.cdntrex.com/remote_control.php?file=...&acctoken=... URL.
+  `_resolve_get_file` follows the 302 (GET with the video page as Referer)
+  and replaces the stream URL with the playable CDN link; unresolved links
+  are dropped. Without this the client would receive a non-playable 302.
+- A native embed fallback (https://www.whoreshub.com/embed/{id}/) is added
+  as an embed/whoreshub stream so embed-only clients still work (robots
+  disallows crawling /embed/*, but serving it as a player fallback is
+  standard, not an access-control bypass).
 - <video><source> tags and non-ad iframe embeds are added as fallback
-  streams; known ad/banner iframes (gsrv.dev, anner.go, spaceid=,
-  exoclick, 	scprts.com, ...) are filtered out.
-- ideo.default prefers the highest-resolution MP4, then HLS, then embeds.
-- Stream URLs are signed get_file/...?v-acctoken=... links; tokens rotate
-  per fetch, so scrape() always returns freshly fetched URLs.
+  streams; known ad/banner iframes (gsrv.dev, banner.go, spaceid=,
+  exoclick, tscprts.com, ...) are filtered out.
+- video.default prefers the highest-resolution MP4, then HLS, then embeds.
+- Stream URLs are signed and tokens rotate per fetch, so scrape() always
+  returns freshly fetched URLs.
 
 ### Categories (get_categories)
 
-categories.json seeds 33 categories collected from the live /categories/
-index, homepage nav, and video-page tag lists. Category URLs follow
-/categories/{slug}/. Extend the list from the live index as needed.
+categories.json seeds 88 categories crawled from the live /categories/ index
+(pages 1-4; page 5+ is 404). Category URLs follow /categories/{slug}/.
 
 ### Registration checklist for WhoresHub
 
@@ -10154,8 +10163,8 @@ Besides creating ackend/app/scrapers/whoreshub/, update all of these:
     (whoreshub.com, wh.cdntrex.com)
   - per_stream_format_keys chain (whoreshub.com, wh.cdntrex.com)
 - ackend/app/models/schemas.py
-  - scrape URL allowlist (whoreshub.com, www.whoreshub.com, wh.cdntrex.com)
-  - list/base URL allowlist (whoreshub.com, www.whoreshub.com, wh.cdntrex.com)
+  - scrape URL allowlist (whoreshub.com, www.whoreshub.com, wh.cdntrex.com, cdntrex.com)
+  - list/base URL allowlist (whoreshub.com, www.whoreshub.com, wh.cdntrex.com, cdntrex.com)
 - ackend/app/api/endpoints/explore.py
   - add ExploreSourceResponse entry (sourceId="whoreshub",
     aseUrl="https://www.whoreshub.com/" - domain root only, the scraper

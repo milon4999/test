@@ -576,6 +576,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "cumlouder.com" in parsed_url.netloc.lower() or
         "whoreshub.com" in parsed_url.netloc.lower() or
         "wh.cdntrex.com" in parsed_url.netloc.lower() or
+        "cdntrex.com" in parsed_url.netloc.lower() or
         "blackporn24.com" in parsed_url.netloc.lower() or
         "blackporn.tube" in parsed_url.netloc.lower() or
         "bptn.m3pd.com" in parsed_url.netloc.lower() or
@@ -862,6 +863,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "cumlouder.com" in host_l
             or "whoreshub.com" in host_l
             or "wh.cdntrex.com" in host_l
+            or "cdntrex.com" in host_l
             or "blackporn24.com" in host_l
             or "blackporn.tube" in host_l
             or "bptn.m3pd.com" in host_l

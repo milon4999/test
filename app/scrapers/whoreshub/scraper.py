@@ -7,6 +7,7 @@ from typing import Any, Optional
 from urllib.parse import urljoin, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
+import httpx
 
 from app.core.pool import fetch_html as pool_fetch_html
 
@@ -239,7 +240,48 @@ def _is_probable_ad_iframe(src: str) -> bool:
     return any(marker in s for marker in markers)
 
 
-def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> dict[str, Any]:
+def _extract_video_id(html: str, video_url: str) -> Optional[str]:
+    flashvars = _parse_flashvars(html)
+    vid = flashvars.get("video_id")
+    if vid and vid.isdigit():
+        return vid
+    m = re.search(r"/videos/(\d+)/", video_url)
+    if m:
+        return m.group(1)
+    return None
+
+
+async def _resolve_get_file(get_file_url: str, *, referer: str) -> Optional[str]:
+    """
+    WhoresHub get_file URLs 302-redirect to a signed CDN
+    `origin*-direct.cdntrex.com/remote_control.php?...` link. Resolve and
+    return the final playable URL.
+    """
+    ref = referer if referer.strip().startswith("http") else f"https://www.{_HOST}/"
+    headers = {
+        "User-Agent": _USER_AGENT,
+        "Referer": ref,
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(20.0),
+            follow_redirects=False,
+            verify=False,
+            headers=headers,
+        ) as client:
+            resp = await client.get(get_file_url)
+    except Exception:
+        return None
+    if resp.status_code in (301, 302, 303, 307, 308):
+        loc = resp.headers.get("Location")
+        if loc and "remote_control.php" in loc:
+            return loc
+    return None
+
+
+async def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> dict[str, Any]:
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
 
@@ -278,6 +320,30 @@ def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> dict[str
         seen.add(src)
         streams.append({"url": src, "quality": "embed", "format": "embed"})
 
+    # get_file URLs must be resolved to their signed CDN remote_control.php
+    # target, otherwise they 302 in the client and do not play.
+    get_file_mp4 = [s for s in streams if s.get("format") == "mp4" and "get_file" in (s.get("url") or "")]
+    if get_file_mp4:
+        import asyncio
+
+        async def _resolve_one(stream: dict[str, str]) -> tuple[dict[str, str], Optional[str]]:
+            resolved = await _resolve_get_file(stream["url"], referer=video_url)
+            return stream, resolved
+
+        resolved_pairs = await asyncio.gather(*[_resolve_one(s) for s in get_file_mp4])
+        for stream, resolved in resolved_pairs:
+            if resolved:
+                stream["url"] = resolved
+            else:
+                streams.remove(stream)
+
+    # Native embed page as a fallback stream (site's own KVS player).
+    video_id = _extract_video_id(html, video_url)
+    native_embed = f"https://www.{_HOST}/embed/{video_id}/" if video_id else None
+    if native_embed and native_embed not in seen:
+        seen.add(native_embed)
+        streams.append({"url": native_embed, "quality": "whoreshub", "format": "embed"})
+
     def _score(item: dict[str, str]) -> tuple[int, int]:
         fmt = (item.get("format") or "").lower()
         q = re.search(r"(\d{3,4})", item.get("quality") or "")
@@ -286,6 +352,8 @@ def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> dict[str
             return (3, qnum)
         if fmt == "hls":
             return (2, qnum)
+        if fmt == "embed" and native_embed and (item.get("url") or "") == native_embed:
+            return (1, 1)
         return (1, 0)
 
     uniq = list(dict.fromkeys((json.dumps(s, sort_keys=True) for s in streams)))
@@ -308,7 +376,7 @@ def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> dict[str
     }
 
 
-def parse_video_page(html: str, url: str) -> dict[str, Any]:
+async def parse_video_page(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
     json_ld = _parse_json_ld(soup)
     flashvars = _parse_flashvars(html)
@@ -405,7 +473,7 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
                 tags.append(label)
     tags = list(dict.fromkeys(tags))
 
-    video = _extract_streams(soup, html, url)
+    video = await _extract_streams(soup, html, url)
 
     return {
         "url": url,
@@ -426,7 +494,7 @@ def parse_video_page(html: str, url: str) -> dict[str, Any]:
 
 async def scrape(url: str) -> dict[str, Any]:
     html = await fetch_page(url, referer=url)
-    return parse_video_page(html, url)
+    return await parse_video_page(html, url)
 
 
 def _normalize_video_href(href: str) -> Optional[str]:
