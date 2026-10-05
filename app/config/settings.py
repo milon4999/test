@@ -46,17 +46,10 @@ class Settings(BaseSettings):
     SCRAPER_MAX_RETRIES: int = 3
     SCRAPER_RETRY_DELAY: int = 2
 
-    # Website Monitoring (dead/moved source detection -> maintenance favicon)
-    _BACKEND_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    SITE_MONITOR_STATE_FILE: str = os.path.join(_BACKEND_DIR, "data", "site_monitor.json")
-    SITE_MONITOR_STRIKES: int = 2
-    SITE_MONITOR_TIMEOUT: int = 10
-    SITE_MONITOR_CONCURRENCY: int = 10
-
-    # Celery
+    # Celery (required by app.core.celery_app)
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
-    
+
     # HLS Proxy
     HLS_PROXY_ENABLED: bool = True
     HLS_PROXY_TIMEOUT: int = 30

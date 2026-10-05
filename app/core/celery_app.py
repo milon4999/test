@@ -1,5 +1,4 @@
 from celery import Celery
-from celery.schedules import crontab
 from app.config.settings import settings
 
 celery_app = Celery(
@@ -10,13 +9,6 @@ celery_app = Celery(
 
 celery_app.conf.task_routes = {
     "app.tasks.*": {"queue": "main-queue"},
-}
-
-celery_app.conf.beat_schedule = {
-    "probe-sources-every-12h": {
-        "task": "app.tasks.probe_sites",
-        "schedule": crontab(minute=0, hour="*/12"),
-    },
 }
 
 celery_app.conf.update(
