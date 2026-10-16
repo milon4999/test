@@ -39,6 +39,10 @@ _POST_ID_INPUT_RE = re.compile(r'name=["\']idpost["\']\s+value=["\'](\d+)["\']',
 _SHORTLINK_RE = re.compile(r"/\?p=(\d+)", re.IGNORECASE)
 _IFRAME_SRC_RE = re.compile(r'<iframe[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
 _JW_FILE_RE = re.compile(r'file:\s*["\']([^"\']+)["\']', re.IGNORECASE)
+_JW_HLS_RE = re.compile(r'hls\s*:\s*["\']([^"\']+)["\']', re.IGNORECASE)
+_JW_SOURCES_RE = re.compile(r'sources\s*:\s*\[\s*\{[^}]*file\s*:\s*["\']([^"\']+)["\']', re.IGNORECASE)
+_M3U8_URL_RE = re.compile(r'https?://[^\s"\'<>]+\.m3u8(?:\?[^\s"\'<>]*)?', re.IGNORECASE)
+_MP4_URL_RE = re.compile(r'https?://[^\s"\'<>]+\.mp4(?:\?[^\s"\'<>]*)?', re.IGNORECASE)
 _EPISODE_NUM_RE = re.compile(r"-episode-(\d+)", re.IGNORECASE)
 _PATH_PAGE_SUFFIX_RE = re.compile(r"^(.+)/page/(\d+)$", re.IGNORECASE)
 _PATH_NUMERIC_SUFFIX_RE = re.compile(r"^(.+)/(\d+)$", re.IGNORECASE)
@@ -309,12 +313,33 @@ async def _fetch_player_iframes(post_id: str, page_url: str) -> list[str]:
 
 def _streams_from_player_html(html: str, label: str) -> list[dict[str, str]]:
     streams: list[dict[str, str]] = []
-    for match in _JW_FILE_RE.finditer(html):
-        url = _htmllib.unescape(match.group(1)).strip().replace("\\/", "/")
-        if not url.startswith("http"):
-            continue
-        fmt = "hls" if ".m3u8" in url.lower() else "mp4"
-        streams.append({"quality": label, "url": url, "format": fmt})
+    seen: set[str] = set()
+
+    patterns = [
+        (_JW_SOURCES_RE, "source"),
+        (_JW_FILE_RE, "file"),
+        (_JW_HLS_RE, "hls"),
+    ]
+
+    for pattern, key in patterns:
+        for match in pattern.finditer(html):
+            url = _htmllib.unescape(match.group(1)).strip().replace("\\/", "/")
+            if not url.startswith("http"):
+                continue
+            if url in seen:
+                continue
+            seen.add(url)
+            fmt = "hls" if ".m3u8" in url.lower() else "mp4"
+            streams.append({"quality": label, "url": url, "format": fmt})
+
+    for pattern, fmt in ((_M3U8_URL_RE, "hls"), (_MP4_URL_RE, "mp4")):
+        for match in pattern.finditer(html):
+            url = match.group(0).strip().replace("\\/", "/")
+            if url in seen:
+                continue
+            seen.add(url)
+            streams.append({"quality": label, "url": url, "format": fmt})
+
     return streams
 
 
