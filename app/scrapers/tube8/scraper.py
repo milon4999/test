@@ -330,8 +330,10 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
     url = base_url.rstrip("/")
 
     if page > 1:
-        sep = "&" if "?" in url else "?"
-        url += f"{sep}page={page}"
+        # Tube8 pagination pattern: /newest/page/2/ (not ?page=)
+        if url.endswith(".html"):
+            url = url[: -len(".html")]
+        url = f"{url}/page/{page}/"
 
     try:
         html = await fetch_html(url)
@@ -342,75 +344,60 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
     items: list[dict] = []
     seen_hrefs: set[str] = set()
 
-    def _find_container(el) -> Any:
-        """Walk up to find the video card container with duration/thumbnail."""
-        node = el
-        for _ in range(8):
-            if node is None:
-                break
-            if getattr(node, 'select_one', None):
-                if node.select_one(".tm_video_duration, .video-duration, .duration, .video-duration-text, img"):
-                    return node
-            node = getattr(node, 'parent', None)
-        return el.parent if el else None
+    def _best_image(img) -> str | None:
+        if img is None:
+            return None
+        for attr in ("data-src", "data-poster", "data-mediabook", "src"):
+            val = img.get(attr)
+            if val and not val.startswith("data:"):
+                return val
+        return None
 
-    def _make_item(href: str, title: str, thumb: str | None, container) -> dict | None:
-        """Build a list item dict given the resolved fields and a container element for metadata."""
+    def _make_item(href: str, title: str, thumb: str | None, card) -> dict | None:
+        """Build a list item dict from an article.video-box card element."""
         if not href:
             return None
 
         # Normalize URL for deduplication
         if not href.startswith("http"):
             href = "https://www.tube8.com" + ("/" if not href.startswith("/") else "") + href
-        href = href.split("?")[0].rstrip("/") # Simple normalization
+        href = href.split("?")[0].rstrip("/")
 
         if href in seen_hrefs:
             return None
         seen_hrefs.add(href)
 
-        # Duration - try multiple selectors
+        # Duration: div.video-duration / .tm_video_duration (MM:SS)
         duration = "0:00"
-        if container is not None:
-            dur_el = container.select_one(
-                ".tm_video_duration, .video-duration, .duration, .video-duration-text, "
-                ".video_info-duration, span[data-duration], .video-card-duration"
-            )
-            if dur_el:
-                txt = dur_el.get_text(strip=True)
-                if txt:
-                    duration = txt
-            # Try data attribute as fallback
-            if duration == "0:00":
-                for sel in ["[data-duration]", ".duration-text"]:
-                    el = container.select_one(sel)
-                    if el:
-                        txt = el.get("data-duration") or el.get_text(strip=True)
-                        if txt:
-                            duration = txt
-                            break
+        dur_el = card.select_one(".tm_video_duration, .video-duration, .video-duration-text, [data-duration]")
+        if dur_el:
+            txt = dur_el.get_text(strip=True)
+            if txt:
+                duration = txt
+            elif dur_el.get("data-duration"):
+                duration = dur_el.get("data-duration")
 
-        # Views
+        # Views: span.info-views with "Views:" label (rating span has same class)
         views = "0"
-        if container is not None:
-            v_el = container.select_one(".info-views, .views, .video_views, .video-views-text, .video-views-count")
-            if v_el:
-                raw_views = v_el.get_text(strip=True).lower()
-                v_match = re.search(r"([\d,.]+[km]?)", raw_views)
-                if v_match:
-                    views = v_match.group(1).upper()
-                elif raw_views.strip():
-                    views = raw_views.replace("views", "").strip()
+        for v_el in card.select(".info-views, .video-views, .views, .video-views-count"):
+            label = v_el.get_text(" ", strip=True)
+            if "rating" in label.lower() or "like" in label.lower() or "%" in label:
+                continue
+            m = re.search(r"([\d,.]+[km]?)", label)
+            if m:
+                views = m.group(1).upper()
+                break
 
-        # Uploader
+        # Uploader: article[data-uploader-name] is most reliable, fallback to a.author-title-text
         uploader = "Unknown"
-        if container is not None:
-            u_el = container.select_one(".author-title-text, .video-author-text, .username, .uploader, .video-uploader")
-            if not u_el:
-                u_el = container.select_one('a[href*="/user/"], a[href*="/profiles/"]')
-
+        data_uploader = card.get("data-uploader-name")
+        if data_uploader and data_uploader.lower() not in ("none", "unknown", "null"):
+            uploader = data_uploader
+        else:
+            u_el = card.select_one(".author-title-text, .video-author-text, .username, .uploader-name, a[href*='/user/'], a[href*='/channels/'], a[href*='/amateur/']")
             if u_el:
                 txt = u_el.get_text(strip=True)
-                if txt:
+                if txt and txt.lower() not in ("none", "unknown", "null"):
                     uploader = txt
 
         return {
@@ -423,62 +410,33 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
             "preview_url": thumb,
         }
 
-    # ── Layout A: homepage – a.gtm-event-thumb-click / a.video-thumb ──────────
-    for a in soup.select("a.gtm-event-thumb-click, a.video-thumb"):
+    # ── Layout: article.video-box cards (current Tube8 markup) ────────────────
+    for card in soup.select("article.video-box"):
         if len(items) >= limit:
             break
         try:
-            href = a.get("href", "")
-            thumb = None
-            img = a.find("img")
-            if img:
-                thumb = img.get("data-src") or img.get("data-thumb_url") or img.get("src")
+            # Video href from thumbnail or title link
+            a = card.select_one('a[href*="/porn-video/"], a.video-title-text, a.tm_video_link, a.video-box-image') or card.select_one("a[href]")
+            href = a.get("href", "") if a else ""
 
-            card = _find_container(a)
+            thumb = _best_image(card.select_one("img"))
 
+            # Title from title link, then aria-label, then img alt
             title = ""
-            title_el = card.select_one(
-                "a.video-title-text, .video-title a, .title a, .video-title, .tm_video_title, h3, .video-card-title"
-            ) if card else None
+            title_el = card.select_one(".video-title-text, .tm_video_title, .video-title, .video-card-title")
             if title_el:
                 title = title_el.get("title") or title_el.get_text(strip=True)
             if not title:
-                title = (img.get("alt") if img else None) or a.get("title") or a.get("data-label2") or ""
+                title = (card.get("aria-label") or "").strip()
+            if not title:
+                img = card.select_one("img")
+                title = (img.get("alt") if img else None) or ""
 
             item = _make_item(href, title, thumb, card)
             if item:
                 items.append(item)
         except Exception:
             continue
-
-    # ── Layout B: category / sorted pages – a.tm_video_link ───────────────────
-    if not items:
-        for a in soup.select("a.tm_video_link"):
-            if len(items) >= limit:
-                break
-            try:
-                href = a.get("href", "")
-                thumb = None
-                img = a.find("img")
-                if img:
-                    thumb = img.get("data-src") or img.get("data-thumb_url") or img.get("src")
-
-                card = _find_container(a)
-
-                title = ""
-                title_el = card.select_one(
-                    ".video-title-text, .tm_video_title, .video-title, h3, .video-card-title"
-                ) if card else None
-                if title_el:
-                    title = title_el.get("title") or title_el.get_text(strip=True)
-                if not title:
-                    title = (img.get("alt") if img else None) or a.get("title") or ""
-
-                item = _make_item(href, title, thumb, card)
-                if item:
-                    items.append(item)
-            except Exception:
-                continue
 
     return items[:limit]
 
