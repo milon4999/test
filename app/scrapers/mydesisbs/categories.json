@@ -1,5 +1,9 @@
 [
-  { "id": "3d", "name": "3D", "url": "https://mydesi.sbs/category/3d/" },
+  { "id": "all", "name": "All", "url": "https://mydesi.sbs/" },
+  { "id": "latest", "name": "Latest", "url": "https://mydesi.sbs/?filter=latest" },
+  { "id": "popular", "name": "Popular", "url": "https://mydesi.sbs/?filter=popular" },
+  { "id": "most-viewed", "name": "Most Viewed", "url": "https://mydesi.sbs/?filter=most-viewed" },
+  { "id": "random", "name": "Random", "url": "https://mydesi.sbs/?filter=random" },
   { "id": "amateur", "name": "Amateur", "url": "https://mydesi.sbs/category/amateur/" },
   { "id": "anal", "name": "Anal", "url": "https://mydesi.sbs/category/anal/" },
   { "id": "app-video", "name": "App Video", "url": "https://mydesi.sbs/category/app-video/" },
