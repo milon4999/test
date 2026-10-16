@@ -9,8 +9,8 @@ from urllib.parse import parse_qsl, urljoin, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
 
-BASE_SITE = "https://www.nuvid.club/"
-CANONICAL_HOST = "www.nuvid.club"
+BASE_SITE = "https://www.nuvid.org/"
+CANONICAL_HOST = "www.nuvid.org"
 SITE_ALIASES = frozenset(
     {
         "nuvid.club",
@@ -264,13 +264,6 @@ def _build_list_page_url(base_url: str, page: int) -> str:
     return urlunparse((parsed.scheme or "https", host, new_path, "", query, ""))
 
 
-_MOBILE_HOST = "m.nuvid.org"
-_CONFIG_HOST = "m.nuvid.org"
-
-_MOBILE_VIDEO_RE = re.compile(r'<video[^>]+data-video_hash="([^"]+)"[^>]+data-hash_time="([^"]+)"[^>]+data-video_id="([^"]+)"', re.IGNORECASE | re.S)
-_MOBILE_VIDEO_RE2 = re.compile(r'<video[^>]+data-video_id="([^"]+)"[^>]+data-hash_time="([^"]+)"[^>]+data-video_hash="([^"]+)"', re.IGNORECASE | re.S)
-
-
 def _embed_url(video_id: str) -> str:
     return f"https://{CANONICAL_HOST}/embed/{video_id}"
 
@@ -286,72 +279,6 @@ def _embed_streams(video_id: Optional[str]) -> dict[str, Any]:
         "default": embed,
         "has_video": True,
     }
-
-
-async def _fetch_streams(video_id: str) -> dict[str, Any]:
-    vid = (video_id or "").strip()
-    if not vid:
-        return {"streams": [], "hls": None, "default": None, "has_video": False}
-
-    mobile_url = f"https://{_MOBILE_HOST}/video/{vid}"
-    try:
-        html = await fetch_html(mobile_url, referer=BASE_SITE)
-    except Exception:
-        return _embed_streams(vid)
-
-    m = _MOBILE_VIDEO_RE.search(html)
-    if not m:
-        m = _MOBILE_VIDEO_RE2.search(html)
-    if not m:
-        return _embed_streams(vid)
-
-    video_hash, hash_time, _ = m.group(1), m.group(2), m.group(3)
-
-    config_url = (
-        f"https://{_CONFIG_HOST}/player_config"
-        f"?video_hash={video_hash}&hash_time={hash_time}&video_id={vid}"
-    )
-
-    try:
-        cfg_html = await fetch_html(
-            config_url,
-            referer=mobile_url,
-        )
-        cfg = json.loads(cfg_html)
-    except Exception:
-        return _embed_streams(vid)
-
-    files = cfg.get("files", {}) or {}
-    source = cfg.get("source") or {}
-
-    def _url(val: Any) -> Optional[str]:
-        if isinstance(val, str) and val:
-            return val
-        return None
-
-    raw_lq = _url(files.get("lq")) or _url(source.get("lq") if isinstance(source, dict) else None)
-    raw_hq = _url(files.get("hq")) or _url(source.get("hq") if isinstance(source, dict) else None)
-    raw_4k = _url(files.get("4k")) or _url(source.get("4k") if isinstance(source, dict) else None)
-
-    streams: list[dict[str, Any]] = []
-    for quality, url in [
-        ("360p", raw_lq),
-        ("720p", raw_hq),
-        ("2160p", raw_4k),
-    ]:
-        if url:
-            streams.append({"quality": quality, "url": url, "format": "mp4"})
-
-    if streams:
-        default_url = raw_hq or raw_lq
-        return {
-            "streams": streams,
-            "hls": None,
-            "default": default_url,
-            "has_video": True,
-        }
-
-    return _embed_streams(vid)
 
 
 def _parse_card(block: Any, *, base: str, exclude_url: str | None = None) -> Optional[dict[str, Any]]:
@@ -418,7 +345,7 @@ def _parse_cards(
     return items
 
 
-async def parse_page(html: str, url: str) -> dict[str, Any]:
+def parse_page(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
     video_id = _extract_video_id(url, html)
     title = _first_non_empty(
@@ -446,7 +373,7 @@ async def parse_page(html: str, url: str) -> dict[str, Any]:
     category = tags[0] if tags else None
     uploader = _text(soup.select_one(".add-by a"))
     related = _parse_cards(soup, base=url, exclude_url=url, limit=12)
-    video = await _fetch_streams(video_id) if video_id else _embed_streams(None)
+    video = _embed_streams(video_id) if video_id else _embed_streams(None)
 
     return {
         "url": url,
@@ -475,7 +402,7 @@ async def scrape(url: str) -> dict[str, Any]:
             fetch_url = normalized
 
     html = await fetch_html(fetch_url, referer=BASE_SITE)
-    return await parse_page(html, fetch_url)
+    return parse_page(html, fetch_url)
 
 
 async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[dict[str, Any]]:
