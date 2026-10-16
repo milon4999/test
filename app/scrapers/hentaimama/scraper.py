@@ -285,30 +285,31 @@ async def fetch_page(url: str, *, referer: str | None = None) -> str:
 
 
 async def _fetch_player_iframes(post_id: str, page_url: str) -> list[str]:
-    raw = await _fetch_with_curl_cffi(
-        AJAX_URL,
-        referer=page_url,
-        method="POST",
-        data={"action": "get_player_contents", "a": post_id},
-    )
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(payload, list):
-        return []
     urls: list[str] = []
-    for item in payload:
-        if not isinstance(item, str):
+    for mirror_idx in range(1, 6):
+        raw = await _fetch_with_curl_cffi(
+            AJAX_URL,
+            referer=page_url,
+            method="POST",
+            data={"action": "get_player_contents", "a": post_id, "i": str(mirror_idx)},
+        )
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
             continue
-        for match in _IFRAME_SRC_RE.finditer(item):
-            src = _htmllib.unescape(match.group(1)).strip().replace("\\/", "/")
-            if src.startswith("//"):
-                src = f"https:{src}"
-            elif src.startswith("/"):
-                src = urljoin(BASE_SITE, src)
-            if src and src not in urls:
-                urls.append(src)
+        if not isinstance(payload, list):
+            continue
+        for item in payload:
+            if not isinstance(item, str):
+                continue
+            for match in _IFRAME_SRC_RE.finditer(item):
+                src = _htmllib.unescape(match.group(1)).strip().replace("\\/", "/")
+                if src.startswith("//"):
+                    src = f"https:{src}"
+                elif src.startswith("/"):
+                    src = urljoin(BASE_SITE, src)
+                if src and src not in urls:
+                    urls.append(src)
     return urls
 
 
