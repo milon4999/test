@@ -427,6 +427,46 @@ def _parse_list_items(soup: BeautifulSoup, *, limit: int) -> list[dict[str, Any]
             }
         )
 
+    for block in soup.select("article.series-card"):
+        if len(items) >= limit:
+            break
+        poster = block.select_one(
+            "a.sc-poster[href*='/tvshows/'], a.sc-poster[href*='/episodes/']"
+        )
+        title_link = block.select_one("h3.sc-title a[href]")
+        link = poster or title_link
+        if not link:
+            continue
+        href = link.get("href") or ""
+        if "/episodes/" in href:
+            url = _normalize_episode_href(href)
+        elif "/tvshows/" in href:
+            url = _normalize_tvshow_href(href)
+        else:
+            continue
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        img = block.select_one("img")
+        title = _clean_title(
+            _first_non_empty(
+                title_link.get_text(strip=True) if title_link else None,
+                img.get("alt") if img else None,
+            )
+        ) or "Unknown Series"
+        meta_tag = block.select_one(".sc-meta .sc-tag")
+        items.append(
+            {
+                "url": url,
+                "title": title,
+                "thumbnail_url": _best_image_url(img),
+                "duration": None,
+                "views": None,
+                "uploader_name": None,
+                "upload_date": meta_tag.get_text(strip=True) if meta_tag else None,
+            }
+        )
+
     if len(items) < limit:
         for link in soup.select("a.anm_det_pop[href*='/tvshows/'], a.pop_info[href*='/tvshows/']"):
             if len(items) >= limit:
