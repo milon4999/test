@@ -43,6 +43,7 @@ _JW_HLS_RE = re.compile(r'hls\s*:\s*["\']([^"\']+)["\']', re.IGNORECASE)
 _JW_SOURCES_RE = re.compile(r'sources\s*:\s*\[\s*\{[^}]*file\s*:\s*["\']([^"\']+)["\']', re.IGNORECASE)
 _M3U8_URL_RE = re.compile(r'https?://[^\s"\'<>]+\.m3u8(?:\?[^\s"\'<>]*)?', re.IGNORECASE)
 _MP4_URL_RE = re.compile(r'https?://[^\s"\'<>]+\.mp4(?:\?[^\s"\'<>]*)?', re.IGNORECASE)
+_VTT_URL_RE = re.compile(r'https?://[^\s"\'<>]+\.vtt(?:\?[^\s"\'<>]*)?', re.IGNORECASE)
 _EPISODE_NUM_RE = re.compile(r"-episode-(\d+)", re.IGNORECASE)
 _PATH_PAGE_SUFFIX_RE = re.compile(r"^(.+)/page/(\d+)$", re.IGNORECASE)
 _PATH_NUMERIC_SUFFIX_RE = re.compile(r"^(.+)/(\d+)$", re.IGNORECASE)
@@ -311,6 +312,17 @@ async def _fetch_player_iframes(post_id: str, page_url: str) -> list[str]:
     return urls
 
 
+def _is_video_stream_url(url: str) -> bool:
+    url_lower = url.lower()
+    if ".vtt" in url_lower:
+        return False
+    if "/thumbnail/" in url_lower or "/thumbnails/" in url_lower:
+        return False
+    if "/images/" in url_lower and not url_lower.endswith((".mp4", ".m3u8", ".webm")):
+        return False
+    return True
+
+
 def _streams_from_player_html(html: str, label: str) -> list[dict[str, str]]:
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -326,6 +338,8 @@ def _streams_from_player_html(html: str, label: str) -> list[dict[str, str]]:
             url = _htmllib.unescape(match.group(1)).strip().replace("\\/", "/")
             if not url.startswith("http"):
                 continue
+            if not _is_video_stream_url(url):
+                continue
             if url in seen:
                 continue
             seen.add(url)
@@ -335,6 +349,8 @@ def _streams_from_player_html(html: str, label: str) -> list[dict[str, str]]:
     for pattern, fmt in ((_M3U8_URL_RE, "hls"), (_MP4_URL_RE, "mp4")):
         for match in pattern.finditer(html):
             url = match.group(0).strip().replace("\\/", "/")
+            if not _is_video_stream_url(url):
+                continue
             if url in seen:
                 continue
             seen.add(url)
