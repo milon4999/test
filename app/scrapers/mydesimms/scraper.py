@@ -174,9 +174,13 @@ def _clean_title(title: str | None) -> Optional[str]:
         " | MyDesi",
         " - Mydesi Desi Mms Videos",
         " | Mydesi Desi Mms Videos",
+        " MydesiHD",
+        " | MydesiHD",
+        " - MydesiHD",
     ):
         if t.endswith(suffix):
             t = t[: -len(suffix)].strip()
+    t = re.sub(r"\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]*\d{1,2}[a-z]*(?:,?\s*\d{2,4})?$", "", t, flags=re.IGNORECASE)
     return t or None
 
 
@@ -731,8 +735,14 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
         if not thumb:
             continue
 
-        title = a.get("title") or (img.get("alt") if img else None) or a.get_text(" ", strip=True)
-        title = _clean_title(title) or "Unknown Video"
+        if container and "thumbnail" in container.get("class", []):
+            li_parent = container.find_parent("li")
+            if li_parent:
+                container = li_parent
+
+        post_content = container.find(class_="post-content") if container else None
+        raw_title = a.get("title") or (img.get("alt") if img else None) or (post_content.get_text(" ", strip=True) if post_content else None) or a.get_text(" ", strip=True)
+        title = _clean_title(raw_title) or "Unknown Video"
 
         ctext = container.get_text(" ", strip=True) if container else ""
         duration = None
