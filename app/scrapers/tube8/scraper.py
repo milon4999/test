@@ -159,16 +159,29 @@ def _extract_video_streams(html: str) -> dict[str, Any]:
     return {"streams": streams, "default": default_url, "has_video": bool(streams)}
 
 
+def _format_duration(secs: int) -> str:
+    m, s = divmod(secs, 60)
+    h, m = divmod(m, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 def parse_page(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
 
-    # Title
     title = None
-    t_tag = soup.find("title")
-    if t_tag:
-        title = t_tag.get_text(strip=True)
-        for suffix in [" - Tube8", " | Tube8", " - tube8.com"]:
-            title = title.replace(suffix, "")
+    title_el = soup.select_one("h1.video-title-text, h1.tm_video_title, h1")
+    if title_el:
+        title = title_el.get_text(strip=True)
+    if not title:
+        meta_title = soup.find("meta", property="og:title")
+        if meta_title:
+            title = meta_title.get("content")
+    if not title:
+        t_tag = soup.find("title")
+        if t_tag:
+            title = t_tag.get_text(strip=True)
+            for suffix in [" - Tube8", " | Tube8", " - tube8.com"]:
+                title = title.replace(suffix, "")
 
     # Thumbnail from og:image
     thumbnail = None
@@ -176,17 +189,29 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
     if meta_thumb:
         thumbnail = meta_thumb.get("content")
 
-    # Duration from video:duration meta or page_params
+    # Duration from page_params or video:duration meta
     duration = None
-    meta_dur = soup.find("meta", property="video:duration")
-    if meta_dur:
+    m = re.search(r"var\s+page_params\s*=\s*(\{.*?\});", html, re.DOTALL)
+    if m:
         try:
-            secs = int(meta_dur.get("content"))
-            m, s = divmod(secs, 60)
-            h, m = divmod(m, 60)
-            duration = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+            raw = m.group(1)
+            full = json.loads(raw)
+            setup = full.get("video_player_setup", {})
+            playervars = setup.get("playervars", {})
+            dur_secs = playervars.get("duration")
+            if dur_secs:
+                duration = _format_duration(int(dur_secs))
         except Exception:
             pass
+
+    if not duration:
+        meta_dur = soup.find("meta", property="video:duration")
+        if meta_dur:
+            try:
+                secs = int(meta_dur.get("content"))
+                duration = _format_duration(secs)
+            except Exception:
+                pass
 
     # Views
     views = None
@@ -315,32 +340,44 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
         """Build a list item dict given the resolved fields and a container element for metadata."""
         if not href:
             return None
-        
+
         # Normalize URL for deduplication
         if not href.startswith("http"):
             href = "https://www.tube8.com" + ("/" if not href.startswith("/") else "") + href
         href = href.split("?")[0].rstrip("/") # Simple normalization
-        
+
         if href in seen_hrefs:
             return None
         seen_hrefs.add(href)
 
-        # Duration
+        # Duration - try multiple selectors
         duration = "0:00"
         if container is not None:
-            dur_el = container.select_one(".tm_video_duration, .video-duration, .duration, .video-duration-text")
+            dur_el = container.select_one(
+                ".tm_video_duration, .video-duration, .duration, .video-duration-text, "
+                ".video_info-duration, span[data-duration], .video-card-duration"
+            )
             if dur_el:
                 txt = dur_el.get_text(strip=True)
                 if txt:
                     duration = txt
+            # Try data attribute as fallback
+            if duration == "0:00":
+                for sel in ["[data-duration]", ".duration-text"]:
+                    el = container.select_one(sel)
+                    if el:
+                        txt = el.get("data-duration") or el.get_text(strip=True)
+                        if txt:
+                            duration = txt
+                            break
 
         # Views
         views = "0"
         if container is not None:
-            v_el = container.select_one(".info-views, .views, .video_views, .video-views-text")
+            v_el = container.select_one(".info-views, .views, .video_views, .video-views-text, .video-views-count")
             if v_el:
                 raw_views = v_el.get_text(strip=True).lower()
-                v_match = re.search(r"(\d+[\d\.,]*[km]?)", raw_views)
+                v_match = re.search(r"([\d,.]+[km]?)", raw_views)
                 if v_match:
                     views = v_match.group(1).upper()
                 elif raw_views.strip():
@@ -349,10 +386,10 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
         # Uploader
         uploader = "Unknown"
         if container is not None:
-            u_el = container.select_one(".author-title-text, .video-author-text, .username, .uploader")
+            u_el = container.select_one(".author-title-text, .video-author-text, .username, .uploader, .video-uploader")
             if not u_el:
                 u_el = container.select_one('a[href*="/user/"], a[href*="/profiles/"]')
-            
+
             if u_el:
                 txt = u_el.get_text(strip=True)
                 if txt:
@@ -387,7 +424,9 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
                 card = card.parent
             
             title = ""
-            title_el = card.select_one("a.video-title-text, .video-title a, .title a") if card else None
+            title_el = card.select_one(
+                "a.video-title-text, .video-title a, .title a, .video-title, .tm_video_title, h3, .video-card-title"
+            ) if card else None
             if title_el:
                 title = title_el.get("title") or title_el.get_text(strip=True)
             if not title:
@@ -415,9 +454,11 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
                 card = a.parent
                 if card and card.name != "div":
                     card = card.parent
-                
+
                 title = ""
-                title_el = card.select_one(".video-title-text, .tm_video_title") if card else None
+                title_el = card.select_one(
+                    ".video-title-text, .tm_video_title, .video-title, h3, .video-card-title"
+                ) if card else None
                 if title_el:
                     title = title_el.get("title") or title_el.get_text(strip=True)
                 if not title:
