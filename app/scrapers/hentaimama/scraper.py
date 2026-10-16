@@ -368,33 +368,18 @@ async def _fetch_player_streams(html: str, page_url: str) -> dict[str, Any]:
     iframe_urls = await _fetch_player_iframes(post_id, page_url)
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
-    hls_url: Optional[str] = None
 
-    labels = ("Mirror 1", "Mirror 2", "Mirror 3")
+    labels = ("Mirror 1", "Mirror 2", "Mirror 3", "Mirror 4", "Mirror 5")
     for idx, iframe_url in enumerate(iframe_urls):
         label = labels[idx] if idx < len(labels) else f"Mirror {idx + 1}"
         if iframe_url not in seen:
             seen.add(iframe_url)
             streams.append({"quality": label, "url": iframe_url, "format": "embed"})
-        try:
-            player_html = await fetch_page(iframe_url, referer=page_url)
-        except Exception:
-            continue
-        for stream in _streams_from_player_html(player_html, label):
-            if stream["url"] in seen:
-                continue
-            seen.add(stream["url"])
-            streams.append(stream)
-            if stream["format"] == "hls" and hls_url is None:
-                hls_url = stream["url"]
 
-    default = hls_url or next(
-        (s["url"] for s in streams if s.get("format") == "mp4"),
-        streams[0]["url"] if streams else None,
-    )
+    default = streams[0]["url"] if streams else None
     return {
         "streams": streams,
-        "hls": hls_url,
+        "hls": None,
         "default": default,
         "has_video": bool(streams),
     }
