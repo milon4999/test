@@ -10,13 +10,13 @@ from bs4 import BeautifulSoup
 
 from app.core.pool import fetch_html as pool_fetch_html
 
-BASE_URL = "https://www.mydesi2.fit/"
-CANONICAL_HOST = "www.mydesi2.fit"
+BASE_URL = "https://www.mydesi2.boats/"
+CANONICAL_HOST = "www.mydesi2.boats"
 
 _SUPPORTED_HOSTS = frozenset(
     {
-        "mydesi2.fit",
-        "www.mydesi2.fit",
+        "mydesi2.boats",
+        "www.mydesi2.boats",
     }
 )
 
@@ -30,7 +30,7 @@ def _normalize_host(host: str) -> str:
 
 def can_handle(host: str) -> bool:
     h = _normalize_host(host)
-    return h in _SUPPORTED_HOSTS or h.endswith(".mydesi2.fit")
+    return h in _SUPPORTED_HOSTS or h.endswith(".mydesi2.boats")
 
 
 def get_categories() -> list[dict]:

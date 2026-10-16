@@ -604,7 +604,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "uncutmaza.gg" in parsed_url.netloc.lower() or
         "mydesihd.guru" in parsed_url.netloc.lower() or
         "mydesi2.dev" in parsed_url.netloc.lower() or
-        "mydesi2.fit" in parsed_url.netloc.lower() or
+        "mydesi2.boats" in parsed_url.netloc.lower() or
         "myd-cdn.com" in parsed_url.netloc.lower() or
         "mydesimms.watch" in parsed_url.netloc.lower() or
         "mydesix10.watch" in parsed_url.netloc.lower() or
@@ -771,7 +771,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "analdin.com" in parsed_url.netloc.lower() or
         "vcdn.analdin.com" in parsed_url.netloc.lower() or
         "p4455.com" in parsed_url.netloc.lower() or
-        "mydesi2.fit" in parsed_url.netloc.lower() or
+        "mydesi2.boats" in parsed_url.netloc.lower() or
         "myd-cdn.com" in parsed_url.netloc.lower() or
         "mydesi14.com" in parsed_url.netloc.lower() or
         "mydesi.com.co" in parsed_url.netloc.lower() or
@@ -890,7 +890,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "uncutmaza.gg" in host_l
             or "mydesihd.guru" in host_l
             or "mydesi2.dev" in host_l
-            or "mydesi2.fit" in host_l
+            or "mydesi2.boats" in host_l
             or "myd-cdn.com" in host_l
             or "mydesimms.watch" in host_l
             or "mydesix10.watch" in host_l
@@ -1059,7 +1059,7 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "analdin.com" in host_l
             or "vcdn.analdin.com" in host_l
             or "p4455.com" in host_l
-            or "mydesi2.fit" in host_l
+            or "mydesi2.boats" in host_l
             or "myd-cdn.com" in host_l
             or "mydesi14.com" in host_l
             or "mydesi.com.co" in host_l

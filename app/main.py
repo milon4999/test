@@ -719,7 +719,7 @@ async def get_categories(source: str) -> list[CategoryItem]:
         if s in ("analdin", "analdin.com", "www.analdin.com"): return [_category_item(c) for c in analdin.get_categories()]
         if s in ("nuvid", "nuvid.club", "www.nuvid.club", "nuvid.com", "www.nuvid.com"): return [_category_item(c) for c in nuvid.get_categories()]
         if s in ("p4455", "p4455.com", "www.p4455.com"): return [_category_item(c) for c in p4455.get_categories()]
-        if s in ("mydesi2", "mydesi2.fit", "www.mydesi2.fit"): return [_category_item(c) for c in mydesi2.get_categories()]
+        if s in ("mydesi2", "mydesi2.boats", "www.mydesi2.boats"): return [_category_item(c) for c in mydesi2.get_categories()]
         if s in ("mydesi14", "mydesi14.com", "www.mydesi14.com"): return [_category_item(c) for c in mydesi14.get_categories()]
         if s in ("mydesico", "mydesi.com.co", "www.mydesi.com.co"): return [_category_item(c) for c in mydesico.get_categories()]
         if s in ("mydesirest", "mydesi.rest", "www.mydesi.rest"): return [_category_item(c) for c in mydesirest.get_categories()]
