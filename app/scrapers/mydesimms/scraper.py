@@ -13,10 +13,12 @@ from bs4 import BeautifulSoup
 
 from app.core.pool import fetch_html as pool_fetch_html
 
-BASE_URL = "https://mydesi2.com.co/"
-CANONICAL_HOST = "mydesi2.com.co"
+BASE_URL = "https://mydesihd.guru/"
+CANONICAL_HOST = "mydesihd.guru"
 _SUPPORTED_HOSTS = frozenset(
     {
+        "mydesihd.guru",
+        "www.mydesihd.guru",
         "mydesi2.com.co",
         "www.mydesi2.com.co",
         "mydesi2.dev",
@@ -27,7 +29,7 @@ _SUPPORTED_HOSTS = frozenset(
     }
 )
 _MYDESI_WATCH_RE = re.compile(r"^mydesi[a-z0-9]+\.watch$")
-# mydesi2.com.co uses a brand-new Let's Encrypt "Root YE" hierarchy that is
+# mydesihd.guru uses a brand-new Let's Encrypt "Root YE" hierarchy that is
 # missing from many stale system CA stores (aiohttp does not use certifi by
 # default), causing CERTIFICATE_VERIFY_FAILED. Pin the certifi bundle instead.
 _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
