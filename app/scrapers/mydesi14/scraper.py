@@ -11,15 +11,13 @@ from bs4 import BeautifulSoup
 
 from app.core.pool import fetch_html as pool_fetch_html
 
-BASE_URL = "https://mydesi12.com/"
-CANONICAL_HOST = "mydesi12.com"
+BASE_URL = "https://mydesi14.com/"
+CANONICAL_HOST = "mydesi14.com"
 
 _SUPPORTED_HOSTS = frozenset(
     {
-        "mydesi12.com",
-        "www.mydesi12.com",
-        "mydesi10.com",
-        "www.mydesi10.com",
+        "mydesi14.com",
+        "www.mydesi14.com",
     }
 )
 
@@ -33,7 +31,7 @@ def _normalize_host(host: str) -> str:
 
 def can_handle(host: str) -> bool:
     h = _normalize_host(host)
-    return h in _SUPPORTED_HOSTS or h.endswith(".mydesi10.com")
+    return h in _SUPPORTED_HOSTS or h.endswith(".mydesi14.com")
 
 
 def get_categories() -> list[dict]:
@@ -53,7 +51,7 @@ async def fetch_page(url: str) -> str:
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": BASE_URL,
     }
-    # mydesi12.com serves an expired TLS certificate; the domain is otherwise
+    # mydesi14.com may serve an expired TLS certificate; the domain is otherwise
     # live, so skip verification rather than failing every request.
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False

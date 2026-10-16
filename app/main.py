@@ -270,7 +270,7 @@ async def _scrape_dispatch(url: str, host: str) -> dict[str, Any]:
     if nuvid.can_handle(host): return await nuvid.scrape(url)
     if p4455.can_handle(host): return await p4455.scrape(url)
     if mydesi2.can_handle(host): return await mydesi2.scrape(url)
-    if mydesi10.can_handle(host): return await mydesi10.scrape(url)
+    if mydesi14.can_handle(host): return await mydesi14.scrape(url)
     if mydesico.can_handle(host): return await mydesico.scrape(url)
     if mydesirest.can_handle(host): return await mydesirest.scrape(url)
     if mydesisbs.can_handle(host): return await mydesisbs.scrape(url)
@@ -426,7 +426,7 @@ async def _list_dispatch(base_url: str, host: str, page: int, limit: int) -> lis
     if nuvid.can_handle(host): return await nuvid.list_videos(base_url=base_url, page=page, limit=limit)
     if p4455.can_handle(host): return await p4455.list_videos(base_url=base_url, page=page, limit=limit)
     if mydesi2.can_handle(host): return await mydesi2.list_videos(base_url=base_url, page=page, limit=limit)
-    if mydesi10.can_handle(host): return await mydesi10.list_videos(base_url=base_url, page=page, limit=limit)
+    if mydesi14.can_handle(host): return await mydesi14.list_videos(base_url=base_url, page=page, limit=limit)
     if mydesico.can_handle(host): return await mydesico.list_videos(base_url=base_url, page=page, limit=limit)
     if mydesirest.can_handle(host): return await mydesirest.list_videos(base_url=base_url, page=page, limit=limit)
     if mydesisbs.can_handle(host): return await mydesisbs.list_videos(base_url=base_url, page=page, limit=limit)
@@ -720,7 +720,7 @@ async def get_categories(source: str) -> list[CategoryItem]:
         if s in ("nuvid", "nuvid.club", "www.nuvid.club", "nuvid.com", "www.nuvid.com"): return [_category_item(c) for c in nuvid.get_categories()]
         if s in ("p4455", "p4455.com", "www.p4455.com"): return [_category_item(c) for c in p4455.get_categories()]
         if s in ("mydesi2", "mydesi2.fit", "www.mydesi2.fit"): return [_category_item(c) for c in mydesi2.get_categories()]
-        if s in ("mydesi10", "mydesi10.com", "www.mydesi10.com", "mydesi12", "mydesi12.com", "www.mydesi12.com"): return [_category_item(c) for c in mydesi10.get_categories()]
+        if s in ("mydesi14", "mydesi14.com", "www.mydesi14.com"): return [_category_item(c) for c in mydesi14.get_categories()]
         if s in ("mydesico", "mydesi.com.co", "www.mydesi.com.co"): return [_category_item(c) for c in mydesico.get_categories()]
         if s in ("mydesirest", "mydesi.rest", "www.mydesi.rest"): return [_category_item(c) for c in mydesirest.get_categories()]
         if s in ("mydesisbs", "mydesi.sbs", "www.mydesi.sbs"): return [_category_item(c) for c in mydesisbs.get_categories()]
