@@ -32,9 +32,15 @@ async def fetch_html(url: str) -> str:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Referer": "https://www.tube8.com/",
-        "Cookie": "platform=pc" # Force desktop layout for consistent script tags
+        "Cookie": "platform=pc"
     }
-    return await pool_fetch_html(url, headers=headers)
+    try:
+        async with httpx.AsyncClient(headers=headers, timeout=30.0, follow_redirects=True, verify=False) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.text
+    except Exception:
+        return await pool_fetch_html(url, headers=headers)
 
 
 async def _resolve_proxy_url(proxy_url: str) -> list[dict]:
@@ -336,6 +342,18 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
     items: list[dict] = []
     seen_hrefs: set[str] = set()
 
+    def _find_container(el) -> Any:
+        """Walk up to find the video card container with duration/thumbnail."""
+        node = el
+        for _ in range(8):
+            if node is None:
+                break
+            if getattr(node, 'select_one', None):
+                if node.select_one(".tm_video_duration, .video-duration, .duration, .video-duration-text, img"):
+                    return node
+            node = getattr(node, 'parent', None)
+        return el.parent if el else None
+
     def _make_item(href: str, title: str, thumb: str | None, container) -> dict | None:
         """Build a list item dict given the resolved fields and a container element for metadata."""
         if not href:
@@ -416,13 +434,8 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
             if img:
                 thumb = img.get("data-src") or img.get("data-thumb_url") or img.get("src")
 
-            # Container for metadata is usually a parent div (video-card or item)
-            # The title often lives in a sibling but the container for _make_item should be the shared parent
-            card = a.parent
-            # Some layouts have a wrapper around the link and info
-            if card and card.name != "div":
-                card = card.parent
-            
+            card = _find_container(a)
+
             title = ""
             title_el = card.select_one(
                 "a.video-title-text, .video-title a, .title a, .video-title, .tm_video_title, h3, .video-card-title"
@@ -450,10 +463,7 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
                 if img:
                     thumb = img.get("data-src") or img.get("data-thumb_url") or img.get("src")
 
-                # Title is in img alt attribute or a video-title link
-                card = a.parent
-                if card and card.name != "div":
-                    card = card.parent
+                card = _find_container(a)
 
                 title = ""
                 title_el = card.select_one(
