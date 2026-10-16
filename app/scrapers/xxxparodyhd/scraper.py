@@ -12,8 +12,7 @@ from app.core import pool
 
 def can_handle(host: str) -> bool:
     h = host.lower()
-    # Listing pages use xxxparodyhd.net; embed players often use urshort.live (and similar).
-    return "xxxparodyhd.net" in h or "urshort.live" in h
+    return "xxxparodyhd.net" in h or "urshort.live" in h or "vidara" in h
 
 
 async def fetch_html(url: str) -> str:
@@ -82,17 +81,17 @@ async def parse_page(html: str, url: str) -> dict[str, Any]:
     # MixDrop/VOE embeds redirect to rotating mirror domains at runtime — each
     # embed URL is RESOLVED LIVE below (HTTP 302 for mixdrop, JS
     # window.location for voe) instead of using a static domain map.
-    embed_host_priority = ("mixdrop", "voe", "playmate", "luluvid")
-    embed_host_skip = ("frdl", "freedl")
+    embed_host_priority = ("mixdrop", "voe", "playmate", "vidara", "luluvid", "doodstream")
+    embed_host_skip = ("frdl", "freedl", "nitroflare", "rapidgator")
     needs_resolution = ("mixdrop", "voe")
-    for a_tag in soup.select(".su-spoiler-content a[href], .entry-content a[href], .Rtable1 a[href]"):
+    for a_tag in soup.select(".su-spoiler-content a[href], .entry-content a[href], .Rtable1 a[href], .post-buttons a[href]"):
         href = a_tag.get("href", "")
         text = _text(a_tag) or ""
         low = href.lower()
-        # Common embed hosts
         embed_hosts = ["dood", "doply", "vidnest", "player4me", "upns", "voe.sx",
                        "embedseek", "seekplayer", "mixdrop", "easyvidplayer", "rpmplay",
-                       "luluvid", "streamtape", "playmate", "hxfile", "xshotcok", "urshort"]
+                       "luluvid", "streamtape", "playmate", "hxfile", "xshotcok", "urshort",
+                       "vidara", "doodstream", "lulustream"]
         if any(h in low for h in embed_hosts):
             # Skip non-playing download hosts
             if any(x in low for x in embed_host_skip):
@@ -191,16 +190,14 @@ async def parse_page(html: str, url: str) -> dict[str, Any]:
                     except Exception:
                         continue
 
-    filtered: list[dict[str, Any]] = []
+    final_urls: list[dict[str, Any]] = []
     for e in embed_urls:
         resolved_url = to_resolve.get(e["url"])
         if e.get("resolve") and not resolved_url:
-            # Could not resolve: VOE raw URL is a bootstrap page (unplayable) —
-            # drop it. MixDrop raw URL still 302s client-side — keep it.
             if e["host"] == "voe":
                 continue
-        resolved.append({**e, "url": resolved_url or e["url"]})
-    embed_urls = filtered or resolved
+        final_urls.append({**e, "url": resolved_url or e["url"]})
+    embed_urls = final_urls
 
     # Build video data
     # XXXParodyHD doesn't host videos directly - it links to external embed players
@@ -254,23 +251,23 @@ async def parse_page(html: str, url: str) -> dict[str, Any]:
 
     # Related Videos
     related_videos = []
-    # Related are typically listed below the main content
-    for item in soup.select(".post-thumbnail, .item-list .post"):
+    for item in soup.select(".related-movies article.post, .related-posts article.post, article.post"):
         try:
-            link = item.select_one("a[href]")
+            link = item.select_one(".post-thumbnail a[href]")
+            if not link:
+                link = item.select_one("a[href]")
             if not link:
                 continue
             r_url = link.get("href", "")
             if not r_url or "xxxparodyhd.net" not in r_url:
                 continue
 
-            r_title = link.get("title") or _text(link)
-            img = item.select_one("img")
+            r_title = item.select_one(".post-meta a, h2 a, .title a")
+            r_title = _text(r_title) if r_title else (link.get("title") or _text(link.select_one("img")))
+            img = item.select_one(".post-thumbnail img")
             r_thumb = _best_image_url(img)
-            r_dur = None
-            dur_el = item.select_one(".duration, .runtime")
-            if dur_el:
-                r_dur = _text(dur_el)
+            r_dur = item.select_one(".duration, .runtime, .post-thumbnail .duration")
+            r_dur = _text(r_dur) if r_dur else None
 
             related_videos.append({
                 "url": r_url,
@@ -343,11 +340,11 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
 
     items: list[dict[str, Any]] = []
 
-    # XXXParodyHD uses .ml-item containers (WP-Movie theme)
-    for card in soup.select(".ml-item"):
+    # XXXParodyHD uses article.post elements with .post-thumbnail and .post-meta
+    for card in soup.select("article.post"):
         try:
-            # Main link: a.ml-mask
-            link = card.select_one("a.ml-mask")
+            # Main link in .post-thumbnail
+            link = card.select_one(".post-thumbnail a")
             if not link:
                 link = card.select_one("a[href]")
             if not link:
@@ -357,42 +354,40 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             if not href:
                 continue
 
-            # Skip non-video links
             skip_patterns = ["/category/", "/genre/", "/director/", "/cast/",
-                             "/release-year/", "/page/", "#", "/tag/"]
+                             "/release-year/", "/page/", "#", "/tag/", "/pornstar/"]
             if any(p in href for p in skip_patterns):
                 continue
+            if "xxxparodyhd.net" not in href:
+                continue
 
-            # Title from .mli-info h2, or link title/oldtitle attribute
-            title_el = card.select_one(".mli-info h2")
+            # Title from .post-meta a (first link)
+            title_el = card.select_one(".post-meta a")
             title = _text(title_el) if title_el else (
-                link.get("oldtitle") or link.get("title") or _text(link)
+                link.get("title") or link.get("oldtitle") or _text(link)
             )
             if not title:
                 continue
 
             # Thumbnail
-            img = card.select_one("img")
+            img = card.select_one(".post-thumbnail img, .post-thumbnail a img")
             thumb = _best_image_url(img)
 
-            # Duration from .mli-info1
-            dur_el = card.select_one(".mli-info1")
+            # Duration from span.duration inside .post-thumbnail
+            dur_el = card.select_one(".post-thumbnail .duration")
             duration = _text(dur_el) if dur_el else None
 
-            # Year from hidden_tip div
-            year = None
-            tip = card.select_one("#hidden_tip")
-            if tip:
-                year_link = tip.select_one("a[href*='/release-year/']")
-                if year_link:
-                    year = _text(year_link)
+            # Studio from .post-meta span.studio a
+            studio_el = card.select_one(".post-meta span.studio a")
+            studio = _text(studio_el) if studio_el else None
 
             items.append({
                 "url": href,
                 "title": title or "Unknown Video",
                 "thumbnail_url": thumb,
                 "duration": duration,
-                "upload_time": year,
+                "upload_time": None,
+                "studio": studio,
             })
         except Exception:
             continue

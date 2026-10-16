@@ -324,7 +324,7 @@ EXPLORE_SOURCES = [
     ExploreSourceResponse(
         baseUrl="https://viralkand.com/",
         nickname="Viralkand",
-        favicon="https://media.tenor.com/K5wSW-CGK9wAAAAj/maintenance-under-maintenance.gif",
+        favicon="https://viralkand.com/favicon.ico",
         accentColor="#C2185B",
         category="porn",
         isVerified=False,
@@ -753,7 +753,7 @@ EXPLORE_SOURCES = [
     ExploreSourceResponse(
         baseUrl="https://sxyland.com/",
         nickname="SxyLand",
-        favicon="https://media.tenor.com/K5wSW-CGK9wAAAAj/maintenance-under-maintenance.gif",
+        favicon="https://sxyland.com/wp-content/uploads/2026/10/cropped-ms-icon-310x310-1-32x32.png",
         accentColor="#FFA500",
         category="porn",
         isVerified=False,
