@@ -4,7 +4,7 @@ import json
 import re
 import os
 from typing import Any
-from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode, urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -431,25 +431,46 @@ async def scrape(url: str) -> dict[str, Any]:
     result["video"]["has_video"] = len(streams) > 0
     return result
 
+def _replace_page_number(next_url: str, page: int) -> str:
+    """Replace the page number in a pagination URL template (path /page/N/ or query page=N)."""
+    m = re.search(r"/page/\d+/", next_url)
+    if m:
+        return re.sub(r"/page/\d+/", f"/page/{page}/", next_url)
+    m = re.search(r"[?&]page=\d+", next_url)
+    if m:
+        return re.sub(r"([?&]page=)\d+", lambda mm: f"{mm.group(1)}{page}", next_url)
+    return next_url
+
+
 async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[dict[str, Any]]:
     url = base_url.rstrip("/")
 
     if page > 1:
-        parsed = urlparse(url)
-        if parsed.query:
-            # Query-based pagination: /searches.html/?q=big&page=2  or  /cat/teens/?page=2
-            params = parse_qsl(parsed.query, keep_blank_values=True)
-            params = [(k, v) for k, v in params if k != "page"]
-            params.append(("page", str(page)))
-            parsed = parsed._replace(query=urlencode(params))
-            url = urlunparse(parsed)
-        elif url.endswith(".html"):
-            # Path-based pagination for .html listing pages: /newest/page/2/
-            url = url[: -len(".html")]
-            url = f"{url}/page/{page}/"
-        else:
-            # Category pages: /cat/teens/?page=2
-            url = f"{url}?page={page}"
+        # Derive the pagination URL from the site's own rel="next" template.
+        # This is robust against slug mismatches (e.g. mostviewed.html -> /most-viewed/page/N/).
+        try:
+            base_html = await fetch_html(url)
+            base_soup = BeautifulSoup(base_html, "lxml")
+            next_link = base_soup.find("link", rel="next")
+            if next_link and next_link.get("href"):
+                next_href = urljoin(url, next_link.get("href"))
+                url = _replace_page_number(next_href, page)
+            else:
+                raise ValueError("no rel=next")
+        except Exception:
+            # Fallback: guess pagination from URL shape
+            parsed = urlparse(url)
+            if parsed.query:
+                params = parse_qsl(parsed.query, keep_blank_values=True)
+                params = [(k, v) for k, v in params if k != "page"]
+                params.append(("page", str(page)))
+                parsed = parsed._replace(query=urlencode(params))
+                url = urlunparse(parsed)
+            elif url.endswith(".html"):
+                url = url[: -len(".html")]
+                url = f"{url}/page/{page}/"
+            else:
+                url = f"{url}?page={page}"
 
     try:
         html = await fetch_html(url)
