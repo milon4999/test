@@ -511,10 +511,17 @@ async def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> di
     # Primary: reversebuffer chain -> signed sb-cd.com direct mp4/hls.
     resolved = await _resolve_reversebuffer_streams(video_url, html)
     if resolved:
+        has_direct_mb4 = False
         for s in resolved.get("streams") or []:
             u = s.get("url")
             if not u or u in seen:
                 continue
+            # If a signed direct file was already resolved, drop any unresolved
+            # internal /reversebuffer probe that failed to follow the site 301.
+            if "/reversebuffer?" in u and has_direct_mb4:
+                continue
+            if "reversebuffer" not in u:
+                has_direct_mb4 = True
             seen.add(u)
             streams.append(s)
         hls = resolved.get("hls")
@@ -529,7 +536,10 @@ async def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> di
     )
     if m:
         candidate = m.group(0)
-        if not any(mark in candidate.lower() for mark in ("google", "ads", "doubleclick")):
+        # og:video:url is a "#file.mp4" fragment placeholder, never a real file.
+        if "#file" not in candidate.lower() and not any(
+            mark in candidate.lower() for mark in ("google", "ads", "doubleclick")
+        ):
             direct_file = candidate.replace("\\/", "/")
 
     if direct_file and direct_file not in seen:
@@ -552,18 +562,9 @@ async def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> di
         seen.add(src)
         streams.append({"url": src, "quality": "embed", "format": "embed"})
 
-    # Direct link block as a last playable source.
-    dl_link = soup.select_one("a.get_button a[href], a.btn[href*='/dl/']") if soup else None
-    # PussySpace marks the direct file with og:video:url == page URL + "#file.mp4".
-    # Only fall back to it when no direct mp4 could be resolved above.
-    og_video = _meta(soup, prop="og:video:url") if soup else None
-    if (not any(s.get("format") == "mp4" for s in streams)) and og_video and "#file" in og_video:
-        streams.append(
-            {"url": video_url.rstrip("/") + "/#file.mp4", "quality": "page", "format": "page"}
-        )
-        if dl_link:
-            _ = dl_link  # no-op keeps lints quiet; /dl/{id}/ needs an extra signed request
-    del dl_link
+    # og:video:url is only a "#file.mp4" placeholder (page URL + hash); it does
+    # not resolve to a real file and must never be exposed as a playable stream.
+    # /dl/{id}/ would need an extra signed request, so it is not used either.
 
     preferred = None
     for s in streams:
