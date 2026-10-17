@@ -171,6 +171,98 @@ def _format_duration(secs: int) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+def _extract_ld_json(html: str) -> list[dict]:
+    """Parse all application/ld+json script blocks into dicts."""
+    blocks = re.findall(
+        r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html,
+        re.DOTALL,
+    )
+    result: list[dict] = []
+    for block in blocks:
+        try:
+            data = json.loads(block.strip())
+            result.append(data)
+        except Exception:
+            continue
+    return result
+
+
+def _jsonld_video_author(html: str, url: str) -> str | None:
+    """Find the main VideoObject's author, including sibling @graph nodes with the same name."""
+    m_id = re.search(r"/porn-video/(\d+)/?", url)
+    vid = m_id.group(1) if m_id else None
+
+    for data in _extract_ld_json(html):
+        nodes: list[Any] = []
+        if isinstance(data, dict):
+            if "@graph" in data and isinstance(data["@graph"], list):
+                nodes = data["@graph"]
+            else:
+                nodes = [data]
+        elif isinstance(data, list):
+            nodes = data
+
+        video_name: str | None = None
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            if str(node.get("@type")) != "VideoObject":
+                continue
+            embed = str(node.get("embedUrl") or node.get("url") or "")
+            if vid and vid not in embed:
+                continue
+            video_name = node.get("name") or node.get("title")
+            author = node.get("author")
+            if isinstance(author, dict):
+                name = author.get("name")
+                if name:
+                    return str(name)
+            elif author:
+                return str(author)
+
+        # VideoObject had no author - look for sibling node with the same name
+        if video_name:
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+                if str(node.get("@type")) == "VideoObject":
+                    continue
+                if (node.get("name") or node.get("title")) != video_name:
+                    continue
+                author = node.get("author")
+                if isinstance(author, dict):
+                    name = author.get("name")
+                    if name:
+                        return str(name)
+                elif author:
+                    return str(author)
+    return None
+
+
+def _format_views(raw) -> str:
+    """Format a raw view count into human-readable form: 10, 10K, 10M, 1B."""
+    try:
+        if raw is None:
+            return "0"
+        s = str(raw).strip().upper()
+        if s.endswith(("K", "M", "B")):
+            return s
+        num = float(s.replace(",", ""))
+        if num >= 1_000_000_000:
+            val = num / 1_000_000_000
+            return f"{val:.1f}B" if val < 10 else f"{int(val)}B"
+        if num >= 1_000_000:
+            val = num / 1_000_000
+            return f"{val:.1f}M" if val < 10 else f"{int(val)}M"
+        if num >= 1_000:
+            val = num / 1_000
+            return f"{val:.1f}K" if val < 10 else f"{int(val)}K"
+        return f"{int(num)}"
+    except Exception:
+        return str(raw) if raw else "0"
+
+
 def parse_page(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
 
@@ -186,7 +278,7 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
         t_tag = soup.find("title")
         if t_tag:
             title = t_tag.get_text(strip=True)
-            for suffix in [" - Tube8", " | Tube8", " - tube8.com"]:
+            for suffix in [" - Tube8", " | Tube8", " - tube8.com", " Porn Videos - T8", " Porn Videos - Tube8", " - T8"]:
                 title = title.replace(suffix, "")
 
     # Thumbnail from og:image
@@ -221,16 +313,13 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
 
     # Views - try multiple sources
     views = None
-    # Try meta tag first (schema.org VideoObject)
-    meta_views = soup.find("meta", property="og:see_also")
-    if not meta_views:
-        # Try JSON-LD
-        m_views = re.search(r'"interactionCount"[:\s]*["\']?([\d,.kmKM]+)', html)
-        if m_views:
-            views = m_views.group(1).upper()
+    # From JSON-LD VideoObject interactionCount (raw number) - format human-readable
+    m_views = re.search(r'"interactionCount"\s*:\s*"?([\d.,]+)"?', html)
+    if m_views:
+        views = _format_views(m_views.group(1))
     if not views:
         # Try text search for patterns like "6.3M Views"
-        m_views = re.search(r'([\d,.]+)\s*[Mm]\s*Views', html)
+        m_views = re.search(r"([\d,.]+)\s*[Mm]\s*Views", html)
         if m_views:
             views = f"{m_views.group(1)}M"
     if not views:
@@ -239,14 +328,10 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
             txt = v_el.get_text(strip=True)
             m = re.search(r"([\d,.]+)\s*[km]?", txt, re.IGNORECASE)
             if m:
-                views = m.group(1).upper()
+                views = _format_views(m.group(1))
 
     # Uploader - try multiple sources
-    uploader = None
-    # From JSON-LD author
-    m_author = re.search(r'"author"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"', html)
-    if m_author:
-        uploader = m_author.group(1)
+    uploader = _jsonld_video_author(html, url)
     if not uploader:
         u_el = soup.select_one(".channel-name, .video-channel-name, a[href*='/channel/'], .video-channels-item a, .video-uploaded-by a, .video_channel a, .author-title-text")
         if u_el:
@@ -396,15 +481,25 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
             elif dur_el.get("data-duration"):
                 duration = dur_el.get("data-duration")
 
-        # Views: span.info-views with "Views:" label (rating span has same class)
+        # Views: span.info-views whose sr-only label says "Views:" (rating span has "Rating:")
         views = "0"
-        for v_el in card.select(".info-views, .video-views, .views, .video-views-count"):
-            label = v_el.get_text(" ", strip=True)
-            if "rating" in label.lower() or "like" in label.lower() or "%" in label:
+        for v_el in card.select("span.info-views, .video-views, .views, .video-views-count"):
+            sr = v_el.select_one(".sr-only")
+            label = sr.get_text(strip=True).lower() if sr else ""
+            if "rating" in label or "like" in label or "%" in label:
                 continue
-            m = re.search(r"([\d,.]+[km]?)", label)
+            # Value is the text node after the sr-only label
+            value_text = None
+            for child in v_el.find_all(string=True, recursive=False):
+                if child.strip():
+                    value_text = child.strip()
+                    break
+            txt = value_text or v_el.get_text(" ", strip=True)
+            m = re.search(r"([\d,.]+)\s*([kmbKMB])?", txt)
             if m:
-                views = m.group(1).upper()
+                num = m.group(1)
+                suffix = (m.group(2) or "").upper()
+                views = f"{num}{suffix}".upper() if suffix else _format_views(num)
                 break
 
         # Uploader: article[data-uploader-name] is most reliable, fallback to a.author-title-text
