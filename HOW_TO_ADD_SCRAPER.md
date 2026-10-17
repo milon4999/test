@@ -10298,3 +10298,163 @@ curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.trendyporn.com/
 ```
 
 Live-testing notes (2026-10-18): home/most-recent/channel/search listings all paginate (`page{n}.html`); video scrape returns correct title, runtime, live view count, upload date, tags/category, signed default MP4 stream + embed fallback; search p1/p2 return disjoint results; `/models/*` pages are cam-feed only and return no site videos by design.
+
+## XFreeHD Implementation Notes
+
+[XFreeHD](https://beta.xfreehd.com/) is a KVS-style tube (Fluid Player) with
+canonical video pages under `/video/{id}/{slug}`, category archives
+`/videos/{slug}`, trend/newest feeds at `/trends` and `/videos`, and a
+`/search` endpoint (`search_query` + `search_type=videos`). The bare
+`xfreehd.com` apex 301-redirects to `beta.xfreehd.com`. Implemented as
+`backend/app/scrapers/xfreehd/` (`can_handle`, `scrape`, `list_videos`,
+`get_categories`; no `crawl_videos`). Use `trendyporn` / `pussyspace` as the
+closest references (same KVS-style card markup, no Cloudflare on pages).
+
+### Embed-only streams (important design decision)
+
+Video pages embed a KVS-signed player:
+
+- `<video id="hdPlayer">` with `<source src="https://lb.xfreehd.com/{40hex}.mp4" title="SD|HD">`
+- the MP4 hashes rotate on every page load and the `lb.` origin 302-redirects
+  (for browser sessions carrying the matching `FX` session cookie) to
+  `https://v-s7{c,d}-global-cdn.xfreehd.com/media/videos/iphone/{id}.mp4?st=...&e=...`
+  where `e` expires after roughly 3 hours
+- **every server-side Python client is rejected**: httpx/aiohttp get
+  `403 Forbidden` / `Bad Token (2)` from the `lb.` host and even the resolved
+  CDN URL returns `403` to raw-TLS/httpx/aiohttp (verified 2026-10-17/18)
+
+The scraper therefore returns **only the site-native embed**
+(`https://beta.xfreehd.com/embed/{id}`, `format="embed"`, `quality="xfreehd"`)
+and never fabricates direct media URLs. Playback relies on the embed player
+the same way the `mypornerleak` / `porndish` / `latestleaks` scrapers do.
+
+### Host aliases
+
+- `xfreehd.com`
+- `www.xfreehd.com`
+- `beta.xfreehd.com` (canonical pages)
+- `image.xfreehd.com` (thumbnail CDN)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    return h == "xfreehd.com" or h.endswith(".xfreehd.com")
+```
+
+### Listing and pagination (`list_videos`)
+
+- Card anchors are `a.video-link[href]` pointing at `/video/{id}/{slug}`;
+  pagination strips stale `/page=N` suffixes / `page=` params first:
+  - page 1 uses `base_url` unchanged
+  - the bare root paginates as `/page={n}`
+  - every other path (`/videos`, `/trends`, `/videos/{slug}`, `/search`)
+    paginates as `?page={n}`
+- Card fields:
+  - title: `.video-title-new`, then image `alt`, then anchor text
+  - thumbnail: `img[data-src]` on `image.xfreehd.com` (`src` is a lazy 1px
+    placeholder; `/img/ximgx.png` URLs are skipped)
+  - duration: `.duration-new` badge in `mm:ss`, `hm`, `m`, `s` or `h m`
+    shorthand, normalized to `hh:mm:ss` / `mm:ss`
+  - views: `.video-views-new` (e.g. `20.2K`, `72.8K`, plain counts)
+- Live-verified counts (2026-10-18): home page 1 = 48 cards, page 2 = 40
+  (5 cross-page promoted repeats are inherent to the feed); `/videos` p2 =
+  30; `/videos/blonde` p2 = 30; `/trends` p2 = 32; search p1/p2 = 30/30 with
+  no overlap.
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. `og:title` / `og:description` / `og:image`
+  2. `twitter:` + `og:video:` equivalents (the `twitter:player` value is the
+     canonical `/embed/{id}` URL)
+  3. JSON-LD `VideoObject`: `name` carries a
+     `"| {Category} - T21 - XFREEHD"` suffix parsed for `category`,
+     `duration` (`PT00H49M12S` -> `49:12`), `uploadDate` -> `YYYY-MM-DD`,
+     `interactionStatistic` (WatchAction) -> views
+- Tags come from the base64 payload in the `media/fluid/js.php?tx=...`
+  script URL (comma separated; may include performer search terms after the
+  category names, e.g. `["Blowjob", "Blonde", "superheroine", "cherie deville"]`).
+- `/embed/{id}` URLs are valid first-class `scrape()` targets: the canonical
+  `/video/{id}/{slug}` URL is read from the player `data-target` attribute
+  and the metadata is fetched from that page while the response keeps the
+  requested embed URL.
+- `video.streams` contains exactly one entry
+  (`quality="xfreehd"`, `format="embed"`) and `video.default` is that embed;
+  `hls` stays `None`. `has_video` is true whenever the embed URL could be
+  derived from `twitter:player` or the URL id.
+
+### Categories (`get_categories`)
+
+`categories.json` seeds the three listing views (Latest `https://beta.xfreehd.com/`,
+Videos `/videos`, Trends `/trends`) plus all 48 categories crawled from the
+live `/categories` index (`/videos/{slug}` URLs).
+
+### Registration checklist for XFreeHD
+
+Besides creating `backend/app/scrapers/xfreehd/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` (`from . import xfreehd` + `__all__`)
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping
+    (`source=xfreehd|xfreehd.com|www.xfreehd.com|beta.xfreehd.com`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif xfreehd.can_handle(host)`)
+  - unsupported-host help text (`xfreehd.com`)
+  - available-qualities outer gate + `per_stream_format_keys` host lists
+    (`xfreehd.com`, substring-matches the `beta.` page hosts)
+- `backend/app/models/schemas.py`
+  - `ScrapeRequest` scrape URL allowlist
+  - `ListRequest` list/base URL allowlist
+- `backend/app/api/endpoints/explore.py`
+  - add `ExploreSourceResponse` entry (`sourceId="xfreehd"`,
+    `baseUrl="https://beta.xfreehd.com/"`,
+    `searchUrlTemplate="https://beta.xfreehd.com/search?search_query={query}&search_type=videos"`,
+    `pageSize=48`, accent `#D03434` from the site theme)
+- `backend/app/api/endpoints/thumbnails.py` is intentionally **not** updated:
+  `image.xfreehd.com` thumbnails are hotlinkable static images, so they stay
+  unwrapped (same policy as `images.trendyporn.com`).
+
+### XFreeHD verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://beta.xfreehd.com/video/787421/unexpected-advantage/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://beta.xfreehd.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://beta.xfreehd.com/videos/blonde&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://beta.xfreehd.com/search%3Fsearch_query%3Dblonde%26search_type%3Dvideos&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=xfreehd"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://beta.xfreehd.com/video/787421/unexpected-advantage/"
+```
+
+Expected behaviour:
+
+- `POST /api/v1/scrapes` -> `title` (`Unexpected Advantage`, suffix stripped),
+  `thumbnail_url` on `image.xfreehd.com`, `duration` (`49:12`), `views`
+  (live count), `category` (`Blonde`), `upload_date` (`2024-12-10`), tags,
+  and `video.has_video=true` with the single `xfreehd` embed as
+  `video.default`.
+- `GET /api/v1/videos` -> items with canonical `/video/{id}/{slug}` URLs,
+  thumbnails, durations (badge shorthand normalized), and view counts;
+  search results paginate without overlap.
+- `GET /api/v1/videos/stream` -> `{stream_url: <embed>, quality: "xfreehd", format: "embed"}`.
+- Pages of the bare root go to `/page={n}`; every other base goes to
+  `?page={n}`.
+
+Notes from live testing (2026-10-18): listings/pages verified (48/40 home,
+30/30/32 category & feeds), video scrape returns full JSON-LD metadata and
+the embed-only stream, `/embed/{id}` accepts scrape() and resolves metadata
+via `data-target`, categories endpoint returns 51 seeded entries, and the
+stream endpoint reports `format="embed"` with flat per-quality fields
+omitted (single stream = selected stream, per the shared emission rule).

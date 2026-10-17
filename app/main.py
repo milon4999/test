@@ -37,6 +37,7 @@ from app.scrapers import masa49, xhamster, xnxx, xvideos, pornhub, youporn, redt
 from app.scrapers import cumlouder
 from app.scrapers import whoreshub
 from app.scrapers import pussyspace
+from app.scrapers import xfreehd
 from app.models.schemas import ScrapeResponse, VideoInfoResponse, ListItem, CategoryItem, ScrapeRequest, ListRequest
 
 logging.basicConfig(level=logging.INFO)
@@ -183,6 +184,7 @@ async def _scrape_dispatch(url: str, host: str) -> dict[str, Any]:
     if pussyspace.can_handle(host): return await pussyspace.scrape(url)
     if blackporn24.can_handle(host): return await blackporn24.scrape(url)
     if trendyporn.can_handle(host): return await trendyporn.scrape(url)
+    if xfreehd.can_handle(host): return await xfreehd.scrape(url)
     if lesbianporn8.can_handle(host): return await lesbianporn8.scrape(url)
     if leslez.can_handle(host): return await leslez.scrape(url)
     if milfporn8.can_handle(host): return await milfporn8.scrape(url)
@@ -341,6 +343,7 @@ async def _list_dispatch(base_url: str, host: str, page: int, limit: int) -> lis
     if pussyspace.can_handle(host): return await pussyspace.list_videos(base_url=base_url, page=page, limit=limit)
     if blackporn24.can_handle(host): return await blackporn24.list_videos(base_url=base_url, page=page, limit=limit)
     if trendyporn.can_handle(host): return await trendyporn.list_videos(base_url=base_url, page=page, limit=limit)
+    if xfreehd.can_handle(host): return await xfreehd.list_videos(base_url=base_url, page=page, limit=limit)
     if lesbianporn8.can_handle(host): return await lesbianporn8.list_videos(base_url=base_url, page=page, limit=limit)
     if leslez.can_handle(host): return await leslez.list_videos(base_url=base_url, page=page, limit=limit)
     if milfporn8.can_handle(host): return await milfporn8.list_videos(base_url=base_url, page=page, limit=limit)
@@ -637,6 +640,7 @@ async def get_categories(source: str) -> list[CategoryItem]:
         if s == "pussyspace" or s == "pussyspace.com": return [_category_item(c) for c in pussyspace.get_categories()]
         if s == "blackporn24" or s == "blackporn": return [_category_item(c) for c in blackporn24.get_categories()]
         if s == "trendyporn" or s == "trendyporntube": return [_category_item(c) for c in trendyporn.get_categories()]
+        if s in ("xfreehd", "xfreehd.com", "www.xfreehd.com", "beta.xfreehd.com"): return [_category_item(c) for c in xfreehd.get_categories()]
         if s == "lesbianporn8" or s == "lesbianporn": return [_category_item(c) for c in lesbianporn8.get_categories()]
         if s == "leslez" or s == "leslezcom": return [_category_item(c) for c in leslez.get_categories()]
         if s == "milfporn8" or s == "milf8" or s == "milfporn": return [_category_item(c) for c in milfporn8.get_categories()]
