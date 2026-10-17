@@ -232,6 +232,202 @@ def _canon_video_url(href: str) -> Optional[str]:
 # scrape(): detail page
 # ---------------------------------------------------------------------------
 
+# Dean Edwards' JS packer: eval(function(p,a,c,k,e,d){...}('payload',BASE,COUNT,'a|b|c'.split('|'),0,{}))
+_PACKED_EVAL_RE = re.compile(
+    r"eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\),0,\{\}\)\)",
+    flags=re.DOTALL,
+)
+_MULTI_SHOW_PLAYER_RE = re.compile(r"multiShowPlayer\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]")
+
+
+def _dean_unpack(p: str, base: int, count: int, keywords: str) -> str:
+    chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+    def enc(n: int) -> str:
+        out = ""
+        while True:
+            if n % base > 35:
+                out = chr(n % base + 29) + out
+            else:
+                out = chars[n % base] + out
+            n //= base
+            if n == 0:
+                return out
+
+    try:
+        keys = keywords.split("|")
+    except Exception:
+        keys = []
+    for i in range(len(keys) - 1, -1, -1):
+        if not keys[i]:
+            continue
+        try:
+            token = enc(i)
+        except Exception:
+            continue
+        p = re.sub(r"\b" + re.escape(token) + r"\b", lambda m, replacement=keys[i]: replacement, p)
+    return p
+
+
+def _decode_packed_scripts(html: str) -> str:
+    decoded_parts: list[str] = []
+    for m in _PACKED_EVAL_RE.finditer(html or ""):
+        payload, base, _count, keywords = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)
+        try:
+            decoded_parts.append(_dean_unpack(payload, base, _count, keywords))
+        except Exception:
+            continue
+    return "\n".join(decoded_parts)
+
+
+def _find_player_salt(html: str) -> Optional[tuple[str, str]]:
+    """Locate multiShowPlayer('<salt>','<ptype>') inside the packed page tail."""
+    decoded = _decode_packed_scripts(html or "").replace("\\'", "'").replace('\\"', '"')
+    m = _MULTI_SHOW_PLAYER_RE.search(decoded)
+    if not m:
+        return None
+    salt = m.group(1).strip()
+    ptype = (m.group(2) or "sb").strip()
+    if salt:
+        return salt, ptype
+    return None
+
+
+async def _resolve_reversebuffer_streams(video_url: str, html: str) -> Optional[dict[str, Any]]:
+    """
+    Resolve the real direct streams.
+
+    Playback flow (from live site JS): a per-page salt token (packed in the page
+    tail) is POSTed to https://www.<host>/get/player/<ptype>/ (X-Requested-With
+    header). The response is a Playerjs page whose config contains direct
+    reversebuffer URLs, e.g.
+
+        file:"...reversebuffer?u64hash=...&hls.m3u8 or ...reversebuffer?u64hash=...&mov.mp4"
+        "<video src="...reversebuffer?u64hash=...&file.mp4">"
+        player.api("file","[720p]<url>,[480p]<url>,[240p]<url>")
+
+    Each reversebuffer URL 301-redirects to a signed sb-cd.com mp4 (expires ~1y).
+    """
+    import httpx
+
+    salt_info = _find_player_salt(html or "")
+    if not salt_info:
+        return None
+    salt, ptype = salt_info
+
+    player_url = urlunparse(("https", f"www.{_HOST}", f"/get/player/{ptype}/", "", "", ""))
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(25.0),
+            follow_redirects=False,
+        ) as client:
+            res = await client.post(
+                player_url,
+                headers={
+                    "User-Agent": _USER_AGENT,
+                    "Referer": video_url,
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "*/*",
+                },
+                data={"id": salt},
+            )
+            res.raise_for_status()
+    except Exception:
+        return None
+
+    player_html = res.text
+
+    streams: list[dict[str, str]] = []
+    seen: set[str] = set()
+    hls_url: Optional[str] = None
+    default_mp4: Optional[str] = None
+
+    def add_stream(u: str, quality: str, fmt: str) -> None:
+        u = (u or "").strip()
+        if not u or u in seen:
+            return
+        seen.add(u)
+        streams.append({"url": u, "quality": quality, "format": fmt})
+
+    # 1) Quality-labeled direct list (Playerjs api("file", ...) fallback)
+    for qm in re.finditer(r"\[(\d{3,4})p\](https?://[^\s\"',]*?qvid\.mp4)", player_html):
+        add_stream(qm.group(2), f"{qm.group(1)}p", "mp4")
+
+    # 2) Playerjs file config: "...hls.m3u8 or ...mov.mp4"
+    for fm in re.finditer(r'file:\s*"([^"]+)"', player_html):
+        for part in fm.group(1).split(" or "):
+            part = part.strip()
+            if "reversebuffer" not in part:
+                continue
+            if "hls.m3u8" in part:
+                hls_url = hls_url or part
+            elif ".mp4" in part:
+                add_stream(part, "source", "mp4")
+                default_mp4 = default_mp4 or part
+
+    # 3) <video src="..."> and casturl:"..."
+    for sm in re.finditer(r'<video[^>]+src="([^"]+)"', player_html):
+        if "reversebuffer" in sm.group(1):
+            add_stream(sm.group(1), "source", "mp4")
+            default_mp4 = default_mp4 or sm.group(1)
+    for cm in re.finditer(r'casturl:\s*"([^"]+)"', player_html):
+        if "reversebuffer" in cm.group(1) and ".mp4" in cm.group(1):
+            add_stream(cm.group(1), "source", "mp4")
+
+    if not streams and not hls_url:
+        return None
+
+    # 4) Follow the site's 301s to the signed sb-cd.com direct mp4/hls.
+    import httpx as _hx
+
+    async with _hx.AsyncClient(timeout=_hx.Timeout(15.0), follow_redirects=False) as client:
+        for s in streams + ([{"url": hls_url, "quality": "hls", "format": "hls"}] if hls_url else []):
+            try:
+                res2 = await client.get(
+                    s["url"],
+                    headers={"User-Agent": _USER_AGENT, "Referer": video_url, "Range": "bytes=0-1"},
+                )
+                loc = res2.headers.get("location")
+                direct = urljoin(_BASE + "/", loc) if loc else None
+                if direct and direct != s["url"]:
+                    s["url"] = direct
+            except Exception:
+                continue
+        if hls_url:
+            res3 = await client.get(
+                hls_url,
+                headers={"User-Agent": _USER_AGENT, "Referer": video_url, "Range": "bytes=0-1"},
+            )
+            loc = res3.headers.get("location")
+            if loc:
+                hls_url = urljoin(_BASE + "/", loc)
+
+    # Re-dedupe: 301s may map two inputs to the same direct URL.
+    streams = list({s["url"]: s for s in streams}.values())
+
+    # Derive a precise quality label from the resolved direct mp4 path
+    # (e.g. .../17044728-720p.mp4?secure=...).
+    for s in streams:
+        qm = re.search(r"-(\d{3,4})p\.mp4", s.get("url") or "")
+        if qm:
+            s["quality"] = f"{qm.group(1)}p"
+
+    preferred = None
+    for s in streams:
+        if s.get("format") == "mp4":
+            preferred = s
+            break
+    default_url = preferred or (streams[0] if streams else None)
+
+    return {
+        "streams": streams,
+        "hls": hls_url,
+        "default": default_url,
+        "has_video": bool(streams) or bool(hls_url),
+    }
+
+
 async def parse_video_page(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
 
@@ -306,6 +502,19 @@ async def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> di
     streams: list[dict[str, str]] = []
     seen: set[str] = set()
 
+    # Primary: reversebuffer chain -> signed sb-cd.com direct mp4/hls.
+    resolved = await _resolve_reversebuffer_streams(video_url, html)
+    if resolved:
+        for s in resolved.get("streams") or []:
+            u = s.get("url")
+            if not u or u in seen:
+                continue
+            seen.add(u)
+            streams.append(s)
+        hls = resolved.get("hls")
+    else:
+        hls = None
+
     direct_file: Optional[str] = None
     m = re.search(
         r"https?://[^\s\"'<>]+?\.mp4(?:[?#][^\s\"'<>]*)?",
@@ -340,8 +549,9 @@ async def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> di
     # Direct link block as a last playable source.
     dl_link = soup.select_one("a.get_button a[href], a.btn[href*='/dl/']") if soup else None
     # PussySpace marks the direct file with og:video:url == page URL + "#file.mp4".
+    # Only fall back to it when no direct mp4 could be resolved above.
     og_video = _meta(soup, prop="og:video:url") if soup else None
-    if (not direct_file) and og_video and "#file" in og_video:
+    if (not any(s.get("format") == "mp4" for s in streams)) and og_video and "#file" in og_video:
         streams.append(
             {"url": video_url.rstrip("/") + "/#file.mp4", "quality": "page", "format": "page"}
         )
@@ -358,7 +568,7 @@ async def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> di
 
     return {
         "streams": streams,
-        "hls": None,
+        "hls": hls,
         "default": default_url,
         "has_video": bool(streams),
     }
