@@ -1104,6 +1104,10 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             # Also include 'embed' format for sites like xxxparodyhd
             quality_label = _normalize_quality_label(s.get("quality", "unknown"))
 
+            # Skip the flat key when it duplicates the already-selected stream_url.
+            if s.get("url") == stream_url:
+                continue
+
             qualities[quality_label] = s.get("url")
             if per_stream_format_keys:
                 sf = s.get("format")

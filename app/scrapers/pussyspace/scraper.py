@@ -382,7 +382,7 @@ async def _resolve_reversebuffer_streams(video_url: str, html: str) -> Optional[
     import httpx as _hx
 
     async with _hx.AsyncClient(timeout=_hx.Timeout(15.0), follow_redirects=False) as client:
-        for s in streams + ([{"url": hls_url, "quality": "hls", "format": "hls"}] if hls_url else []):
+        for s in streams:
             try:
                 res2 = await client.get(
                     s["url"],
@@ -395,13 +395,16 @@ async def _resolve_reversebuffer_streams(video_url: str, html: str) -> Optional[
             except Exception:
                 continue
         if hls_url:
-            res3 = await client.get(
-                hls_url,
-                headers={"User-Agent": _USER_AGENT, "Referer": video_url, "Range": "bytes=0-1"},
-            )
-            loc = res3.headers.get("location")
-            if loc:
-                hls_url = urljoin(_BASE + "/", loc)
+            try:
+                res3 = await client.get(
+                    hls_url,
+                    headers={"User-Agent": _USER_AGENT, "Referer": video_url, "Range": "bytes=0-1"},
+                )
+                loc = res3.headers.get("location")
+                if loc:
+                    hls_url = urljoin(_BASE + "/", loc)
+            except Exception:
+                pass
 
     # Re-dedupe: 301s may map two inputs to the same direct URL.
     streams = list({s["url"]: s for s in streams}.values())
@@ -571,7 +574,9 @@ async def _extract_streams(soup: BeautifulSoup, html: str, video_url: str) -> di
         if s.get("format") == "mp4":
             preferred = s
             break
-    default_url = preferred or next(iter(streams), None)
+    if preferred is None:
+        preferred = next(iter(streams), None)
+    default_url = (preferred or {}).get("url") if preferred else None
 
     return {
         "streams": streams,
