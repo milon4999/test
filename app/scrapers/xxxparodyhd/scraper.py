@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -22,14 +23,24 @@ async def fetch_html(url: str) -> str:
         "Accept-Language": "en-US,en;q=0.9",
     }
     session = await pool.get_session()
-    async with session.get(url, headers=headers, allow_redirects=True) as resp:
-        resp.raise_for_status()
-        
-        # Check if a paginated request was redirected to the base URL (meaning no more pages)
-        if "/page/" in url and "/page/" not in str(resp.url):
-            return ""
-            
-        return await resp.text()
+    last_exc: Optional[Exception] = None
+    for attempt in range(3):
+        try:
+            async with session.get(url, headers=headers, allow_redirects=True) as resp:
+                resp.raise_for_status()
+
+                # Check if a paginated request was redirected to the base URL (meaning no more pages)
+                if "/page/" in url and "/page/" not in str(resp.url):
+                    return ""
+
+                return await resp.text()
+        except Exception as e:  # noqa: BLE001 - retry transient network/rate-limit failures
+            last_exc = e
+            if attempt < 2:
+                await asyncio.sleep(2 * (attempt + 1))
+    if last_exc is not None:
+        raise last_exc
+    return ""
 
 
 def _text(el: Any) -> Optional[str]:
@@ -54,6 +65,18 @@ def _best_image_url(img: Any) -> Optional[str]:
     return None
 
 
+def _row_chips(soup: Any, label: str) -> list[str]:
+    out = []
+    for row in soup.select("div.row--chips, div.row--stars"):
+        b = row.find("b")
+        if b and _text(b) == label:
+            for a in row.select("a.chip"):
+                t = _text(a)
+                if t:
+                    out.append(t)
+    return out
+
+
 async def parse_page(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
 
@@ -74,56 +97,43 @@ async def parse_page(html: str, url: str) -> dict[str, Any]:
     og_img = soup.find("meta", property="og:image")
     thumbnail = og_img.get("content") if og_img else None
 
-    # Extract embedded player URLs (iframes)
+    # Extract embedded player URLs from data-servers JSON on section.hlm
     embed_urls = []
-    # Player hosts that actually play (verified 2026-09): MixDrop, VOE,
-    # Playmate, LuluStream. FreeDL is a download host (no player) and is skipped.
-    # MixDrop/VOE embeds redirect to rotating mirror domains at runtime — each
-    # embed URL is RESOLVED LIVE below (HTTP 302 for mixdrop, JS
-    # window.location for voe) instead of using a static domain map.
     embed_host_priority = ("mixdrop", "voe", "playmate", "vidara", "luluvid", "doodstream")
-    embed_host_skip = ("frdl", "freedl", "nitroflare", "rapidgator")
     needs_resolution = ("mixdrop", "voe")
-    for a_tag in soup.select(".su-spoiler-content a[href], .entry-content a[href], .Rtable1 a[href], .post-buttons a[href]"):
-        href = a_tag.get("href", "")
-        text = _text(a_tag) or ""
-        low = href.lower()
-        embed_hosts = ["dood", "doply", "vidnest", "player4me", "upns", "voe.sx",
-                       "embedseek", "seekplayer", "mixdrop", "easyvidplayer", "rpmplay",
-                       "luluvid", "streamtape", "playmate", "hxfile", "xshotcok", "urshort",
-                       "vidara", "doodstream", "lulustream"]
-        if any(h in low for h in embed_hosts):
-            # Skip non-playing download hosts
-            if any(x in low for x in embed_host_skip):
-                continue
-            # Tag the host BEFORE resolution (the resolved domain no longer
-            # contains the original host name: voe.sx -> eugenemakedraw.com)
-            host_tag = next((h for h in embed_host_priority if h in low), "other")
-            embed_urls.append({
-                "url": href,
-                "label": text or "Player",
-                "host": host_tag,
-                "resolve": any(h in low for h in needs_resolution),
-            })
 
-    # Also check for iframes
-    for iframe in soup.select("iframe[src]"):
-        src = iframe.get("src", "")
-        if src and ("http" in src or src.startswith("//")):
-            if src.startswith("//"):
-                src = f"https:{src}"
-            low = src.lower()
-            if any(x in low for x in embed_host_skip):
-                continue
-            if not any(h in low for h in embed_hosts):
-                continue
-            host_tag = next((h for h in embed_host_priority if h in low), "other")
-            embed_urls.append({
-                "url": src,
-                "label": "Embedded Player",
-                "host": host_tag,
-                "resolve": any(h in low for h in needs_resolution),
-            })
+    hlm_section = soup.select_one("section.hlm[data-servers]")
+    if hlm_section:
+        try:
+            servers_json = hlm_section.get("data-servers", "")
+            if servers_json:
+                servers = json.loads(servers_json)
+                for idx, server in enumerate(servers):
+                    url = server.get("u", "")
+                    label = server.get("l", f"Player {idx + 1}")
+                    if not url:
+                        continue
+                    low = url.lower()
+                    host_tag = "other"
+                    for h in embed_host_priority:
+                        if h in low or h in label.lower():
+                            host_tag = h
+                            break
+                    if host_tag == "other":
+                        if "dood" in low or "playmogo" in low:
+                            host_tag = "doodstream"
+                        elif "lulu" in low:
+                            host_tag = "luluvid"
+                        elif "vidara" in low:
+                            host_tag = "vidara"
+                    embed_urls.append({
+                        "url": url,
+                        "label": label,
+                        "host": host_tag,
+                        "resolve": host_tag in needs_resolution or any(h in low for h in needs_resolution),
+                    })
+        except (json.JSONDecodeError, Exception):
+            pass
 
     # Deduplicate by URL, keeping priority order (MixDrop -> VOE -> Playmate -> Lulu)
     seen_urls = set()
@@ -221,53 +231,57 @@ async def parse_page(html: str, url: str) -> dict[str, Any]:
             })
 
     # Tags / Genres
-    tags = []
-    for a in soup.select('.entry-terms a[href*="/genre/"], .tag-links a, a[rel="tag"]'):
-        t = _text(a)
-        if t:
-            tags.append(t)
+    tags = _row_chips(soup, "Genres")
+    if not tags:
+        for a in soup.select('.entry-terms a[href*="/genre/"], .tag-links a, a[rel="tag"]'):
+            t = _text(a)
+            if t:
+                tags.append(t)
 
     # Category info
-    category_links = soup.select('.entry-terms a[href*="/category/"]')
-    categories = [_text(cl) for cl in category_links if _text(cl)]
+    categories = _row_chips(soup, "Category")
 
     # Studio / Director
-    studio_links = soup.select('.entry-terms a[href*="/director/"]')
-    studio = _text(studio_links[0]) if studio_links else None
+    studio = None
+    _studios = _row_chips(soup, "Studio")
+    if _studios:
+        studio = _studios[0]
 
-    # Cast
-    cast_links = soup.select('.entry-terms a[href*="/cast/"]')
-    cast = [_text(cl) for cl in cast_links if _text(cl)]
+    # Cast (Pornstars)
+    cast = _row_chips(soup, "Pornstars")
 
     # Year
-    year_links = soup.select('.entry-terms a[href*="/release-year/"]')
-    year = _text(year_links[0]) if year_links else None
+    year = None
+    _years = _row_chips(soup, "Release Year")
+    if _years:
+        year = _years[0]
+    if not year:
+        _y = soup.select_one("span.st--year")
+        year = _text(_y) if _y else None
 
     # Views
     views = None
-    views_match = re.search(r'Views:\s*([\d,]+)', html)
-    if views_match:
-        views = views_match.group(1)
+    _v = soup.select_one("span.st--views b")
+    if _v:
+        views = _text(_v)
 
     # Related Videos
     related_videos = []
-    for item in soup.select(".related-movies article.post, .related-posts article.post, article.post"):
+    for item in soup.select(".related article.card, .related-movies article.card, article.card"):
         try:
-            link = item.select_one(".post-thumbnail a[href]")
-            if not link:
-                link = item.select_one("a[href]")
+            link = item.select_one("a.card__th, a[href]")
             if not link:
                 continue
             r_url = link.get("href", "")
             if not r_url or "xxxparodyhd.net" not in r_url:
                 continue
 
-            r_title = item.select_one(".post-meta a, h2 a, .title a")
-            r_title = _text(r_title) if r_title else (link.get("title") or _text(link.select_one("img")))
-            img = item.select_one(".post-thumbnail img")
+            r_title_el = item.select_one(".card__t a, h2 a, h3 a, .post-meta a")
+            r_title = _text(r_title_el) if r_title_el else (link.get("title") or _text(link.select_one("img")))
+            img = item.select_one(".card__img, img")
             r_thumb = _best_image_url(img)
-            r_dur = item.select_one(".duration, .runtime, .post-thumbnail .duration")
-            r_dur = _text(r_dur) if r_dur else None
+            r_dur_el = item.select_one(".card__dur, .duration, .runtime")
+            r_dur = _text(r_dur_el) if r_dur_el else None
 
             related_videos.append({
                 "url": r_url,
@@ -340,11 +354,11 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
 
     items: list[dict[str, Any]] = []
 
-    # XXXParodyHD uses article.post elements with .post-thumbnail and .post-meta
-    for card in soup.select("article.post"):
+    # XXXParodyHD uses article.card elements with .card__th, .card__t, .card__dur
+    for card in soup.select("article.card"):
         try:
-            # Main link in .post-thumbnail
-            link = card.select_one(".post-thumbnail a")
+            # Skip ad cards (card--zn) with no video link
+            link = card.select_one("a.card__th")
             if not link:
                 link = card.select_one("a[href]")
             if not link:
@@ -361,8 +375,8 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
             if "xxxparodyhd.net" not in href:
                 continue
 
-            # Title from .post-meta a (first link)
-            title_el = card.select_one(".post-meta a")
+            # Title from h2.card__t a
+            title_el = card.select_one(".card__t a")
             title = _text(title_el) if title_el else (
                 link.get("title") or link.get("oldtitle") or _text(link)
             )
@@ -370,15 +384,19 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
                 continue
 
             # Thumbnail
-            img = card.select_one(".post-thumbnail img, .post-thumbnail a img")
+            img = card.select_one(".card__img, a.card__th img")
             thumb = _best_image_url(img)
 
-            # Duration from span.duration inside .post-thumbnail
-            dur_el = card.select_one(".post-thumbnail .duration")
+            # Duration from span.card__dur
+            dur_el = card.select_one(".card__dur")
             duration = _text(dur_el) if dur_el else None
 
-            # Studio from .post-meta span.studio a
-            studio_el = card.select_one(".post-meta span.studio a")
+            # Year from span.card__q
+            year_el = card.select_one(".card__q")
+            year = _text(year_el) if year_el else None
+
+            # Studio from .card__by or a.card__tx
+            studio_el = card.select_one(".card__by, a.card__tx")
             studio = _text(studio_el) if studio_el else None
 
             items.append({
@@ -386,11 +404,11 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 20) -> list[dic
                 "title": title or "Unknown Video",
                 "thumbnail_url": thumb,
                 "duration": duration,
-                "upload_time": None,
+                "upload_time": year,
                 "studio": studio,
             })
         except Exception:
             continue
 
-    return items
+    return items[:limit]
 
