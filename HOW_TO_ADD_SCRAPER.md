@@ -10203,3 +10203,98 @@ Notes from live testing (2026-10):
 - The site's flaky TLS edge (expired cert on some www. responses) is fully
   absorbed by the pool retry -> httpx -> verify=False fallback chain; every
   live request in testing ultimately succeeded without surfacing an error.
+
+## TrendyPorn Implementation Notes
+
+[TrendyPorn](https://www.trendyporn.com/) is a classic KVS (Kernel Video Sharing) tube running the `porntube2` template. Video pages expose a directly playable signed MP4, and listing pages use lazy thumbnails. Implemented as `backend/app/scrapers/trendyporn/` (`can_handle`, `scrape`, `list_videos`, `get_categories`; no `crawl_videos`).
+
+### Host aliases
+
+- `trendyporn.com`
+- `www.trendyporn.com`
+- content hosts: `videos.trendyporn.com` (playable MP4s), `images.trendyporn.com` (thumbnails)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h == "trendyporn.com" or h.endswith(".trendyporn.com")
+```
+
+### URL routes
+
+- Video detail page: `https://www.trendyporn.com/video/{slug}-{id}.html`
+- Sort listings: `/most-recent/`, `/top-rated/`, `/most-viewed/`, `/longest/`
+- Channels (categories): `/channels/{id}/{slug}/`
+- Models index: `/models/` (cam-feed cards only, correctly filtered out of listings)
+- Search: canonical route `/search/{term}/` (the `searchgate.php?mode=search&q=...` form is equivalent, but pagination must NOT use `&page=` - see below)
+
+### Listing and pagination (`list_videos`)
+
+KVS-style cards live on all listing pages:
+
+- Links: `a.video-link[href]` -> `/video/{slug}-{id}.html`; keep only same-domain matches and skip query strings.
+- Thumbnail: `img.lazy` with `src="https://images.trendyporn.com/placeholder.png"`; the real image is in `data-original`. `_best_image_url` prefers `data-original` and explicitly skips any `placeholder` URL.
+- Duration: `.duration` (`mm:ss`), views: `.video-views` ("8619 views"), plus `/tag/` and `/channels/` anchor exclusion of cam/ad cards (`ctwmsg.com`, `vcmdiawe.com`).
+- Page 1 uses `base_url` unchanged. Page *n* > 1 appends `page{n}.html` to the last path segment:
+  - `/` -> `/page2.html`
+  - `/most-recent/` -> `/most-recent/page2.html`
+  - `/channels/25/hardcore/` -> `/channels/25/hardcore/page2.html`
+  - `/search/{term}/` -> `/search/{term}/page2.html`
+- **Search pagination gotcha (live-verified):** `searchgate.php?mode=search&q=...&page=N` returns 200 but the server **ignores** `page` (identical results on p1/p2/p3). `_build_list_page_url` therefore rewrites any `searchgate.php` base into `/search/{quoted term}/` (empty query kept verbatim), so page 2 becomes `/search/{term}/pageN.html`, which paginates correctly.
+- Existing `page{n}.html` suffixes are stripped before rebuilding so a paged base URL is always escalated to `page{page}` cleanly.
+
+### Metadata and streams (`scrape`)
+
+Metadata fallback order:
+
+1. `og:title` / `og:description` / `og:image`
+2. `twitter:*`, `<meta name="keywords">` (tags), visible `h1` / `<title>`
+3. JSON-LD `VideoObject` if present
+4. `Runtime:` row (`mm:ss`), `Added Date:` row (`YYYY-MM-DD`), `.big-views span` for views (never parse views from the full text blob - related-card and cam-API counters corrupt the result), `Categories:` row for category, `Tags:` row for tag links
+
+Streams (all found on the page HTML, no get_file hop):
+
+- `<video><source src="https://videos.trendyporn.com/videos/.../{hash}.mp4?md5={sig}&expires={ts}">` - single signed MP4 (`format="mp4"`, `quality="source"`); also present in the download modal.
+- The signature is short-lived (`expires` ~1h); return it as-is the same way other KVS scrapers do.
+- Site-native embed fallback: `https://www.trendyporn.com/embed/{id}` (`format="embed"`, `quality="trendyporn"`, taken from the embed modal textarea / derived from the URL id).
+- `video.default` prefers the MP4, then HLS (none on this site), then the embed. Ad-network iframes are filtered (`abbnfo.info`, `ptwmemd.com`, cam feeds, etc.).
+
+### Categories (`get_categories`)
+
+Categories.json (59 entries) contains the four sort tabs (`Most Recent`, `Top Rated`, `Most Viewed`, `Longest`) plus all 53 channels from `/channels/` in `CategoryItem` shape `{id, name, url}`. `/api/v1/categories?source=trendyporn` resolves it (alias `source=trendyporntube` also supported).
+
+### Registration checklist (TrendyPorn) - all applied
+
+- `backend/app/scrapers/trendyporn/` (`scraper.py`, `__init__.py`, `categories.json`)
+- `backend/app/scrapers/__init__.py` (import + `__all__`)
+- `backend/app/main.py` (import, `_scrape_dispatch`, `_list_dispatch`, `/api/v1/categories` mapping)
+- `backend/app/services/video_streaming.py` (import, `get_video_info` elif chain, `available_qualities` + per-quality flat host lists incl. `videos.trendyporn.com` / `images.trendyporn.com`, unsupported-host help text)
+- `backend/app/models/schemas.py` (`ScrapeRequest` + `ListRequest` domain allowlists: site and CDN hosts)
+- `backend/app/api/endpoints/explore.py` (`ExploreSourceResponse`: baseUrl `https://www.trendyporn.com/`, search template `/search/{query}/`, pageSize 32, accent `#D5446C`)
+- No `_crawl_dispatch` entry (crawler not implemented for this source).
+
+### TrendyPorn verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.trendyporn.com/video/olivia-madison-step-sister-lets-her-tiny-stepbro-to-eat-her-pussy-182563.html\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.trendyporn.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.trendyporn.com/most-recent/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.trendyporn.com/channels/25/hardcore/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://www.trendyporn.com/search/step/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=trendyporn"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://www.trendyporn.com/video/olivia-madison-step-sister-lets-her-tiny-stepbro-to-eat-her-pussy-182563.html"
+```
+
+Live-testing notes (2026-10-18): home/most-recent/channel/search listings all paginate (`page{n}.html`); video scrape returns correct title, runtime, live view count, upload date, tags/category, signed default MP4 stream + embed fallback; search p1/p2 return disjoint results; `/models/*` pages are cam-feed only and return no site videos by design.

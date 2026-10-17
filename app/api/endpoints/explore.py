@@ -2094,6 +2094,19 @@ EXPLORE_SOURCES = [
         disable=False,
         pageSize=20,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://www.trendyporn.com/",
+        nickname="TrendyPorn",
+        favicon="https://www.trendyporn.com/fav32x32.png",
+        accentColor="#D5446C",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://www.trendyporn.com/search/{query}/",
+        sourceId="trendyporn",
+        disable=False,
+        pageSize=32,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

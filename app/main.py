@@ -33,7 +33,7 @@ from app.api.endpoints import hls, media, explore, thumbnails, one_xbet, ads, do
 from fastapi import APIRouter
 
 # Scrapers & Models
-from app.scrapers import masa49, xhamster, xnxx, xvideos, pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rule34video, haho, hanime, hanime1, hentaihaven, animeidhentai, hentaicity, hentaimama, hentaibros, henvids, muchohentai, underhentai, hentaiocean, hentaverse, hstream, anibd, rouvideo, cg51, oppai, xmoviesforyou, tnaflix, hornysimp, pimpbunny, hentaiser, bollywoodmaal, viralkand, blowjobspro, blackporn24, lesbianporn8, leslez, milfporn8, indianporn365, mmsbro, kamababa, desimms2, desiporn, thotsporn, leakedamateurporn, zeenite, uncutmaza, mydesimms, po85, cosxplay, memojav, hohoj, ggjav, porn87, goodav, kanav, missav, jable, tianmei, bindasmood, eporner, dotmaal, uncutmasti, zmaal, ulluwebseries, desithothub, motherless, youjizz, pornone, threemovs, porndig, txxx, hotmovs, shemalez, okxxx, pornhoarder, yesporn, justporn, porngo, oneporn, thepornbang, pornhd3x, javfun, pornhd4k, pornhouse, porn91, letsporn, teamskeettube, sosalkino, tubepornclassic, xxxdan, pornxxx, sxyprn, latestpornvideo, youperv, perverzija, bigwank, blackporntube, sxyland, camcaps, koreanpornmovie, fullporner, superporn, siska, hdporn92, shyfap, porndos, joysporn, fullxcinema, filmadult, pornhits, pornmz, fpoxxx, watchporn, helloporn, homoxxx, perfectgirls, exeporn, xozilla, xmilf, hdzog, analdin, nuvid, p4455, mydesi2, mydesi14, mydesico, mydesirest, mydesisbs, viralchut, viralmms, xanimeporn, vrsmash, porndish, mypornerleak, momvids, latestleaks, teenager365, viralxxxporn
+from app.scrapers import masa49, xhamster, xnxx, xvideos, pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rule34video, haho, hanime, hanime1, hentaihaven, animeidhentai, hentaicity, hentaimama, hentaibros, henvids, muchohentai, underhentai, hentaiocean, hentaverse, hstream, anibd, rouvideo, cg51, oppai, xmoviesforyou, tnaflix, hornysimp, pimpbunny, hentaiser, bollywoodmaal, viralkand, blowjobspro, blackporn24, trendyporn, lesbianporn8, leslez, milfporn8, indianporn365, mmsbro, kamababa, desimms2, desiporn, thotsporn, leakedamateurporn, zeenite, uncutmaza, mydesimms, po85, cosxplay, memojav, hohoj, ggjav, porn87, goodav, kanav, missav, jable, tianmei, bindasmood, eporner, dotmaal, uncutmasti, zmaal, ulluwebseries, desithothub, motherless, youjizz, pornone, threemovs, porndig, txxx, hotmovs, shemalez, okxxx, pornhoarder, yesporn, justporn, porngo, oneporn, thepornbang, pornhd3x, javfun, pornhd4k, pornhouse, porn91, letsporn, teamskeettube, sosalkino, tubepornclassic, xxxdan, pornxxx, sxyprn, latestpornvideo, youperv, perverzija, bigwank, blackporntube, sxyland, camcaps, koreanpornmovie, fullporner, superporn, siska, hdporn92, shyfap, porndos, joysporn, fullxcinema, filmadult, pornhits, pornmz, fpoxxx, watchporn, helloporn, homoxxx, perfectgirls, exeporn, xozilla, xmilf, hdzog, analdin, nuvid, p4455, mydesi2, mydesi14, mydesico, mydesirest, mydesisbs, viralchut, viralmms, xanimeporn, vrsmash, porndish, mypornerleak, momvids, latestleaks, teenager365, viralxxxporn
 from app.scrapers import cumlouder
 from app.scrapers import whoreshub
 from app.scrapers import pussyspace
@@ -182,6 +182,7 @@ async def _scrape_dispatch(url: str, host: str) -> dict[str, Any]:
     if whoreshub.can_handle(host): return await whoreshub.scrape(url)
     if pussyspace.can_handle(host): return await pussyspace.scrape(url)
     if blackporn24.can_handle(host): return await blackporn24.scrape(url)
+    if trendyporn.can_handle(host): return await trendyporn.scrape(url)
     if lesbianporn8.can_handle(host): return await lesbianporn8.scrape(url)
     if leslez.can_handle(host): return await leslez.scrape(url)
     if milfporn8.can_handle(host): return await milfporn8.scrape(url)
@@ -339,6 +340,7 @@ async def _list_dispatch(base_url: str, host: str, page: int, limit: int) -> lis
     if whoreshub.can_handle(host): return await whoreshub.list_videos(base_url=base_url, page=page, limit=limit)
     if pussyspace.can_handle(host): return await pussyspace.list_videos(base_url=base_url, page=page, limit=limit)
     if blackporn24.can_handle(host): return await blackporn24.list_videos(base_url=base_url, page=page, limit=limit)
+    if trendyporn.can_handle(host): return await trendyporn.list_videos(base_url=base_url, page=page, limit=limit)
     if lesbianporn8.can_handle(host): return await lesbianporn8.list_videos(base_url=base_url, page=page, limit=limit)
     if leslez.can_handle(host): return await leslez.list_videos(base_url=base_url, page=page, limit=limit)
     if milfporn8.can_handle(host): return await milfporn8.list_videos(base_url=base_url, page=page, limit=limit)
@@ -634,6 +636,7 @@ async def get_categories(source: str) -> list[CategoryItem]:
         if s == "whoreshub" or s == "whoreshub.com": return [_category_item(c) for c in whoreshub.get_categories()]
         if s == "pussyspace" or s == "pussyspace.com": return [_category_item(c) for c in pussyspace.get_categories()]
         if s == "blackporn24" or s == "blackporn": return [_category_item(c) for c in blackporn24.get_categories()]
+        if s == "trendyporn" or s == "trendyporntube": return [_category_item(c) for c in trendyporn.get_categories()]
         if s == "lesbianporn8" or s == "lesbianporn": return [_category_item(c) for c in lesbianporn8.get_categories()]
         if s == "leslez" or s == "leslezcom": return [_category_item(c) for c in leslez.get_categories()]
         if s == "milfporn8" or s == "milf8" or s == "milfporn": return [_category_item(c) for c in milfporn8.get_categories()]

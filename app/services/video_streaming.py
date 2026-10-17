@@ -48,7 +48,7 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
         }
     """
     # Import here to avoid circular dependency
-    from app.scrapers import xnxx, xhamster, xvideos, masa49, pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rule34video, haho, hanime, hanime1, hentaihaven, animeidhentai, hentaicity, hentaimama, hentaibros, henvids, muchohentai, underhentai, hentaiocean, hentaverse, hstream, anibd, rouvideo, cg51, oppai, xmoviesforyou, tnaflix, hornysimp, pimpbunny, hentaiser, bollywoodmaal, viralkand, blowjobspro, blackporn24, lesbianporn8, leslez, milfporn8, indianporn365, mmsbro, kamababa, desimms2, desiporn, thotsporn, leakedamateurporn, zeenite, uncutmaza, mydesimms, po85, cosxplay, memojav, hohoj, ggjav, porn87, goodav, kanav, missav, jable, tianmei, bindasmood, eporner, dotmaal, uncutmasti, zmaal, ulluwebseries, desithothub, motherless, youjizz, pornone, threemovs, porndig, txxx, hotmovs, shemalez, okxxx, pornhoarder, yesporn, justporn, porngo, oneporn, thepornbang, pornhd3x, javfun, pornhd4k, pornhouse, porn91, letsporn, teamskeettube, sosalkino, tubepornclassic, xxxdan, pornxxx, sxyprn, latestpornvideo, youperv, perverzija, bigwank, blackporntube, sxyland, camcaps, koreanpornmovie, fullporner, superporn, siska, shyfap, hdporn92, porndos, joysporn, fullxcinema, filmadult, pornhits, pornmz, fpoxxx, watchporn, helloporn, homoxxx, perfectgirls, exeporn, xozilla, xmilf, hdzog, analdin, nuvid, p4455, mydesi2, mydesi14, mydesico, mydesirest, mydesisbs, viralchut, viralmms, xanimeporn, vrsmash, porndish, mypornerleak, momvids, latestleaks, teenager365, viralxxxporn
+    from app.scrapers import xnxx, xhamster, xvideos, masa49, pornhub, youporn, redtube, beeg, spankbang, fapnut, pornxp, hqporner, xxxparodyhd, pornwex, tube8, pornhat, brazzpw, gosexpod, watcherotic, rule34video, haho, hanime, hanime1, hentaihaven, animeidhentai, hentaicity, hentaimama, hentaibros, henvids, muchohentai, underhentai, hentaiocean, hentaverse, hstream, anibd, rouvideo, cg51, oppai, xmoviesforyou, tnaflix, hornysimp, pimpbunny, hentaiser, bollywoodmaal, viralkand, blowjobspro, blackporn24, trendyporn, lesbianporn8, leslez, milfporn8, indianporn365, mmsbro, kamababa, desimms2, desiporn, thotsporn, leakedamateurporn, zeenite, uncutmaza, mydesimms, po85, cosxplay, memojav, hohoj, ggjav, porn87, goodav, kanav, missav, jable, tianmei, bindasmood, eporner, dotmaal, uncutmasti, zmaal, ulluwebseries, desithothub, motherless, youjizz, pornone, threemovs, porndig, txxx, hotmovs, shemalez, okxxx, pornhoarder, yesporn, justporn, porngo, oneporn, thepornbang, pornhd3x, javfun, pornhd4k, pornhouse, porn91, letsporn, teamskeettube, sosalkino, tubepornclassic, xxxdan, pornxxx, sxyprn, latestpornvideo, youperv, perverzija, bigwank, blackporntube, sxyland, camcaps, koreanpornmovie, fullporner, superporn, siska, shyfap, hdporn92, porndos, joysporn, fullxcinema, filmadult, pornhits, pornmz, fpoxxx, watchporn, helloporn, homoxxx, perfectgirls, exeporn, xozilla, xmilf, hdzog, analdin, nuvid, p4455, mydesi2, mydesi14, mydesico, mydesirest, mydesisbs, viralchut, viralmms, xanimeporn, vrsmash, porndish, mypornerleak, momvids, latestleaks, teenager365, viralxxxporn
     from app.scrapers import cumlouder
     from app.scrapers import whoreshub
     from app.scrapers import pussyspace
@@ -165,6 +165,8 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
         scraper_module = pussyspace
     elif blackporn24.can_handle(host):
         scraper_module = blackporn24
+    elif trendyporn.can_handle(host):
+        scraper_module = trendyporn
     elif lesbianporn8.can_handle(host):
         scraper_module = lesbianporn8
     elif leslez.can_handle(host):
@@ -374,7 +376,7 @@ async def get_video_info(url: str, api_base_url: str = "http://localhost:8000") 
     else:
         raise HTTPException(
             status_code=400,
-        detail=f"Unsupported host: {host}. Supported: xnxx, xhamster, xvideos, and configured scraper sources including teenager365.to"
+            detail=f"Unsupported host: {host}. Supported: xnxx, xhamster, xvideos, and configured scraper sources including teenager365.to and trendyporn.com"
         )
     
     try:
@@ -586,6 +588,10 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
         "blackporn.tube" in parsed_url.netloc.lower() or
         "bptn.m3pd.com" in parsed_url.netloc.lower() or
         "ahcdn.blackporn.tube" in parsed_url.netloc.lower() or
+        "trendyporn.com" in parsed_url.netloc.lower() or
+        "www.trendyporn.com" in parsed_url.netloc.lower() or
+        "videos.trendyporn.com" in parsed_url.netloc.lower() or
+        "images.trendyporn.com" in parsed_url.netloc.lower() or
         "lesbianporn8.net" in parsed_url.netloc.lower() or
         "leslez.com" in parsed_url.netloc.lower() or
         "ahvcdn.com" in parsed_url.netloc.lower() or
@@ -872,6 +878,10 @@ async def get_stream_url(url: str, quality: str = "default", api_base_url: str =
             or "blackporn24.com" in host_l
             or "blackporn.tube" in host_l
             or "bptn.m3pd.com" in host_l
+            or "trendyporn.com" in host_l
+            or "www.trendyporn.com" in host_l
+            or "videos.trendyporn.com" in host_l
+            or "images.trendyporn.com" in host_l
             or "lesbianporn8.net" in host_l
             or "leslez.com" in host_l
             or "ahvcdn.com" in host_l
