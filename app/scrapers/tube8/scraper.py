@@ -219,19 +219,38 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
             except Exception:
                 pass
 
-    # Views
+    # Views - try multiple sources
     views = None
-    v_el = soup.select_one(".video-views, .views, .video_views")
-    if v_el:
-        m = re.search(r"[\d,]+", v_el.get_text())
-        if m:
-            views = m.group(0)
+    # Try meta tag first (schema.org VideoObject)
+    meta_views = soup.find("meta", property="og:see_also")
+    if not meta_views:
+        # Try JSON-LD
+        m_views = re.search(r'"interactionCount"[:\s]*["\']?([\d,.kmKM]+)', html)
+        if m_views:
+            views = m_views.group(1).upper()
+    if not views:
+        # Try text search for patterns like "6.3M Views"
+        m_views = re.search(r'([\d,.]+)\s*[Mm]\s*Views', html)
+        if m_views:
+            views = f"{m_views.group(1)}M"
+    if not views:
+        v_el = soup.select_one(".video-views, .views, .video_views, .view-count, [data-views]")
+        if v_el:
+            txt = v_el.get_text(strip=True)
+            m = re.search(r"([\d,.]+)\s*[km]?", txt, re.IGNORECASE)
+            if m:
+                views = m.group(1).upper()
 
-    # Uploader
+    # Uploader - try multiple sources
     uploader = None
-    u_el = soup.select_one(".video-channels-item a, .video-uploaded-by a, .video_channel a")
-    if u_el:
-        uploader = u_el.get_text(strip=True)
+    # From JSON-LD author
+    m_author = re.search(r'"author"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"', html)
+    if m_author:
+        uploader = m_author.group(1)
+    if not uploader:
+        u_el = soup.select_one(".channel-name, .video-channel-name, a[href*='/channel/'], .video-channels-item a, .video-uploaded-by a, .video_channel a, .author-title-text")
+        if u_el:
+            uploader = u_el.get_text(strip=True)
 
     # Tags
     tags: list[str] = []
