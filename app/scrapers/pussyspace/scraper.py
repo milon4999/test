@@ -409,9 +409,15 @@ async def _resolve_reversebuffer_streams(video_url: str, html: str) -> Optional[
     # Derive a precise quality label from the resolved direct mp4 path
     # (e.g. .../17044728-720p.mp4?secure=...).
     for s in streams:
-        qm = re.search(r"-(\d{3,4})p\.mp4", s.get("url") or "")
+        u_low = (s.get("url") or "").lower()
+        qm = re.search(r"[-_](\d{3,4})p\.mp4", s.get("url") or "")
         if qm:
             s["quality"] = f"{qm.group(1)}p"
+        # othercdn (gcore/cdn77) files don't play in the native player; expose
+        # them as embed sources so the app falls back to WebView playback.
+        if "others-cdn.com" in u_low:
+            s["format"] = "embed"
+            s["quality"] = "embed"
 
     preferred = None
     for s in streams:
