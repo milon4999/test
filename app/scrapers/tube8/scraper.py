@@ -4,6 +4,7 @@ import json
 import re
 import os
 from typing import Any
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
 import httpx
 from bs4 import BeautifulSoup
@@ -434,10 +435,21 @@ async def list_videos(base_url: str, page: int = 1, limit: int = 100) -> list[di
     url = base_url.rstrip("/")
 
     if page > 1:
-        # Tube8 pagination pattern: /newest/page/2/ (not ?page=)
-        if url.endswith(".html"):
+        parsed = urlparse(url)
+        if parsed.query:
+            # Query-based pagination: /searches.html/?q=big&page=2  or  /cat/teens/?page=2
+            params = parse_qsl(parsed.query, keep_blank_values=True)
+            params = [(k, v) for k, v in params if k != "page"]
+            params.append(("page", str(page)))
+            parsed = parsed._replace(query=urlencode(params))
+            url = urlunparse(parsed)
+        elif url.endswith(".html"):
+            # Path-based pagination for .html listing pages: /newest/page/2/
             url = url[: -len(".html")]
-        url = f"{url}/page/{page}/"
+            url = f"{url}/page/{page}/"
+        else:
+            # Category pages: /cat/teens/?page=2
+            url = f"{url}?page={page}"
 
     try:
         html = await fetch_html(url)
