@@ -464,7 +464,6 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
 
         related_videos.append(
             {
-                "url": r_url_abs,
                 "title": vid.get("title"),
                 "thumbnail_url": vid.get("thumbURL") or vid.get("imageURL"),
                 "duration": r_dur,
@@ -512,7 +511,6 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
 
                 related_videos.append(
                     {
-                        "url": urljoin(url, href),
                         "title": r_title,
                         "thumbnail_url": r_thumb,
                         "duration": r_dur,
