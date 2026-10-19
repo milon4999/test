@@ -147,30 +147,33 @@ def _collect_video_thumb_props(data: dict[str, Any]) -> list[dict[str, Any]]:
     props: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    def add_from(node: Any) -> None:
-        if not isinstance(node, dict):
+    def add_from(node: Any, depth: int = 0) -> None:
+        if not isinstance(node, dict) or depth > 3:
             return
         vtp = node.get("videoThumbProps")
-        if not isinstance(vtp, list):
-            return
-        for item in vtp:
-            if not isinstance(item, dict):
-                continue
-            key = str(item.get("id") or item.get("pageURL") or "")
-            if key and key in seen:
-                continue
-            if key:
-                seen.add(key)
-            props.append(item)
+        if isinstance(vtp, list):
+            for item in vtp:
+                if not isinstance(item, dict):
+                    continue
+                key = str(item.get("id") or item.get("pageURL") or "")
+                if key and key in seen:
+                    continue
+                if key:
+                    seen.add(key)
+                props.append(item)
+        for child in node.values():
+            add_from(child, depth + 1)
 
-    for root_key in ("layoutPage", "searchResult", "pagesCategoryComponent"):
+    for root_key in (
+        "layoutPage",
+        "searchResult",
+        "pagesCategoryComponent",
+        "relatedVideosComponent",
+    ):
         root = data.get(root_key)
         if not isinstance(root, dict):
             continue
         add_from(root)
-        for child in root.values():
-            if isinstance(child, dict):
-                add_from(child)
 
     return props
 
@@ -439,7 +442,9 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
     video_data = _extract_video_data(html)
 
     related_videos: list[dict[str, Any]] = []
+    seen_related: set[str] = set()
     current_page = (url or "").split("?", 1)[0].rstrip("/").lower()
+    current_slug = current_page.rsplit("/", 1)[-1]
 
     # Primary source: window.initials videoThumbProps (current xHamster markup).
     initials = _extract_initials_data(html)
@@ -451,7 +456,16 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
             r_url_abs = urljoin(url, r_url)
         except Exception:
             continue
-        if r_url_abs.split("?", 1)[0].rstrip("/").lower() == current_page:
+        r_path = r_url_abs.split("?", 1)[0].rstrip("/").lower()
+        if r_path == current_page or r_path.rsplit("/", 1)[-1] == current_slug:
+            continue
+        if r_path in seen_related:
+            continue
+        seen_related.add(r_path)
+
+        r_title = vid.get("title")
+        r_thumb = vid.get("thumbURL") or vid.get("imageURL")
+        if not r_title and not r_thumb:
             continue
 
         duration_val = vid.get("duration")
@@ -465,8 +479,8 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
         related_videos.append(
             {
                 "url": r_url_abs,
-                "title": vid.get("title"),
-                "thumbnail_url": vid.get("thumbURL") or vid.get("imageURL"),
+                "title": r_title,
+                "thumbnail_url": r_thumb,
                 "duration": r_dur,
             }
         )
@@ -509,6 +523,9 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
 
                 d_el = card.find(class_=re.compile("duration", re.I))
                 r_dur = _text(d_el)
+
+                if not r_title and not r_thumb:
+                    continue
 
                 related_videos.append(
                     {
