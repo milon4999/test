@@ -439,53 +439,89 @@ def parse_page(html: str, url: str) -> dict[str, Any]:
     video_data = _extract_video_data(html)
 
     related_videos: list[dict[str, Any]] = []
-    rel_container = (
-        soup.find(class_=re.compile(r"related-videos|upsell-videos|thumb-list--related", re.I))
-        or soup.select_one(".thumb-list--related, [data-block='related'], section.related")
-    )
-    thumb_links: list[Any] = []
-    if rel_container:
-        thumb_links = rel_container.find_all("a", class_="video-thumb__image-container")
-    if not thumb_links:
-        main = soup.select_one("main") or soup
-        thumb_links = main.find_all("a", class_="video-thumb__image-container")
+    current_page = (url or "").split("?", 1)[0].rstrip("/").lower()
 
-    for a in thumb_links:
+    # Primary source: window.initials videoThumbProps (current xHamster markup).
+    initials = _extract_initials_data(html)
+    for vid in _collect_video_thumb_props(initials):
+        r_url = str(vid.get("pageURL") or "").strip()
+        if not r_url or not _is_video_list_url(r_url):
+            continue
         try:
-            href = a.get("href")
-            if not href or not _is_video_list_url(href):
-                continue
-
-            card = a.find_parent(class_="video-thumb") or a.find_parent(
-                class_=re.compile(r"thumb-list|video-thumb", re.I)
-            )
-            if not card:
-                continue
-
-            t_el = card.find(class_=re.compile(r"video-thumb.*name|thumb-image-container__title", re.I))
-            r_title = _text(t_el)
-
-            img_el = a.find("img")
-            ns = a.find("noscript")
-            if ns:
-                img_el = ns.find("img") or img_el
-            r_thumb = _best_image_url(img_el)
-
-            d_el = card.find(class_=re.compile("duration", re.I))
-            r_dur = _text(d_el)
-
-            related_videos.append(
-                {
-                    "url": urljoin(url, href),
-                    "title": r_title,
-                    "thumbnail_url": r_thumb,
-                    "duration": r_dur,
-                }
-            )
-            if len(related_videos) >= 10:
-                break
+            r_url_abs = urljoin(url, r_url)
         except Exception:
             continue
+        if r_url_abs.split("?", 1)[0].rstrip("/").lower() == current_page:
+            continue
+
+        duration_val = vid.get("duration")
+        r_dur = None
+        if isinstance(duration_val, (int, float)):
+            total = int(duration_val)
+            mins, secs = divmod(total, 60)
+            hours, mins = divmod(mins, 60)
+            r_dur = f"{hours}:{mins:02d}:{secs:02d}" if hours > 0 else f"{mins}:{secs:02d}"
+
+        related_videos.append(
+            {
+                "url": r_url_abs,
+                "title": vid.get("title"),
+                "thumbnail_url": vid.get("thumbURL") or vid.get("imageURL"),
+                "duration": r_dur,
+            }
+        )
+        if len(related_videos) >= 10:
+            break
+
+    # Fallback: legacy DOM markup.
+    if not related_videos:
+        rel_container = (
+            soup.find(class_=re.compile(r"related-videos|upsell-videos|thumb-list--related", re.I))
+            or soup.select_one(".thumb-list--related, [data-block='related'], section.related")
+        )
+        thumb_links: list[Any] = []
+        if rel_container:
+            thumb_links = rel_container.find_all("a", class_="video-thumb__image-container")
+        if not thumb_links:
+            main = soup.select_one("main") or soup
+            thumb_links = main.find_all("a", class_="video-thumb__image-container")
+
+        for a in thumb_links:
+            try:
+                href = a.get("href")
+                if not href or not _is_video_list_url(href):
+                    continue
+
+                card = a.find_parent(class_="video-thumb") or a.find_parent(
+                    class_=re.compile(r"thumb-list|video-thumb", re.I)
+                )
+                if not card:
+                    continue
+
+                t_el = card.find(class_=re.compile(r"video-thumb.*name|thumb-image-container__title", re.I))
+                r_title = _text(t_el)
+
+                img_el = a.find("img")
+                ns = a.find("noscript")
+                if ns:
+                    img_el = ns.find("img") or img_el
+                r_thumb = _best_image_url(img_el)
+
+                d_el = card.find(class_=re.compile("duration", re.I))
+                r_dur = _text(d_el)
+
+                related_videos.append(
+                    {
+                        "url": urljoin(url, href),
+                        "title": r_title,
+                        "thumbnail_url": r_thumb,
+                        "duration": r_dur,
+                    }
+                )
+                if len(related_videos) >= 10:
+                    break
+            except Exception:
+                continue
 
     # Preview Extraction
     preview_url = None

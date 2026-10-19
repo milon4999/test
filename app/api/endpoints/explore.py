@@ -97,6 +97,7 @@ EXPLORE_SOURCES = [
         sourceId="xhamster",
         disable=False,
         pageSize=46,
+        hasRelatedVideos=True,
     ),
     ExploreSourceResponse(
         baseUrl="https://www.xnxx.com/",
