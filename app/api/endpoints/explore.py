@@ -2121,6 +2121,20 @@ EXPLORE_SOURCES = [
         disable=False,
         pageSize=32,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://3dporndude.com/",
+        nickname="3DPornDude",
+        favicon="https://3dporndude.com/contents/thairpoemlvv/theme/mascot-ff8500.ico",
+        accentColor="#FF8500",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://3dporndude.com/search/{query}/",
+        sourceId="3dporndude",
+        disable=False,
+        pageSize=24,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(

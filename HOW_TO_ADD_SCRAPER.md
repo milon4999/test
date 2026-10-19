@@ -10458,3 +10458,153 @@ the embed-only stream, `/embed/{id}` accepts scrape() and resolves metadata
 via `data-target`, categories endpoint returns 51 seeded entries, and the
 stream endpoint reports `format="embed"` with flat per-quality fields
 omitted (single stream = selected stream, per the shared emission rule).
+
+## 3DPornDude Implementation Notes
+
+[3DPornDude](https://3dporndude.com/) is a KVS-style tube focused on 3D
+animated porn. Canonical video pages live under `/video/{id}/{slug}/`, the
+player is the KVS `kt_player` driven by an inline `var flashvars = {...}`
+object, and metadata is served as JSON-LD `VideoObject` plus `og:`/`video:`
+metas (duration and upload date are NOT rendered in the visible body). Use
+`po85` (85PO, same KVS `get_file` + `v-acctoken` pattern) as the closest
+implementation reference. The module folder is `porndude3d` (Python
+identifiers cannot start with a digit, same rule that made `85po` ->
+`po85`).
+
+### Host aliases
+
+- `3dporndude.com`
+- `www.3dporndude.com`
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    return h == "3dporndude.com" or h.endswith(".3dporndude.com")
+```
+
+### Access / fetch notes
+
+- The site sits behind Cloudflare. Fetch with `curl_cffi` Chrome
+  impersonation (`chrome124`/`chrome120`/`chrome116`), falling back to the
+  shared pool. Plain `httpx`/`aiohttp` gets 403.
+- A CSS-only age gate (`tpd_age_confirmed=1` cookie) hides content in a
+  browser, but the HTML is fully served to a plain client. Still send the
+  cookie (`Cookie: tpd_age_confirmed=1`) to mirror the interactive page.
+
+### Listing and pagination (`list_videos`)
+
+- Video cards are `.thumb-itm` with `a.pon[href*="/video/"]` links, a
+  `.title` div, `.img-holder img` thumbnail (`data-webp` preferred, then
+  `data-src`/`src`), `.item-bottom .time` duration, `.item-bottom .qualtiy`
+  quality (note the site's misspelling), `.thumb-bottom-videos .thumb-item`
+  views, and `.card-artist` uploader.
+- Filter out native ad cards (`.thumb-itm[data-candy-native-oct6]` or cards
+  whose `a.pon` host is not `3dporndude.com`).
+- Page 1 uses `base_url` unchanged. Page > 1 uses KVS path pagination:
+  - `/latest-updates/` -> `/latest-updates/{page}/`
+  - `/categories/{slug}/` -> `/categories/{slug}/{page}/`
+  - `/search/{q}/` -> `/search/{q}/{page}/`
+  - bare `/` -> `/latest-updates/{page}/` (the homepage has no own page 2)
+- Useful list base URLs:
+  - `https://3dporndude.com/latest-updates/`
+  - `https://3dporndude.com/most-popular/`
+  - `https://3dporndude.com/categories/<slug>/`
+  - `https://3dporndude.com/search/<q>/`
+
+### Metadata and streams (`scrape`)
+
+For detail pages:
+
+- Metadata fallback order:
+  1. JSON-LD `VideoObject` (`name`, `description`, `thumbnailUrl`,
+     `duration` ISO-8601, `uploadDate`, `interactionStatistic` views,
+     `embedUrl`)
+  2. `og:title` / `og:description` / `og:image`
+  3. `twitter:title` / `twitter:description` / `twitter:image`
+  4. `video:duration` (seconds) / `video:release_date` metas, then visible
+     `h1` / `<title>`
+- Views: `interactionStatistic` `WatchAction` count first, then the visible
+  `.video-view-count` text.
+- Tags/categories: `<meta property="video:tag">` plus the
+  `.video-metadata-tags` / `.video-metadata-categories` button groups.
+- Streams are direct `get_file` MP4s exposed by the inline
+  `var flashvars = {...}`:
+  - `video_url` (480p), `video_alt_url` (720p), `video_alt_url2` (1080p),
+    and `event_reporting2` (base `{id}.mp4`).
+  - URL shape:
+    `https://3dporndude.com/get_file/{slot}/{token}/{bucket}/{id}/{id}_{NNN}p.mp4/?v-acctoken=...`
+  - Tokens are time-limited; always re-fetch the page for fresh URLs.
+  - Do **not** HEAD/GET-probe `get_file` URLs: the anti-leech returns a 1x1
+    GIF to non-browser probes. Return the `get_file` URL itself as the MP4
+    stream (it is what the site's own player uses).
+- Deduplicate `get_file` variants per quality tier, keeping the last (the
+  player config block wins). Skip `*_preview.mp4` clips and
+  `/contents/videos_screenshots/` assets.
+- Build `video.streams` with `format="mp4"` and `quality` parsed from the
+  filename (`_480p` -> `480p`, basename `{id}.mp4` -> `source`).
+- Always append the site embed `https://3dporndude.com/embed/{id}` as a
+  `format="embed"` fallback stream.
+- Set `video.default` to the highest-quality MP4.
+- Incoming `/embed/{id}` URLs are accepted; `scrape()` finds the canonical
+  `/video/{id}/{slug}/` link in the embed page and scrapes that for full
+  metadata.
+- Related videos are parsed from `#list_videos_related_videos_items`.
+
+### Categories (`get_categories`)
+
+Seed `categories.json` from the public `/categories/` grid plus the Latest /
+Most Viewed nav. Schema matches other scraper folders so
+`/api/v1/categories?source=3dporndude` returns valid `CategoryItem` entries.
+
+### Registration checklist for 3DPornDude
+
+Besides creating `backend/app/scrapers/porndude3d/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` (`from . import porndude3d` + `__all__`)
+- `backend/app/main.py`
+  - import list (`..., teenager365, viralxxxporn, porndude3d`)
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=3dporndude` /
+    `source=porndude3d` / `source=3dpd` / `source=dpd`)
+- `backend/app/services/video_streaming.py`
+  - import list inside `get_video_info`
+  - scraper selection branch (`elif porndude3d.can_handle(host):`)
+  - unsupported-host help text (`3dporndude.com`)
+  - `available_qualities` / `per_stream_format_keys` host lists
+    (`3dporndude.com`)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="3dporndude"`,
+    `baseUrl="https://3dporndude.com/"`,
+    `searchUrlTemplate="https://3dporndude.com/search/{query}/"`)
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`3dporndude.com`, `www.3dporndude.com`)
+  - list/base URL allowlist (`3dporndude.com`, `www.3dporndude.com`)
+
+### 3DPornDude verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://3dporndude.com/video/28635/wuthering-waves-lucilla-x-rover/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://3dporndude.com/latest-updates/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://3dporndude.com/latest-updates/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://3dporndude.com/categories/futanari-porn/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=3dporndude"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://3dporndude.com/video/28635/wuthering-waves-lucilla-x-rover/"
+```
+
+Notes from live testing (2026-10-19): curl_cffi Chrome impersonation returns
+200 for the homepage, video page, `/latest-updates/{n}/` pagination,
+category pages, and `/categories/`; `get_file` URLs are direct playable MP4s
+(signed with `v-acctoken`), so they are returned as-is without a redirect
+probe.

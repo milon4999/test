@@ -1,4 +1,9 @@
 [
+  { "id": "latest", "name": "Latest", "url": "https://xanimeporn.com/?display=tube&filtre=date" },
+  { "id": "top-rated", "name": "Top Rated", "url": "https://xanimeporn.com/?display=tube&filtre=rate" },
+  { "id": "most-viewed", "name": "Most Viewed", "url": "https://xanimeporn.com/?display=tube&filtre=views" },
+  { "id": "longest", "name": "Longest", "url": "https://xanimeporn.com/?display=tube&filtre=duree" },
+  { "id": "random", "name": "Random", "url": "https://xanimeporn.com/?display=tube&filtre=random" },
   { "id": "action", "name": "Action", "url": "https://xanimeporn.com/action/" },
   { "id": "betrayal", "name": "Betrayal", "url": "https://xanimeporn.com/betrayal/" },
   { "id": "big-tits", "name": "Big Tits", "url": "https://xanimeporn.com/big-tits/" },
