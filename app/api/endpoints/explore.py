@@ -2135,6 +2135,20 @@ EXPLORE_SOURCES = [
         pageSize=24,
         hasRelatedVideos=True,
     ),
+    ExploreSourceResponse(
+        baseUrl="https://milfnut.com/",
+        nickname="Milfnut",
+        favicon="https://milfnut.com/wp-content/uploads/2021/12/cropped-pause-solid-1-32x32.png",
+        accentColor="#B3002B",
+        category="porn",
+        isVerified=False,
+        hasCategories=True,
+        searchUrlTemplate="https://milfnut.com/?s={query}",
+        sourceId="milfnut",
+        disable=False,
+        pageSize=19,
+        hasRelatedVideos=True,
+    ),
 ]
 
 EXPLORE_CONFIG = ExploreConfigData(
