@@ -148,9 +148,15 @@ def _normalize_media_url(url: str | None) -> Optional[str]:
 
 
 def _itemprop_meta(soup: BeautifulSoup, *, root: Any, name: str) -> Optional[str]:
-    """Read an itemprop meta from the VideoObject article (root) or anywhere on the page."""
+    """Read an itemprop meta from the VideoObject article (root) or anywhere on the page.
+
+    Nodes nested inside an itemprop="author" scope (Person itemtype) are skipped so
+    the author display name never shadows the video title.
+    """
     scope = root if root is not None else soup
     for node in scope.find_all(attrs={"itemprop": name}):
+        if node.find_parent(attrs={"itemprop": "author"}) is not None:
+            continue
         content = node.get("content") if hasattr(node, "get") else None
         if content:
             return str(content).strip()
@@ -311,6 +317,7 @@ def _streams_from_html(page_html: str, soup: Optional[BeautifulSoup] = None) -> 
     hls_url: Optional[str] = None
 
     def _add(src: Optional[str], quality: str, fmt: str) -> None:
+        nonlocal hls_url
         media = _normalize_media_url(src)
         if not media or media in seen:
             return
@@ -459,8 +466,8 @@ def parse_video_page(page_html: str, url: str) -> dict[str, Any]:
     thumbnail = _normalize_media_url(thumbnail)
 
     description = _first_non_empty(
-        _itemprop_meta(soup, root=article, name="description"),
         _meta(soup, prop="og:description"),
+        _itemprop_meta(soup, root=article, name="description"),
         _meta(soup, name="description"),
     )
 

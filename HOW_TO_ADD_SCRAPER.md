@@ -10608,3 +10608,123 @@ Notes from live testing (2026-10-19): curl_cffi Chrome impersonation returns
 category pages, and `/categories/`; `get_file` URLs are direct playable MP4s
 (signed with `v-acctoken`), so they are returned as-is without a redirect
 probe.
+
+## Milfnut Implementation Notes
+
+[Milfnut](https://milfnut.com/) is a WordPress **RetroTube** site using the
+**clean-tube-player** plugin. Watch URLs are single root-level slugs
+(`/{slug}/`), listing cards are `article.loop-video` blocks, and pagination is
+WordPress `/page/{n}/`. Unlike TeamSkeetTube (same plugin), the video page
+ships schema microdata (`itemtype="https://schema.org/VideoObject"`) whose
+`itemprop="contentUrl"` is a **direct playable HLS URL** on the CDN host
+`tulipvid.net` (no Referer required, verified 2026-10-24: plain GET returns
+`200 application/vnd.apple.mpegurl` with valid `#EXTM3U` segments).
+
+### Host aliases
+
+- `milfnut.com`
+- `www.milfnut.com`
+- `tulipvid.net` (HLS CDN, allowlisted only â€” also accepted by `can_handle()`)
+
+Example:
+
+```python
+def can_handle(host: str) -> bool:
+    h = (host or "").lower().split(":")[0]
+    if h.startswith("www."):
+        h = h[4:]
+    if h in SITE_ALIASES or h.endswith(".milfnut.com"):
+        return True
+    return h in STREAM_CDN_HOSTS or any(h.endswith("." + cdn) for cdn in STREAM_CDN_HOSTS)
+```
+
+### Listing and pagination (`list_videos`)
+
+- Home: `https://milfnut.com/` (page 2+ â†’ `/page/2/`)
+- Sort filters: `?filter=latest`, `?filter=longest`, `?filter=random` (query is preserved when adding `/page/{n}/`)
+- Categories: `/category/{slug}/` (e.g. `/category/taboo-porn/`, `/category/trending/`)
+- Category page 2+: `/category/{slug}/page/{n}/`
+- Search: `/?s={query}` (page 2+ â†’ `/page/2/?s={query}`, verified different results per page)
+- Parse `article.loop-video` cards: link `a[href]` (root-level slug), title from the anchor `title` attr â†’ img `alt` â†’ text, thumb from `data-main-thumb` â†’ img `data-lazy-src`/`src`, duration `span.duration` (`mm:ss`)
+- Reject reserved slugs: `categories`, `category`, `tags`, `tag`, `actors`, `actor`, `pornstars`, `page`, `contact`, `dmca`, `privacy-policy`, `terms-of-service`, `feed`, `comments`, `wp-*`, `*.php`
+- Views are **not exposed** (`enable_views_system` is disabled in the theme JS) â€” always `None`
+
+### Metadata and streams (`scrape`)
+
+- Metadata fallback order:
+  1. `itemprop` microdata on the `article[itemtype=VideoObject]` (`name`, `description`, `thumbnailUrl`, `duration` as ISO `P0DT0H49M48S`, `uploadDate`, `contentUrl`). Nodes nested inside `itemprop="author"` are skipped so the author display name (`Milfnut`) never shadows the video title.
+  2. `og:title`, `og:description`, `og:image` (Yoast)
+  3. `h1.entry-title` / page `<title>` (` - Milfnut` suffix stripped)
+- Duration: `P0DT0H49M48S` â†’ `49:48` via ISO-8601 parse (`mm:ss` / `h:mm:ss`); fallback to the card `.duration` regex
+- Tags: `.tags a` labels (category + tag links); actors appended from `#video-actors a` (`/actor/{slug}/` links)
+- Uploader: fixed `Milfnut` (views/rating system disabled site-wide)
+- **Streams (in priority order):**
+  1. Direct `.m3u8` URL from the page (the `itemprop="contentUrl"` meta and/or media URLs inside the decoded player payload) â† `format="hls"`, `quality="source"`
+  2. Decoded **clean-tube-player** payloads: every `player-x.php?q=<base64>` iframe src is base64+URL decoded â€” the payload markup is `<video class="video-js" poster="..."><source src="https://tulipvid.net/videos/{file}.m3u8" type="application/x-mpegURL"/></video>`; any MP4/HLS inside is picked up
+  3. Generic inline `.mp4` regex fallback (preview/screenshot assets skipped)
+  4. The raw `player-x.php` URL itself is **always added** as `format="embed"`, `quality="Player"` (WebView fallback, same pattern as TeamSkeetTube)
+- `video.default` = the direct HLS (`video.hls` mirrors it); `has_video=True`
+- Related videos: the watch page's own `article.loop-video` blocks (self excluded)
+
+### Categories (`get_categories`)
+
+`categories.json` seeds the sort filters (Home, Latest, Longest, Random), the
+Trending category route, and all 15 content categories from
+`https://milfnut.com/categories/` (Anal, Asian, Aunt Nephew, Big Ass, Big
+Tits, Brother Sister, Dad Daughter, Ebony, MILF, Mom Son, POV, Rough, Small
+Tits, Taboo, Teen). Schema matches the other scraper folders so
+`/api/v1/categories?source=milfnut` returns valid `CategoryItem` entries.
+
+### Registration checklist for Milfnut
+
+Besides creating `backend/app/scrapers/milfnut/`, update all of these:
+
+- `backend/app/scrapers/__init__.py` (import + `__all__`)
+- `backend/app/main.py`
+  - import list
+  - `_scrape_dispatch`
+  - `_list_dispatch`
+  - `/api/v1/categories` source mapping (`source=milfnut`, `milfnut.com`, `www.milfnut.com`)
+- `backend/app/services/video_streaming.py`
+  - scraper import + selection branch
+  - host lists (`parsed_url.netloc` condition + `per_stream_format_keys`): `milfnut.com`, `www.milfnut.com`, `tulipvid.net`
+- `backend/app/models/schemas.py`
+  - scrape URL allowlist (`milfnut.com`, `www.milfnut.com`, `tulipvid.net`)
+  - list/base URL allowlist (same hosts)
+- `backend/app/api/endpoints/explore.py`
+  - `ExploreSourceResponse` entry (`sourceId="milfnut"`, `baseUrl="https://milfnut.com/"`, `searchUrlTemplate="https://milfnut.com/?s={query}"`, `pageSize=19`, `hasRelatedVideos=True`, favicon: `cropped-pause-solid-1-32x32.png`)
+- `backend/HOW_TO_ADD_SCRAPER.md` (this section)
+
+### Milfnut verification examples
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/scrapes \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://milfnut.com/charli-rose-pent-up-missax/\"}"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://milfnut.com/&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://milfnut.com/category/taboo-porn/&page=2&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/videos?base_url=https://milfnut.com/?s=stepmom&page=1&limit=20"
+
+curl "http://127.0.0.1:8000/api/v1/categories?source=milfnut"
+
+curl "http://127.0.0.1:8000/api/v1/videos/stream?url=https://milfnut.com/charli-rose-pent-up-missax/"
+```
+
+Notes from live testing (2026-10-24):
+
+- Home (pages 1+2), category (`/category/taboo-porn/` pages 1+2), search
+  (`?s=stepmom` pages 1+2), `scrape()` metadata (title, `og:image`
+  thumbnail, 49:48 duration, ISO upload date, tags+actors, 8 related
+  videos), direct TulipVid HLS extraction, player-x embed fallback, 20
+  categories, and the four API endpoints (`/scrapes`, `/videos`,
+  `/categories?source=milfnut`, `/videos/stream` with flat
+  `source`/`source_format`/`Player`/`Player_format` keys) all verified
+  working. `POST /api/v1/scrapes` returns no `video` block by design (that
+  comes from `/videos/info` / `/videos/stream`, same as every other source).
+- The direct `.m3u8` is playable without ANY Referer â€” plain GET works.
+- Reserved-slug rejection raises `ValueError` so non-video URLs (categories,
+  tags, static pages) return 400/502 instead of empty results.
+- No Cloudflare; plain pool fetch (aiohttp) works â€” no curl_cffi needed.
